@@ -1,0 +1,11 @@
+{
+    "name": "ableton-co-pilot",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "test": "node --test \"src/**/*.test.ts\""
+    },
+    "devDependencies": {
+        "@types/node": "^26.6.5"
+    }
+}
