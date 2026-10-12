@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { toGeminiRequest } from "./gemini.ts";
+import { fromGeminiResponse, toGeminiRequest } from "./gemini.ts";
 import type { Message, Tool } from "../types.ts";
 
 const setTempo: Tool = {
@@ -117,4 +117,66 @@ test("sends a failed tool result as an error", () => {
             response: { error: "bpm must be a number between 20 and 999" },
         },
     });
+});
+
+test("translates a text reply into an assistant message", () => {
+    const reply = {
+        candidates: [
+            {
+                content: {
+                    role: "model",
+                    parts: [{ text: "The tempo is now 128.", thoughtSignature: "sig_1" }],
+                },
+                finishReason: "STOP",
+            },
+        ],
+    };
+
+    assert.deepEqual(fromGeminiResponse(reply), [
+        {
+            type: "assistant",
+            text: "The tempo is now 128.",
+            // Kept so it can be sent back to Gemini on the next call.
+            providerMeta: { thoughtSignature: "sig_1" },
+        },
+    ]);
+});
+
+// This is the shape Gemini really returned for "set the tempo to 128 and add a track called Lead".
+test("translates function calls into tool calls", () => {
+    const reply = {
+        candidates: [
+            {
+                content: {
+                    role: "model",
+                    parts: [
+                        {
+                            functionCall: { name: "set_tempo", args: { bpm: 128 }, id: "call_68471" },
+                            thoughtSignature: "sig_1",
+                        },
+                        { functionCall: { name: "get_session", id: "call_68472" } },
+                    ],
+                },
+                finishReason: "STOP",
+            },
+        ],
+    };
+
+    assert.deepEqual(fromGeminiResponse(reply), [
+        {
+            type: "tool_call",
+            id: "call_68471",
+            name: "set_tempo",
+            args: { bpm: 128 },
+            providerMeta: { thoughtSignature: "sig_1" },
+        },
+        // No signature on this part, and no args: it becomes an empty args object.
+        { type: "tool_call", id: "call_68472", name: "get_session", args: {} },
+    ]);
+});
+
+test("throws when Gemini returns no reply", () => {
+    const reply = { promptFeedback: { blockReason: "SAFETY" } };
+
+    assert.throws(() => fromGeminiResponse(reply), /Gemini returned no reply.*SAFETY/);
 });
