@@ -3,6 +3,7 @@
     "private": true,
     "type": "module",
     "scripts": {
+        "start": "node --env-file=.env src/cli.ts",
         "test": "node --test \"src/**/*.test.ts\""
     },
     "devDependencies": {
