@@ -1,4 +1,4 @@
-import type { Message, Tool } from "../types.ts";
+import type { Message, Provider, Tool } from "../types.ts";
 
 // The shapes Gemini expects. A "content" is one turn and "parts" are the pieces of that turn.
 type GeminiPart = Record<string, unknown>;
@@ -83,6 +83,8 @@ function signtatureFrom(providerMeta: unknown): GeminiPart {
 
 type GeminiResponse = {
     candidates?: { content?: { parts: GeminiReplyPart[] } }[];
+    // Present instead of candidates when the request itself was rejected
+    error? : { message?: string}
 };
 
 type GeminiReplyPart = {
@@ -124,4 +126,30 @@ export function fromGeminiResponse(response: GeminiResponse): Message[] {
         }
     }
     return messages;
+}
+
+// A Provider backed by the real Gemini API: translate, send, translate back.
+export function createGeminiProvider(apiKey: string, model: string): Provider {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+
+        return {
+            generate: async (conversation: Message[], tools: Tool[]) => {
+                const response = await fetch(url, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": apiKey,
+                    },
+                    body: JSON.stringify(toGeminiRequest(conversation, tools)),
+                });
+
+                const body = (await response.json()) as GeminiResponse;
+
+                if(!response.ok) {
+                    const reason = body.error?.message ?? JSON.stringify(body);
+                    throw new Error(`Gemini request failed (${response.status}): ${reason}`);
+                }
+                return fromGeminiResponse(body);
+            }
+        }
 }

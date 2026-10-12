@@ -1,6 +1,6 @@
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { fromGeminiResponse, toGeminiRequest } from "./gemini.ts";
+import { createGeminiProvider, fromGeminiResponse, toGeminiRequest } from "./gemini.ts";
 import type { Message, Tool } from "../types.ts";
 
 const setTempo: Tool = {
@@ -179,4 +179,46 @@ test("throws when Gemini returns no reply", () => {
     const reply = { promptFeedback: { blockReason: "SAFETY" } };
 
     assert.throws(() => fromGeminiResponse(reply), /Gemini returned no reply.*SAFETY/);
+});
+
+// Replaces the real fetch for one test, so no request leaves the machine.
+function fakeFetch(t: TestContext, status: number, body: unknown) {
+    return t.mock.method(globalThis, "fetch", async () => Response.json(body, { status }));
+}
+
+test("the provider posts the translated request and returns the translated reply", async (t) => {
+    const fetchMock = fakeFetch(t, 200, {
+        candidates: [{ content: { role: "model", parts: [{ text: "Hello!" }] } }],
+    });
+    const provider = createGeminiProvider("test-key", "test-model");
+    const conversation: Message[] = [{ type: "user", text: "Hi" }];
+
+    const reply = await provider.generate(conversation, [setTempo]);
+
+    assert.deepEqual(reply, [{ type: "assistant", text: "Hello!" }]);
+
+    const [url, options] = fetchMock.mock.calls[0]!.arguments as [string, RequestInit];
+    assert.equal(
+        url,
+        "https://generativelanguage.googleapis.com/v1beta/models/test-model:generateContent",
+    );
+    assert.equal(options.method, "POST");
+    assert.deepEqual(options.headers, {
+        "Content-Type": "application/json",
+        "x-goog-api-key": "test-key",
+    });
+    assert.deepEqual(
+        JSON.parse(options.body as string),
+        JSON.parse(JSON.stringify(toGeminiRequest(conversation, [setTempo]))),
+    );
+});
+
+test("the provider throws Gemini's own message when a request fails", async (t) => {
+    fakeFetch(t, 429, { error: { code: 429, message: "Quota exceeded" } });
+    const provider = createGeminiProvider("test-key", "test-model");
+
+    await assert.rejects(
+        provider.generate([{ type: "user", text: "Hi" }], [setTempo]),
+        /Gemini request failed \(429\): Quota exceeded/,
+    );
 });
