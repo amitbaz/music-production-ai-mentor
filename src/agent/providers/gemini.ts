@@ -88,6 +88,8 @@ function signtatureFrom(providerMeta: unknown): GeminiPart {
 
 type GeminiResponse = {
     candidates?: { content?: { parts: GeminiReplyPart[] } }[];
+    // Present instead of candidates when Gemini refuses the prompt
+    promptFeedback?: { blockReason?: string };
     // Present instead of candidates when the request itself was rejected
     error?: { message?: string };
 };

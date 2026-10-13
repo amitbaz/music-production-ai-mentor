@@ -186,6 +186,13 @@ function fakeFetch(t: TestContext, status: number, body: unknown) {
     return t.mock.method(globalThis, "fetch", async () => Response.json(body, { status }));
 }
 
+// The url and options of the one request a test sent.
+function sentRequest(fetchMock: ReturnType<typeof fakeFetch>) {
+    const call = fetchMock.mock.calls[0];
+    assert.ok(call, "fetch was not called");
+    return call.arguments as unknown as [string, RequestInit];
+}
+
 test("the provider posts the translated request and returns the translated reply", async (t) => {
     const fetchMock = fakeFetch(t, 200, {
         candidates: [{ content: { role: "model", parts: [{ text: "Hello!" }] } }],
@@ -197,7 +204,7 @@ test("the provider posts the translated request and returns the translated reply
 
     assert.deepEqual(reply, [{ type: "assistant", text: "Hello!" }]);
 
-    const [url, options] = fetchMock.mock.calls[0]!.arguments as [string, RequestInit];
+    const [url, options] = sentRequest(fetchMock);
     assert.equal(
         url,
         "https://generativelanguage.googleapis.com/v1beta/models/test-model:generateContent",
@@ -234,7 +241,7 @@ test("the provider passes the cancel signal to fetch", async (t) => {
         signal: controller.signal,
     });
 
-    const [, options] = fetchMock.mock.calls[0]!.arguments as [string, RequestInit];
+    const [, options] = sentRequest(fetchMock);
     assert.equal(options.signal, controller.signal);
 });
 
@@ -267,7 +274,7 @@ test("the provider sends the system prompt it is given", async (t) => {
         system: "You are a test.",
     });
 
-    const [, options] = fetchMock.mock.calls[0]!.arguments as [string, RequestInit];
+    const [, options] = sentRequest(fetchMock);
     assert.deepEqual(JSON.parse(options.body as string).systemInstruction, {
         parts: [{ text: "You are a test." }],
     });

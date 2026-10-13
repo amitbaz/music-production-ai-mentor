@@ -456,7 +456,7 @@ test("gives the provider the system prompt on every model call", async () => {
     const provider: Provider = {
         generate: async (_conversation, _tools, options) => {
             received.push(options?.system);
-            return replies.shift()!;
+            return replies.shift() ?? [];
         },
     };
 
