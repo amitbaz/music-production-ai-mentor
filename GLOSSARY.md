@@ -14,4 +14,6 @@
 - **Fake Ableton** — an in-memory stand-in for Ableton Live (tempo and named tracks) that the tools act on until the real bridge exists. Resets on every run.
 - **Round** — one model call plus the tool calls it triggers. The agent loop is capped at 10 rounds per turn.
 - **Turn** — everything the agent loop does in answer to one user message: one or more rounds, ending with a stop reason.
-- **Stop reason** — why a turn ended: the model finished, the round limit was hit, or a model call failed. It is reported next to the conversation, never as a message inside it.
+- **Stop reason** — why a turn ended: the model finished, the round limit was hit, a model call failed, or the user cancelled. It is reported next to the conversation, never as a message inside it.
+- **Cancel** — the user stopping a turn before it ends. What already happened stays in the conversation; a tool that is running finishes, and tool calls that had not started get a tool result saying so.
+- **Approval** — the user's yes or no to one tool call, asked before it runs. Only tools marked as needing approval are asked about. A refusal becomes the tool result, and the turn continues.
