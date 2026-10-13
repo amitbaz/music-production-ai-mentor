@@ -1,8 +1,8 @@
-import { createFakeAbleton } from "./fake-ableton.ts";
-import { createGeminiProvider } from "./providers/gemini.ts";
+import { createFakeAbleton } from "./ableton/fake-ableton.ts";
+import { createGeminiProvider } from "./agent/providers/gemini.ts";
 import { createInterface } from "node:readline";
-import type { Message } from "./types.ts";
-import { runAgentLoop } from "./agent-loop.ts";
+import type { Message } from "./agent/types.ts";
+import { runAgentLoop } from "./agent/agent-loop.ts";
 
 const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
@@ -22,7 +22,7 @@ terminal.prompt();
 
 for await (const line of terminal) {
     const text = line.trim();
-    if (text === "exist") break;
+    if (text === "exit") break;
 
     if (text !== "") {
         const firstNew = conversation.length + 1;

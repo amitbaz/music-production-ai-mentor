@@ -1,8 +1,24 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runAgentLoop } from "./agent-loop.ts";
-import { createFakeAbleton } from "./fake-ableton.ts";
-import type { Message, Provider } from "./types.ts";
+import type { Message, Provider, Tool } from "./types.ts";
+
+// One generic tool, so these tests depend on nothing outside the agent folder.
+const tools: Tool[] = [
+    {
+        name: "shout",
+        description: "Returns the given text in upper case",
+        params: {
+            type: "object",
+            properties: { text: { type: "string" } },
+            required: ["text"],
+        },
+        run: ({ text }) => {
+            if (typeof text !== "string") throw new Error("text must be a string");
+            return text.toUpperCase();
+        },
+    },
+];
 
 // A fake provider that hands out prepared replies, one per call,
 // and records what it was sent each time.
@@ -24,7 +40,7 @@ test("returns the model's text when it calls no tools", async () => {
         [{ type: "assistant", text: "Hi there" }],
     ]);
 
-    const conversation = await runAgentLoop(provider, createFakeAbleton(), [
+    const conversation = await runAgentLoop(provider, tools, [
         { type: "user", text: "Hello" },
     ]);
 
@@ -37,25 +53,25 @@ test("returns the model's text when it calls no tools", async () => {
 
 test("runs a tool call and sends the result back to the model", async () => {
     const { provider, calls } = scriptedProvider([
-        [{ type: "tool_call", id: "call_1", name: "set_tempo", args: { bpm: 128 } }],
-        [{ type: "assistant", text: "The tempo is now 128." }],
+        [{ type: "tool_call", id: "call_1", name: "shout", args: { text: "hello" } }],
+        [{ type: "assistant", text: "It says HELLO." }],
     ]);
 
-    const conversation = await runAgentLoop(provider, createFakeAbleton(), [
-        { type: "user", text: "Set the tempo to 128" },
+    const conversation = await runAgentLoop(provider, tools, [
+        { type: "user", text: "Shout hello" },
     ]);
 
     assert.deepEqual(conversation, [
-        { type: "user", text: "Set the tempo to 128" },
-        { type: "tool_call", id: "call_1", name: "set_tempo", args: { bpm: 128 } },
+        { type: "user", text: "Shout hello" },
+        { type: "tool_call", id: "call_1", name: "shout", args: { text: "hello" } },
         {
             type: "tool_result",
             callId: "call_1",
-            name: "set_tempo",
-            output: JSON.stringify({ tempo: 128, tracks: ["Drums", "Bass"] }),
+            name: "shout",
+            output: "HELLO",
             isError: false,
         },
-        { type: "assistant", text: "The tempo is now 128." },
+        { type: "assistant", text: "It says HELLO." },
     ]);
     // On its second call the model must have seen the tool result.
     assert.equal(calls.length, 2);
@@ -64,19 +80,19 @@ test("runs a tool call and sends the result back to the model", async () => {
 
 test("a failing tool becomes an error result the model can read", async () => {
     const { provider } = scriptedProvider([
-        [{ type: "tool_call", id: "call_1", name: "set_tempo", args: { bpm: 5000 } }],
-        [{ type: "assistant", text: "That tempo is out of range." }],
+        [{ type: "tool_call", id: "call_1", name: "shout", args: { text: 5 } }],
+        [{ type: "assistant", text: "I need text to shout." }],
     ]);
 
-    const conversation = await runAgentLoop(provider, createFakeAbleton(), [
-        { type: "user", text: "Set the tempo to 5000" },
+    const conversation = await runAgentLoop(provider, tools, [
+        { type: "user", text: "Shout 5" },
     ]);
 
     assert.deepEqual(conversation[2], {
         type: "tool_result",
         callId: "call_1",
-        name: "set_tempo",
-        output: "bpm must be a number between 20 and 999",
+        name: "shout",
+        output: "text must be a string",
         isError: true,
     });
     assert.equal(conversation.at(-1)?.type, "assistant");
@@ -88,7 +104,7 @@ test("a tool the model invented becomes an error result", async () => {
         [{ type: "assistant", text: "I can't do that." }],
     ]);
 
-    const conversation = await runAgentLoop(provider, createFakeAbleton(), [
+    const conversation = await runAgentLoop(provider, tools, [
         { type: "user", text: "Delete everything" },
     ]);
 
@@ -103,11 +119,11 @@ test("a tool the model invented becomes an error result", async () => {
 
 test("stops after 10 rounds when the model never stops calling tools", async () => {
     const endlessToolCalls: Message[][] = Array.from({ length: 20 }, (_, i) => [
-        { type: "tool_call", id: `call_${i}`, name: "get_session", args: {} },
+        { type: "tool_call", id: `call_${i}`, name: "shout", args: { text: "again" } },
     ]);
     const { provider, calls } = scriptedProvider(endlessToolCalls);
 
-    const conversation = await runAgentLoop(provider, createFakeAbleton(), [
+    const conversation = await runAgentLoop(provider, tools, [
         { type: "user", text: "Loop forever" },
     ]);
 
