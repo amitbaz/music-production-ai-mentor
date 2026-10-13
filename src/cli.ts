@@ -25,21 +25,20 @@ for await (const line of terminal) {
     if (text === "exit") break;
 
     if (text !== "") {
-        const firstNew = conversation.length + 1;
+        const result = await runAgentLoop(
+            provider,
+            tools,
+            [...conversation, { type: "user", text }],
+            { onMessage: print },
+        );
 
-        try {
-            conversation = await runAgentLoop(provider, tools, [
-                ...conversation,
-                { type: "user", text },
-            ]);
-            for (const message of conversation.slice(firstNew)) {
-                print(message);
-            }
-        } catch (error) {
-            // A failed request leaves the conversation as it was before this message.
-            console.error(
-                `error: ${error instanceof Error ? error.message : error}`,
-            );
+        // Kepp everything that happened, even when the turn did not finish
+        conversation = result.messages;
+
+        if (result.stop === "error") {
+            console.error(`error: ${result.error.message}`);
+        } else if (result.stop === "round_limit") {
+            console.error("stopped: too many rounds without finishing");
         }
     }
     terminal.prompt();

@@ -40,14 +40,17 @@ test("returns the model's text when it calls no tools", async () => {
         [{ type: "assistant", text: "Hi there" }],
     ]);
 
-    const conversation = await runAgentLoop(provider, tools, [
+    const result = await runAgentLoop(provider, tools, [
         { type: "user", text: "Hello" },
     ]);
 
-    assert.deepEqual(conversation, [
-        { type: "user", text: "Hello" },
-        { type: "assistant", text: "Hi there" },
-    ]);
+    assert.deepEqual(result, {
+        messages: [
+            { type: "user", text: "Hello" },
+            { type: "assistant", text: "Hi there" },
+        ],
+        stop: "finished",
+    });
     assert.equal(calls.length, 1);
 });
 
@@ -57,11 +60,11 @@ test("runs a tool call and sends the result back to the model", async () => {
         [{ type: "assistant", text: "It says HELLO." }],
     ]);
 
-    const conversation = await runAgentLoop(provider, tools, [
+    const result = await runAgentLoop(provider, tools, [
         { type: "user", text: "Shout hello" },
     ]);
 
-    assert.deepEqual(conversation, [
+    assert.deepEqual(result.messages, [
         { type: "user", text: "Shout hello" },
         { type: "tool_call", id: "call_1", name: "shout", args: { text: "hello" } },
         {
@@ -73,6 +76,7 @@ test("runs a tool call and sends the result back to the model", async () => {
         },
         { type: "assistant", text: "It says HELLO." },
     ]);
+    assert.equal(result.stop, "finished");
     // On its second call the model must have seen the tool result.
     assert.equal(calls.length, 2);
     assert.equal(calls[1]?.at(-1)?.type, "tool_result");
@@ -84,18 +88,19 @@ test("a failing tool becomes an error result the model can read", async () => {
         [{ type: "assistant", text: "I need text to shout." }],
     ]);
 
-    const conversation = await runAgentLoop(provider, tools, [
+    const result = await runAgentLoop(provider, tools, [
         { type: "user", text: "Shout 5" },
     ]);
 
-    assert.deepEqual(conversation[2], {
+    assert.deepEqual(result.messages[2], {
         type: "tool_result",
         callId: "call_1",
         name: "shout",
         output: "text must be a string",
         isError: true,
     });
-    assert.equal(conversation.at(-1)?.type, "assistant");
+    // A tool failure is not a stop reason: the model answered, so the turn finished.
+    assert.equal(result.stop, "finished");
 });
 
 test("a tool the model invented becomes an error result", async () => {
@@ -104,11 +109,11 @@ test("a tool the model invented becomes an error result", async () => {
         [{ type: "assistant", text: "I can't do that." }],
     ]);
 
-    const conversation = await runAgentLoop(provider, tools, [
+    const result = await runAgentLoop(provider, tools, [
         { type: "user", text: "Delete everything" },
     ]);
 
-    assert.deepEqual(conversation[2], {
+    assert.deepEqual(result.messages[2], {
         type: "tool_result",
         callId: "call_1",
         name: "delete_everything",
@@ -117,18 +122,70 @@ test("a tool the model invented becomes an error result", async () => {
     });
 });
 
-test("stops after 10 rounds when the model never stops calling tools", async () => {
+test("stops after 10 rounds without adding a message of its own", async () => {
     const endlessToolCalls: Message[][] = Array.from({ length: 20 }, (_, i) => [
         { type: "tool_call", id: `call_${i}`, name: "shout", args: { text: "again" } },
     ]);
     const { provider, calls } = scriptedProvider(endlessToolCalls);
 
-    const conversation = await runAgentLoop(provider, tools, [
+    const result = await runAgentLoop(provider, tools, [
         { type: "user", text: "Loop forever" },
     ]);
 
     assert.equal(calls.length, 10);
-    const last = conversation.at(-1);
-    assert.equal(last?.type, "assistant");
-    assert.match(last?.type === "assistant" ? last.text : "", /Stopped after 10 rounds/);
+    assert.equal(result.stop, "round_limit");
+    // 1 user message, then a tool call and its result for each of the 10 rounds.
+    assert.equal(result.messages.length, 21);
+    assert.equal(result.messages.at(-1)?.type, "tool_result");
+});
+
+test("a failed model call returns the error and keeps the user's message", async () => {
+    // An empty script: the first model call fails.
+    const { provider } = scriptedProvider([]);
+
+    const result = await runAgentLoop(provider, tools, [
+        { type: "user", text: "Hello" },
+    ]);
+
+    assert.equal(result.stop, "error");
+    assert.equal(
+        result.stop === "error" ? result.error.message : "",
+        "The script ran out of replies",
+    );
+    assert.deepEqual(result.messages, [{ type: "user", text: "Hello" }]);
+});
+
+test("a model call that fails after a tool ran keeps the tool's record", async () => {
+    // One reply only: the second model call fails.
+    const { provider } = scriptedProvider([
+        [{ type: "tool_call", id: "call_1", name: "shout", args: { text: "hello" } }],
+    ]);
+
+    const result = await runAgentLoop(provider, tools, [
+        { type: "user", text: "Shout hello" },
+    ]);
+
+    assert.equal(result.stop, "error");
+    assert.deepEqual(
+        result.messages.map((message) => message.type),
+        ["user", "tool_call", "tool_result"],
+    );
+});
+
+test("reports each new message as it happens", async () => {
+    const { provider } = scriptedProvider([
+        [{ type: "tool_call", id: "call_1", name: "shout", args: { text: "hello" } }],
+        [{ type: "assistant", text: "It says HELLO." }],
+    ]);
+    const reported: Message[] = [];
+
+    const result = await runAgentLoop(
+        provider,
+        tools,
+        [{ type: "user", text: "Shout hello" }],
+        { onMessage: (message) => reported.push(message) },
+    );
+
+    // Everything except the user's own message, in order.
+    assert.deepEqual(reported, result.messages.slice(1));
 });
