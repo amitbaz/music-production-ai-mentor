@@ -10,7 +10,7 @@ The model needs standing rules, such as checking the session before changing it 
 
 - The caller passes the system prompt to `runAgentLoop` as an option. The loop hands it to the provider on every model call, and each adapter puts it where its provider expects it.
 - The conversation keeps its four kinds of message. The system prompt is never stored in it.
-- The prompt text describes the mentor, which is the product, so it lives outside both `src/agent/` (the harness) and `src/ableton/` (one set of tools), in `src/system-prompt.ts`.
+- The prompt text describes the mentor, which is the product, so it lives outside both `src/agent/` (the harness) and `src/tools/` (the tool sets), in `src/system-prompt.ts`.
 
 Rejected:
 

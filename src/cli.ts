@@ -1,4 +1,4 @@
-import { createFakeAbleton } from "./ableton/fake-ableton.ts";
+import { createFakeAbleton } from "./tools/daws/ableton/fake-ableton.ts";
 import { createGeminiProvider } from "./agent/providers/gemini.ts";
 import { createInterface } from "node:readline";
 import type { Message, ToolCall } from "./agent/types.ts";

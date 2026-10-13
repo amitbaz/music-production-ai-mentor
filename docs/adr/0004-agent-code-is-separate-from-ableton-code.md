@@ -17,6 +17,10 @@ The agent loop, message types and provider adapters are meant to be reusable for
 
 There is one consumer, and the interface (`Provider`, `Message`, `runAgentLoop`) will still change with streaming, a second provider and conversation trimming. A package would add a workspace, a build step and versioning before the interface has settled.
 
+## Update, 2026-10-13
+
+Tool sets now live under `src/tools/<kind>/<name>/`, so the Ableton tools are in `src/tools/daws/ableton/`. The rule is unchanged: tool sets may import from `src/agent/`, and `src/agent/` imports nothing from outside itself.
+
 ## Consequences
 
 Extracting later is a folder move plus a `package.json`. The agent loop's tests use their own generic tool instead of the fake Ableton.
