@@ -21,6 +21,11 @@
 - **Tool call** — the model's request to run a tool with given arguments.
 - **Tool result** — what the harness sends back after running a tool call, including errors.
 - **Fake Ableton** — an in-memory stand-in for Ableton Live (tempo and named tracks) that the tools act on until the real bridge exists. Resets on every run.
+- **Live Set** — the project open in Ableton Live: its tracks, devices, clips and settings, whether saved to a file or not.
+- **Remote Script** — code that runs inside Ableton Live and lets an outside program read and change the Live Set. The Ableton tools reach Live through one.
+- **Arrangement View** — the timeline of a Live Set, where clips are laid out from left to right to form the finished piece. The other view, Session View, is a grid of clips launched by hand.
+- **Native device** — an instrument or effect that is part of Ableton Live, such as EQ Eight or Compressor. A third-party plug-in is not one.
+- **Object id** — a short name such as `t17` or `d204` that a read gives to a track, device or clip, and that a later tool call uses to say which one it means. It follows the object through renames and reorders, and lasts as long as the connection to Live.
 - **Round** — one model call plus the tool calls it triggers. The agent loop is capped at 10 rounds per turn.
 - **Model call** — asking the model once for its next messages, as the agent loop sees it. One per round; made of one or more attempts.
 - **Attempt** — one request sent to the provider.
