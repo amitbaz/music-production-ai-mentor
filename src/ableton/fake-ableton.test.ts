@@ -67,3 +67,22 @@ test("create_track rejects a track without a name", async () => {
         /name must be a non-empty string/
     )
 })
+
+test("delete_track removes the track and needs approval", async () => {
+    const tools = createFakeAbleton();
+    const deleteTrack = findTool(tools, "delete_track");
+
+    const output = await deleteTrack.run({ name: "Bass" });
+
+    assert.deepEqual(JSON.parse(output).tracks, ["Drums"]);
+    assert.equal(deleteTrack.needsApproval, true);
+});
+
+test("delete_track rejects a track that does not exist", async () => {
+    const tools = createFakeAbleton();
+
+    await assert.rejects(
+        async () => findTool(tools, "delete_track").run({ name: "Strings" }),
+        /no track named Strings\. Tracks: Drums, Bass/,
+    );
+});

@@ -1,7 +1,7 @@
 import { createFakeAbleton } from "./ableton/fake-ableton.ts";
 import { createGeminiProvider } from "./agent/providers/gemini.ts";
 import { createInterface } from "node:readline";
-import type { Message } from "./agent/types.ts";
+import type { Message, ToolCall } from "./agent/types.ts";
 import { runAgentLoop } from "./agent/agent-loop.ts";
 
 const apiKey = process.env.GEMINI_API_KEY;
@@ -36,7 +36,7 @@ for await (const line of terminal) {
             provider,
             tools,
             [...conversation, { type: "user", text }],
-            { onMessage: print, signal: turn.signal },
+            { onMessage: print, signal: turn.signal, approve },
         );
 
         turn = undefined;
@@ -56,6 +56,20 @@ for await (const line of terminal) {
 }
 
 terminal.close();
+
+function approve(call: ToolCall): Promise<boolean> {
+    return new Promise((resolve) => {
+        // Ctrl+C while the question is open cancels it.
+        turn?.signal.addEventListener("abort", () => resolve(false), {
+            once: true,
+        });
+        terminal.question(
+            ` Run ${call.name}? (y/n) `,
+            { signal: turn?.signal },
+            (answer) => resolve(answer.trim().toLowerCase() === "y"),
+        );
+    });
+}
 
 function print(message: Message) {
     if (message.type === "assistant") {

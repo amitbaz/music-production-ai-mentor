@@ -280,3 +280,135 @@ test("cancelling while a tool runs lets it finish and skips the rest", async () 
     // The model is not called again after a cancel.
     assert.equal(calls.length, 1);
 });
+
+// A tool that must be approved before it runs, and a record of whether it ran.
+function guardedTool() {
+    const ran: string[] = [];
+    const guarded: Tool[] = [
+        {
+            name: "wipe",
+            description: "Wipes something for good",
+            params: { type: "object", properties: {} },
+            needsApproval: true,
+            run: () => {
+                ran.push("wipe");
+                return "wiped";
+            },
+        },
+    ];
+    return { guarded, ran };
+}
+
+function wipeScript() {
+    return scriptedProvider([
+        [{ type: "tool_call", id: "call_1", name: "wipe", args: {} }],
+        [{ type: "assistant", text: "Done." }],
+    ]);
+}
+
+test("a tool that needs approval runs when the caller approves", async () => {
+    const { guarded, ran } = guardedTool();
+    const { provider } = wipeScript();
+    const asked: string[] = [];
+
+    const result = await runAgentLoop(
+        provider,
+        guarded,
+        [{ type: "user", text: "Wipe it" }],
+        {
+            approve: (call) => {
+                asked.push(call.name);
+                return true;
+            },
+        },
+    );
+
+    assert.deepEqual(asked, ["wipe"]);
+    assert.deepEqual(ran, ["wipe"]);
+    assert.equal(
+        result.messages[2]?.type === "tool_result" && result.messages[2].output,
+        "wiped",
+    );
+});
+
+test("a refused tool does not run, and the model is told", async () => {
+    const { guarded, ran } = guardedTool();
+    const { provider, calls } = wipeScript();
+
+    const result = await runAgentLoop(
+        provider,
+        guarded,
+        [{ type: "user", text: "Wipe it" }],
+        { approve: () => false },
+    );
+
+    assert.deepEqual(ran, []);
+    assert.deepEqual(result.messages[2], {
+        type: "tool_result",
+        callId: "call_1",
+        name: "wipe",
+        output: "The user refused this action",
+        isError: true,
+    });
+    // The turn carries on: the model gets to answer the refusal.
+    assert.equal(calls.length, 2);
+    assert.equal(result.stop, "finished");
+});
+
+test("a tool that needs approval is refused when the caller cannot be asked", async () => {
+    const { guarded, ran } = guardedTool();
+    const { provider } = wipeScript();
+
+    const result = await runAgentLoop(provider, guarded, [
+        { type: "user", text: "Wipe it" },
+    ]);
+
+    assert.deepEqual(ran, []);
+    assert.equal(
+        result.messages[2]?.type === "tool_result" && result.messages[2].output,
+        "The user refused this action",
+    );
+});
+
+test("a tool that does not need approval runs without asking", async () => {
+    const { provider } = scriptedProvider([
+        [{ type: "tool_call", id: "call_1", name: "shout", args: { text: "hello" } }],
+        [{ type: "assistant", text: "Done." }],
+    ]);
+    let asked = false;
+
+    await runAgentLoop(provider, tools, [{ type: "user", text: "Shout hello" }], {
+        approve: () => {
+            asked = true;
+            return true;
+        },
+    });
+
+    assert.equal(asked, false);
+});
+
+test("cancelling while being asked counts as cancelled, not refused", async () => {
+    const { guarded, ran } = guardedTool();
+    const { provider } = wipeScript();
+    const controller = new AbortController();
+
+    const result = await runAgentLoop(
+        provider,
+        guarded,
+        [{ type: "user", text: "Wipe it" }],
+        {
+            signal: controller.signal,
+            approve: () => {
+                controller.abort();
+                return false;
+            },
+        },
+    );
+
+    assert.deepEqual(ran, []);
+    assert.equal(
+        result.messages[2]?.type === "tool_result" && result.messages[2].output,
+        "Cancelled before it ran",
+    );
+    assert.equal(result.stop, "cancelled");
+});

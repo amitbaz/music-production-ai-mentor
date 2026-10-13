@@ -13,6 +13,8 @@ export type Tool = {
     description: string;
     // JSON Schema describing the arguments, also sent to the model.
     params: Record<string, unknown>;
+    // Ask the user before running
+    needsApproval?: boolean;
     // Runs in our program. The model only ever sees the returned string.
     run: (args: Record<string, unknown>) =>string | Promise<string>;
 }

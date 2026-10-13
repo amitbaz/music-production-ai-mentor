@@ -11,6 +11,8 @@ export type LoopOptions = {
     onMessage?: (message: Message) => void;
     // Lets the caller cancel the turn
     signal?: AbortSignal;
+    // Asked before running a tool marked needsApproval; true means go ahead
+    approve?: (call: ToolCall) => boolean | Promise<boolean>;
 };
 
 // Never throws: a failed model call is returned as stop "error"
@@ -48,7 +50,7 @@ export async function runAgentLoop(
         for (const message of reply) {
             if (message.type !== "tool_call") continue;
             calledTool = true;
-            add(await runToolCall(message, tools, options.signal));
+            add(await runToolCall(message, tools, options));
         }
 
         // No tool calls means the model is done; otherwise go around again.
@@ -63,7 +65,7 @@ export async function runAgentLoop(
 async function runToolCall(
     call: ToolCall,
     tools: Tool[],
-    signal?: AbortSignal,
+    options: LoopOptions,
 ): Promise<Message> {
     const result = {
         type: "tool_result" as const,
@@ -71,8 +73,14 @@ async function runToolCall(
         name: call.name,
     };
 
-    if (signal?.aborted) {
-        return { ...result, output: "Cancelled before it ran", isError: true };
+    const cancelled = {
+        ...result,
+        output: "Cancelled before it ran",
+        isError: true,
+    };
+
+    if (options.signal?.aborted) {
+        return cancelled;
     }
 
     const tool = tools.find((t) => t.name === call.name);
@@ -82,6 +90,20 @@ async function runToolCall(
             output: `Tool ${call.name} not found`,
             isError: true,
         };
+    }
+
+    if (tool.needsApproval) {
+        // No approve function means nobody can say yes, so the answer is no
+        const approved = (await options.approve?.(call)) ?? false;
+        // A cancel while the user was being asked is a cancel, not a refusal
+        if (options.signal?.aborted) return cancelled;
+        if (!approved) {
+            return {
+                ...result,
+                output: "The user refused this action",
+                isError: true,
+            };
+        }
     }
 
     try {
