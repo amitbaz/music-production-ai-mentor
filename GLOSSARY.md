@@ -25,9 +25,11 @@
 - **Model call** — asking the model once for its next messages, as the agent loop sees it. One per round; made of one or more attempts.
 - **Attempt** — one request sent to the provider.
 - **Retryable failure** — a failed attempt that the provider adapter marks as likely to pass if tried again, such as an overloaded provider or a dropped connection.
-- **Retry** — a further attempt after a retryable failure, made after a wait that grows each time. A model call fails when a failure is not retryable or the retries run out.
-- **Timeout** — an attempt stopped because it passed its time limit. It is a retryable failure, and is not a cancel.
+- **Retry** — a further attempt after a retryable failure, made after a wait that grows each time. An attempt whose reply has started to arrive is never retried. A model call fails when a failure is not retryable or the retries run out.
+- **Timeout** — an attempt stopped because no text arrived from the model for the length of its time limit. It is a retryable failure, and is not a cancel.
 - **Turn** — everything the agent loop does in answer to one user message: one or more rounds, ending with a stop reason.
+- **Update** — something the agent reports to the app while a turn runs: a piece of assistant text that has just arrived, or a whole message. Every message added to the conversation is reported as one update.
+- **Streaming** — the app receiving assistant text in pieces while the model is still writing it, each piece as an update, before the whole message. The app turns it on or off for each turn; off, it receives whole messages only. Tool calls are never streamed.
 - **Stop reason** — why a turn ended: the model finished, the model replied with nothing, the round limit was hit, a model call failed, or the user cancelled. It is reported next to the conversation, never as a message inside it.
-- **Cancel** — the user stopping a turn before it ends. What already happened stays in the conversation; a tool that is running finishes, and tool calls that had not started get a tool result saying so.
+- **Cancel** — the user stopping a turn before it ends. What already happened stays in the conversation, including the text of a reply the model was still writing; a tool that is running finishes, and tool calls that had not started get a tool result saying so.
 - **Approval** — the user's yes or no to one tool call, asked before it runs. Only tools marked as needing approval are asked about. A refusal becomes the tool result, and the turn continues.

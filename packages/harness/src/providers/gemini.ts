@@ -132,18 +132,13 @@ type GeminiReplyPart = {
     thoughtSignature?: string;
 };
 
-// Translates the body of a Gemini generateContent reply into our messages.
-export function fromGeminiResponse(response: GeminiResponse): Message[] {
-    const candidate = response.candidates?.[0];
-    if (!candidate) {
-        // Happens when Gemini refuses the prompt; the reply then says why.
-        throw new Error(
-            `Gemini returned no reply: ${JSON.stringify(response)}`,
-        );
-    }
-
-    const messages: Message[] = [];
-    for (const part of candidate.content?.parts ?? []) {
+// Adds the parts of one piece of a streamed reply to the messages read so far.
+function addParts(
+    messages: Message[],
+    parts: GeminiReplyPart[],
+    onText?: (text: string) => void,
+) {
+    for (const part of parts) {
         const meta = part.thoughtSignature
             ? { providerMeta: { thoughtSignature: part.thoughtSignature } }
             : {};
@@ -157,19 +152,57 @@ export function fromGeminiResponse(response: GeminiResponse): Message[] {
                 ...meta,
             });
         } else if (part.text !== undefined) {
-            messages.push({
-                type: "assistant",
-                text: part.text,
-                ...meta,
-            });
+            // Text that follows text is more of the same message. Its signature comes on a
+            // later piece, and is stored as if the text had come whole.
+            const last = messages.at(-1);
+            if (last?.type === "assistant") {
+                last.text += part.text;
+                Object.assign(last, meta);
+            } else if (part.text !== "") {
+                // Gemini ends a reply with an empty text; on its own that is not a message.
+                messages.push({ type: "assistant", text: part.text, ...meta });
+            }
+            if (part.text !== "") onText?.(part.text);
         }
+    }
+}
+
+// Reads a streamed Gemini reply. Each "data:" line holds one piece, in the shape of a whole reply.
+async function readReply(
+    body: ReadableStream<Uint8Array>,
+    onText?: (text: string) => void,
+): Promise<Message[]> {
+    const messages: Message[] = [];
+    let piece: GeminiResponse = {};
+    let replied = false;
+    // The end of what was read so far, when it stops in the middle of a line
+    let rest = "";
+
+    const decoder = new TextDecoder();
+    for await (const bytes of body) {
+        const lines = (rest + decoder.decode(bytes, { stream: true })).split("\n");
+        rest = lines.pop() ?? "";
+        for (const line of lines) {
+            if (!line.startsWith("data:")) continue;
+            piece = JSON.parse(line.slice("data:".length));
+            const candidate = piece.candidates?.[0];
+            if (!candidate) continue;
+            replied = true;
+            addParts(messages, candidate.content?.parts ?? [], onText);
+        }
+    }
+
+    if (!replied) {
+        // Happens when Gemini refuses the prompt; the reply then says why.
+        throw new Error(`Gemini returned no reply: ${JSON.stringify(piece)}`);
     }
     return messages;
 }
 
 // A Model backed by the real Gemini API: translate, send, translate back.
 export function createGeminiModel(apiKey: string, model: string): Model {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+    // Always the streaming endpoint; the caller decides whether to show the pieces.
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`;
 
     return {
         call: async (
@@ -177,9 +210,8 @@ export function createGeminiModel(apiKey: string, model: string): Model {
             tools: Tool[],
             options?: CallOptions,
         ) => {
-            let response: Response;
             try {
-                response = await fetch(url, {
+                const response = await fetch(url, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
@@ -190,21 +222,21 @@ export function createGeminiModel(apiKey: string, model: string): Model {
                     ),
                     signal: options?.signal,
                 });
+
+                // Read the status before the body: a failed reply may not be JSON.
+                if (!response.ok || !response.body) {
+                    throw failedRequest(response.status, await response.text());
+                }
+                return await readReply(response.body, options?.onText);
             } catch (e) {
-                // fetch reports a dropped connection as a TypeError; a cancel is not one.
+                // fetch reports a dropped connection as a TypeError, before the reply or
+                // in the middle of it; a cancel is not one.
                 if (!(e instanceof TypeError)) throw e;
                 throw new ModelCallError(
                     `Gemini request failed: ${e.message}`,
                     { retryable: true, cause: e },
                 );
             }
-
-            // Read the status before the body: a failed reply may not be JSON.
-            if (!response.ok) {
-                throw failedRequest(response.status, await response.text());
-            }
-            const body = (await response.json()) as GeminiResponse;
-            return fromGeminiResponse(body);
         },
     };
 }

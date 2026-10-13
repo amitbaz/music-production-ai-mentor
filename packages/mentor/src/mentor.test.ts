@@ -82,7 +82,9 @@ test("a turn reports each new message and asks approval through the app's callba
     const asked: string[] = [];
 
     await createMentor({ model }).generate([], "delete the bass", {
-        onMessage: (message) => seen.push(message.type),
+        onUpdate: (update) => {
+            if (update.type === "message") seen.push(update.message.type);
+        },
         approve: (call) => {
             asked.push(call.name);
             return false;
@@ -94,8 +96,13 @@ test("a turn reports each new message and asks approval through the app's callba
 });
 
 test("with keys, a turn goes to the mentor's own model with the key for its provider", async (t: TestContext) => {
-    const fetchMock = t.mock.method(globalThis, "fetch", async () =>
-        Response.json({ candidates: [{ content: { parts: [{ text: "Hi" }] } }] }),
+    const fetchMock = t.mock.method(
+        globalThis,
+        "fetch",
+        async () =>
+            new Response(
+                `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: "Hi" }] } }] })}\n\n`,
+            ),
     );
 
     const result = await createMentor({ keys: { gemini: "test-key" } }).generate([], "hi");

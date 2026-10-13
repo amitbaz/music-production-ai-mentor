@@ -32,7 +32,10 @@ function fakeFetch(t: TestContext, replies: { status: number; body: unknown }[])
     return t.mock.method(globalThis, "fetch", async () => {
         const reply = replies.shift();
         assert.ok(reply, "fetch was called more often than the test expected");
-        return Response.json(reply.body, { status: reply.status });
+        // A reply that worked is streamed, as Gemini does.
+        return reply.status === 200
+            ? new Response(`data: ${JSON.stringify(reply.body)}\n\n`)
+            : Response.json(reply.body, { status: reply.status });
     });
 }
 
@@ -106,7 +109,9 @@ test("generate passes the turn's options to the agent loop", async () => {
     const seen: string[] = [];
 
     await createAgent({ model, tools }).generate([], "hi", {
-        onMessage: (message) => seen.push(message.type),
+        onUpdate: (update) => {
+            if (update.type === "message") seen.push(update.message.type);
+        },
     });
 
     assert.deepEqual(seen, ["assistant"]);
@@ -124,7 +129,7 @@ test("a model id picks the provider adapter, the model name and the key", async 
 
     assert.deepEqual(result.messages.at(-1), { type: "assistant", text: "Hello!" });
     const [url, options] = sentRequest(fetchMock);
-    assert.equal(url, "https://generativelanguage.googleapis.com/v1beta/models/test-model:generateContent");
+    assert.equal(url, "https://generativelanguage.googleapis.com/v1beta/models/test-model:streamGenerateContent?alt=sse");
     assert.equal((options.headers as Record<string, string>)["x-goog-api-key"], "test-key");
 });
 
@@ -139,7 +144,7 @@ test("a model id is split on its first colon only", async (t) => {
     await agent.generate([], "Hi");
 
     const [url] = sentRequest(fetchMock);
-    assert.match(url, /\/models\/tuned:abc:generateContent$/);
+    assert.match(url, /\/models\/tuned:abc:streamGenerateContent\?alt=sse$/);
 });
 
 test("a model found by its model id retries a retryable failure", async (t) => {

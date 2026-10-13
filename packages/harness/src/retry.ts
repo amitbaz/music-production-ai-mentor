@@ -16,7 +16,7 @@ export type RetryReport = {
 export type RetryOptions = {
     // How many more attempts follow a first failed one; 0 turns retry off
     maxRetries?: number;
-    // The time limit of one attempt
+    // How long one attempt may go without text arriving
     timeoutMs?: number;
     // The wait before the first retry; it doubles for each one after
     firstWaitMs?: number;
@@ -38,7 +38,9 @@ export function withRetry(
             for (let retry = 0; ; retry++) {
                 // Not AbortSignal.timeout: its timer does not keep the program alive.
                 const timeout = new AbortController();
-                const timer = setTimeout(() => timeout.abort(), timeoutMs);
+                let timer = setTimeout(() => timeout.abort(), timeoutMs);
+                // Whether text of this attempt's reply has reached the caller
+                let started = false;
                 let error: ModelCallError;
                 try {
                     return await model.call(conversation, tools, {
@@ -46,13 +48,20 @@ export function withRetry(
                         signal: cancel
                             ? AbortSignal.any([cancel, timeout.signal])
                             : timeout.signal,
+                        onText: (text) => {
+                            started = true;
+                            // The time limit measures silence, so each piece restarts it.
+                            clearTimeout(timer);
+                            timer = setTimeout(() => timeout.abort(), timeoutMs);
+                            callOptions?.onText?.(text);
+                        },
                     });
                 } catch (e) {
                     // A cancel is passed on as it is; the agent loop reports it.
                     if (cancel?.aborted) throw e;
                     if (timeout.signal.aborted) {
                         error = new ModelCallError(
-                            `The model did not reply within ${timeoutMs / 1000}s`,
+                            `The model sent nothing for ${timeoutMs / 1000}s`,
                             { retryable: true, cause: e },
                         );
                     } else if (e instanceof ModelCallError) {
@@ -65,7 +74,9 @@ export function withRetry(
                 }
 
                 const waitMs = error.retryAfterMs ?? firstWaitMs * 2 ** retry;
+                // A reply the caller has begun to receive is never started again.
                 if (
+                    started ||
                     !error.retryable ||
                     retry >= maxRetries ||
                     waitMs > MAX_PROVIDER_WAIT_MS

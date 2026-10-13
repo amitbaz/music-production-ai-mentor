@@ -1,5 +1,13 @@
 import { createInterface } from "node:readline";
-import { createMentor, type Message, type ToolCall } from "@mentor/mentor";
+import {
+    createMentor,
+    type Message,
+    type ToolCall,
+    type Update,
+} from "@mentor/mentor";
+
+// Show the mentor's text as it is written. Fixed until the app has settings.
+const STREAMING = true;
 
 const mentor = createMentor({
     keys: { gemini: process.env.GEMINI_API_KEY },
@@ -20,6 +28,9 @@ console.log(
     'Music production AI mentor (fake Ableton session). Type "exit" to quit.',
 );
 
+// Whether a streamed assistant message is on screen with its line still open
+let writing = false;
+
 let turn: AbortController | undefined;
 terminal.on("SIGINT", () => {
     if (turn) turn.abort();
@@ -34,7 +45,8 @@ for await (const line of terminal) {
     if (text !== "") {
         turn = new AbortController();
         const result = await mentor.generate(conversation, text, {
-            onMessage: print,
+            onUpdate: show,
+            stream: STREAMING,
             signal: turn.signal,
             approve,
         });
@@ -71,6 +83,21 @@ function approve(call: ToolCall): Promise<boolean> {
             (answer) => resolve(answer.trim().toLowerCase() === "y"),
         );
     });
+}
+
+function show(update: Update) {
+    if (update.type === "text") {
+        // The first piece of a message opens its line.
+        if (!writing) process.stdout.write("\nmentor> ");
+        writing = true;
+        process.stdout.write(update.text);
+    } else if (writing && update.message.type === "assistant") {
+        // Its text is already on screen; only the line is closed.
+        writing = false;
+        console.log();
+    } else {
+        print(update.message);
+    }
 }
 
 function print(message: Message) {

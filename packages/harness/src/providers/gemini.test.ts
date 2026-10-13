@@ -1,6 +1,6 @@
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { createGeminiModel, fromGeminiResponse, toGeminiRequest } from "./gemini.ts";
+import { createGeminiModel, toGeminiRequest } from "./gemini.ts";
 import { type Message, ModelCallError, type Tool } from "../types.ts";
 
 const setTempo: Tool = {
@@ -119,8 +119,39 @@ test("sends a failed tool result as an error", () => {
     });
 });
 
-test("translates a text reply into an assistant message", () => {
-    const reply = {
+// A streamed reply as Gemini sends it: one "data:" line for each piece, with a blank line after.
+function streamed(pieces: unknown[]) {
+    return pieces.map((piece) => `data: ${JSON.stringify(piece)}\r\n\r\n`).join("");
+}
+
+// Replaces the real fetch for one test, so no request leaves the machine.
+// A reply that worked is streamed, as Gemini does; a failed one is plain JSON.
+function fakeFetch(t: TestContext, status: number, body: unknown) {
+    return t.mock.method(globalThis, "fetch", async () =>
+        status === 200 ? new Response(streamed([body])) : Response.json(body, { status }),
+    );
+}
+
+// Replaces fetch with one whose body arrives in the given chunks, cut wherever the test says.
+function fakeStream(t: TestContext, chunks: string[]) {
+    return t.mock.method(
+        globalThis,
+        "fetch",
+        async () => new Response(new Blob(chunks).stream()),
+    );
+}
+
+// The url and options of the one request a test sent.
+function sentRequest(fetchMock: ReturnType<typeof fakeFetch>) {
+    const call = fetchMock.mock.calls[0];
+    assert.ok(call, "fetch was not called");
+    return call.arguments as unknown as [string, RequestInit];
+}
+
+const hi: Message[] = [{ type: "user", text: "Hi" }];
+
+test("translates a text reply into an assistant message", async (t) => {
+    fakeFetch(t, 200, {
         candidates: [
             {
                 content: {
@@ -130,9 +161,9 @@ test("translates a text reply into an assistant message", () => {
                 finishReason: "STOP",
             },
         ],
-    };
+    });
 
-    assert.deepEqual(fromGeminiResponse(reply), [
+    assert.deepEqual(await createGeminiModel("test-key", "test-model").call(hi, []), [
         {
             type: "assistant",
             text: "The tempo is now 128.",
@@ -143,8 +174,8 @@ test("translates a text reply into an assistant message", () => {
 });
 
 // This is the shape Gemini really returned for "set the tempo to 128 and add a track called Lead".
-test("translates function calls into tool calls", () => {
-    const reply = {
+test("translates function calls into tool calls", async (t) => {
+    fakeFetch(t, 200, {
         candidates: [
             {
                 content: {
@@ -160,9 +191,9 @@ test("translates function calls into tool calls", () => {
                 finishReason: "STOP",
             },
         ],
-    };
+    });
 
-    assert.deepEqual(fromGeminiResponse(reply), [
+    assert.deepEqual(await createGeminiModel("test-key", "test-model").call(hi, []), [
         {
             type: "tool_call",
             id: "call_68471",
@@ -175,23 +206,85 @@ test("translates function calls into tool calls", () => {
     ]);
 });
 
-test("throws when Gemini returns no reply", () => {
-    const reply = { promptFeedback: { blockReason: "SAFETY" } };
+test("throws when Gemini returns no reply", async (t) => {
+    fakeFetch(t, 200, { promptFeedback: { blockReason: "SAFETY" } });
 
-    assert.throws(() => fromGeminiResponse(reply), /Gemini returned no reply.*SAFETY/);
+    await assert.rejects(
+        createGeminiModel("test-key", "test-model").call(hi, []),
+        /Gemini returned no reply.*SAFETY/,
+    );
 });
 
-// Replaces the real fetch for one test, so no request leaves the machine.
-function fakeFetch(t: TestContext, status: number, body: unknown) {
-    return t.mock.method(globalThis, "fetch", async () => Response.json(body, { status }));
-}
+// What Gemini really streamed for "Tell me in one sentence what you are about to do,
+// then set the tempo to 128", with the usage counts left out.
+const recordedStream = [
+    'data: {"candidates": [{"content": {"parts": [{"text": "I am"}],"role": "model"},"index": 0}],"modelVersion": "gemini-3.5-flash-lite","responseId": "fGzOasCEJN3Yxs0PzNaCoQ0"}\r\n\r\n',
+    'data: {"candidates": [{"content": {"parts": [{"text": " about to set the tempo of our session to 128 BPM."}],"role": "model"},"index": 0}],"modelVersion": "gemini-3.5-flash-lite","responseId": "fGzOasCEJN3Yxs0PzNaCoQ0"}\r\n\r\n',
+    'data: {"candidates": [{"content": {"parts": [{"functionCall": {"name": "set_tempo","args": {"bpm": 128},"id": "call_138479"},"thoughtSignature": "EmAKXgFpFH0TIpx89cj80niIuK2X+xM2BFzqlrzQfYhcAj2771fvDmBUqnzuBtfXDhi6dSD1SWHlOY2oxRv9bVJTxeCwfxrw0UwHhtbjppiAtSkykPf0OiKoScmJF3cQZxM="}],"role": "model"},"index": 0}],"modelVersion": "gemini-3.5-flash-lite","responseId": "fGzOasCEJN3Yxs0PzNaCoQ0"}\r\n\r\n',
+    'data: {"candidates": [{"content": {"parts": [{"text": ""}],"role": "model"},"finishReason": "STOP","index": 0}],"modelVersion": "gemini-3.5-flash-lite","responseId": "fGzOasCEJN3Yxs0PzNaCoQ0"}\r\n\r\n',
+];
 
-// The url and options of the one request a test sent.
-function sentRequest(fetchMock: ReturnType<typeof fakeFetch>) {
-    const call = fetchMock.mock.calls[0];
-    assert.ok(call, "fetch was not called");
-    return call.arguments as unknown as [string, RequestInit];
-}
+const recordedReply: Message[] = [
+    // The pieces of one text become one message.
+    { type: "assistant", text: "I am about to set the tempo of our session to 128 BPM." },
+    {
+        type: "tool_call",
+        id: "call_138479",
+        name: "set_tempo",
+        args: { bpm: 128 },
+        providerMeta: {
+            thoughtSignature:
+                "EmAKXgFpFH0TIpx89cj80niIuK2X+xM2BFzqlrzQfYhcAj2771fvDmBUqnzuBtfXDhi6dSD1SWHlOY2oxRv9bVJTxeCwfxrw0UwHhtbjppiAtSkykPf0OiKoScmJF3cQZxM=",
+        },
+    },
+    // The empty text Gemini ends with is not a message.
+];
+
+test("reads a streamed reply, reporting each piece of text as it arrives", async (t) => {
+    fakeStream(t, recordedStream);
+    const pieces: string[] = [];
+
+    const reply = await createGeminiModel("test-key", "test-model").call(hi, [setTempo], {
+        onText: (text) => pieces.push(text),
+    });
+
+    assert.deepEqual(reply, recordedReply);
+    assert.deepEqual(pieces, ["I am", " about to set the tempo of our session to 128 BPM."]);
+});
+
+test("reads a streamed reply whose lines are cut in the middle", async (t) => {
+    const whole = recordedStream.join("");
+    // The network cuts where it likes, not at the end of a line.
+    fakeStream(t, [whole.slice(0, 40), whole.slice(40, 300), whole.slice(300)]);
+
+    const reply = await createGeminiModel("test-key", "test-model").call(hi, [setTempo]);
+
+    assert.deepEqual(reply, recordedReply);
+});
+
+test("the model marks a connection dropped in the middle of a reply as retryable", async (t) => {
+    const body = new ReadableStream({
+        start(controller) {
+            controller.enqueue(new TextEncoder().encode(recordedStream[0]));
+        },
+        pull(controller) {
+            // What fetch reports when the connection is lost while the body is read.
+            controller.error(new TypeError("terminated"));
+        },
+    });
+    t.mock.method(globalThis, "fetch", async () => new Response(body));
+    const pieces: string[] = [];
+
+    const error = await failureOf(
+        createGeminiModel("test-key", "test-model").call(hi, [], {
+            onText: (text) => pieces.push(text),
+        }),
+    );
+
+    assert.equal(error.retryable, true);
+    assert.match(error.message, /Gemini request failed: terminated/);
+    assert.deepEqual(pieces, ["I am"]);
+});
 
 test("the model posts the translated request and returns the translated reply", async (t) => {
     const fetchMock = fakeFetch(t, 200, {
@@ -207,7 +300,7 @@ test("the model posts the translated request and returns the translated reply", 
     const [url, options] = sentRequest(fetchMock);
     assert.equal(
         url,
-        "https://generativelanguage.googleapis.com/v1beta/models/test-model:generateContent",
+        "https://generativelanguage.googleapis.com/v1beta/models/test-model:streamGenerateContent?alt=sse",
     );
     assert.equal(options.method, "POST");
     assert.deepEqual(options.headers, {

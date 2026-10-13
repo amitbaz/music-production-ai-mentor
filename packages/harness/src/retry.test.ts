@@ -145,7 +145,64 @@ test("stops an attempt that passes its time limit and retries it", async () => {
 
     assert.deepEqual(result, reply);
     assert.equal(attempts, 2);
-    assert.match(errors[0]?.message ?? "", /did not reply within 0\.01s/);
+    assert.match(errors[0]?.message ?? "", /sent nothing for 0\.01s/);
+});
+
+test("does not retry an attempt whose text has started to arrive", async () => {
+    const lost = new ModelCallError("connection lost", { retryable: true });
+    let attempts = 0;
+    const model: Model = {
+        call: async (_conversation, _tools, options) => {
+            attempts++;
+            options?.onText?.("A compressor lowers");
+            throw lost;
+        },
+    };
+    const pieces: string[] = [];
+
+    await assert.rejects(
+        withRetry(model, { firstWaitMs: 1 }).call(hello, [], {
+            onText: (text) => pieces.push(text),
+        }),
+        lost,
+    );
+    assert.equal(attempts, 1);
+    assert.deepEqual(pieces, ["A compressor lowers"]);
+});
+
+test("each piece of text restarts the time limit", async () => {
+    // Three pieces 20ms apart: longer than the limit in total, never silent for that long.
+    const model: Model = {
+        call: async (_conversation, _tools, options) => {
+            for (const piece of ["one", "two", "three"]) {
+                await new Promise((resolve) => setTimeout(resolve, 20));
+                options?.signal?.throwIfAborted();
+                options?.onText?.(piece);
+            }
+            return reply;
+        },
+    };
+
+    const result = await withRetry(model, { timeoutMs: 40 }).call(hello, []);
+
+    assert.deepEqual(result, reply);
+});
+
+test("an attempt that goes silent after text has arrived fails without a retry", async () => {
+    let attempts = 0;
+    const model: Model = {
+        call: async (_conversation, _tools, options) => {
+            attempts++;
+            options?.onText?.("A compressor lowers");
+            return hangingAttempt(options);
+        },
+    };
+
+    await assert.rejects(
+        withRetry(model, { timeoutMs: 10, firstWaitMs: 1 }).call(hello, []),
+        /sent nothing for 0\.01s/,
+    );
+    assert.equal(attempts, 1);
 });
 
 test("passes the system prompt on to every attempt", async () => {

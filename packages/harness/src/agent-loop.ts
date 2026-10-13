@@ -9,9 +9,18 @@ export type LoopResult =
       }
     | { messages: Message[]; stop: "error"; error: Error };
 
+// Something reported to the caller while a turn runs
+export type Update =
+    // A piece of assistant text that has just arrived
+    | { type: "text"; text: string }
+    // A whole message, as it was added to the conversation
+    | { type: "message"; message: Message };
+
 export type LoopOptions = {
-    // Called with each new message as soon as it exists
-    onMessage?: (message: Message) => void;
+    // Called with each update as soon as it exists
+    onUpdate?: (update: Update) => void;
+    // Report assistant text in pieces as it arrives, before the whole message
+    stream?: boolean;
     // Lets the caller cancel the turn
     signal?: AbortSignal;
     // The system prompt, sent with every model call
@@ -33,18 +42,26 @@ export async function runAgentLoop(
     // Records a new message and reports it to the caller
     const add = (message: Message) => {
         messages.push(message);
-        options.onMessage?.(message);
+        options.onUpdate?.({ type: "message", message });
     };
 
     for (let round = 0; round < MAX_ROUNDS; round++) {
         // Send the whole conversation; get back the model's next messages.
         let reply: Message[];
+        // The text of the reply so far, in case the call stops before it is whole
+        let arrived = "";
         try {
             reply = await model.call(messages, tools, {
                 system: options.system,
                 signal: options.signal,
+                onText: (text) => {
+                    arrived += text;
+                    if (options.stream) options.onUpdate?.({ type: "text", text });
+                },
             });
         } catch (e) {
+            // Text that arrived is kept, cut off where it stopped.
+            if (arrived.trim() !== "") add({ type: "assistant", text: arrived });
             // A cancel makes the pending call fail; that is not an error.
             if (options.signal?.aborted) return { messages, stop: "cancelled" };
             const error = e instanceof Error ? e : new Error(String(e));

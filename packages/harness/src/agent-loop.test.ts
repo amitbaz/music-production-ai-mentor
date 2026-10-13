@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runAgentLoop } from "./agent-loop.ts";
+import type { Update } from "./agent-loop.ts";
 import type { Message, Model, Tool } from "./types.ts";
 
 // One generic tool, so these tests depend on nothing outside the agent folder.
@@ -177,17 +178,20 @@ test("reports each new message as it happens", async () => {
         [{ type: "tool_call", id: "call_1", name: "shout", args: { text: "hello" } }],
         [{ type: "assistant", text: "It says HELLO." }],
     ]);
-    const reported: Message[] = [];
+    const reported: Update[] = [];
 
     const result = await runAgentLoop(
         model,
         tools,
         [{ type: "user", text: "Shout hello" }],
-        { onMessage: (message) => reported.push(message) },
+        { onUpdate: (update) => reported.push(update) },
     );
 
     // Everything except the user's own message, in order.
-    assert.deepEqual(reported, result.messages.slice(1));
+    assert.deepEqual(
+        reported,
+        result.messages.slice(1).map((message) => ({ type: "message", message })),
+    );
 });
 
 test("gives the model the caller's cancel signal", async () => {
@@ -430,13 +434,13 @@ test("a reply with only blank text is empty and is not kept", async () => {
         [{ type: "tool_call", id: "call_1", name: "shout", args: { text: "hello" } }],
         [{ type: "assistant", text: "  \n" }],
     ]);
-    const reported: Message[] = [];
+    const reported: Update[] = [];
 
     const result = await runAgentLoop(
         model,
         tools,
         [{ type: "user", text: "Shout hello" }],
-        { onMessage: (message) => reported.push(message) },
+        { onUpdate: (update) => reported.push(update) },
     );
 
     assert.equal(result.stop, "empty");
@@ -470,4 +474,91 @@ test("gives the model the system prompt on every model call", async () => {
     // Two rounds, so the prompt is sent twice, and it never enters the conversation.
     assert.deepEqual(received, ["You are a test.", "You are a test."]);
     assert.equal(result.messages.length, 4);
+});
+
+// A model whose reply arrives as pieces of text, and then ends as the test says.
+function streamingModel(pieces: string[], end: () => Message[]): Model {
+    return {
+        call: async (_conversation, _tools, options) => {
+            for (const piece of pieces) options?.onText?.(piece);
+            return end();
+        },
+    };
+}
+
+test("with stream on, reports each piece of text and then the whole message", async () => {
+    const model = streamingModel(["Hi", " there"], () => [
+        { type: "assistant", text: "Hi there" },
+    ]);
+    const reported: Update[] = [];
+
+    await runAgentLoop(model, tools, [{ type: "user", text: "Hello" }], {
+        stream: true,
+        onUpdate: (update) => reported.push(update),
+    });
+
+    assert.deepEqual(reported, [
+        { type: "text", text: "Hi" },
+        { type: "text", text: " there" },
+        { type: "message", message: { type: "assistant", text: "Hi there" } },
+    ]);
+});
+
+test("with stream off, reports whole messages only", async () => {
+    const model = streamingModel(["Hi", " there"], () => [
+        { type: "assistant", text: "Hi there" },
+    ]);
+    const reported: Update[] = [];
+
+    await runAgentLoop(model, tools, [{ type: "user", text: "Hello" }], {
+        onUpdate: (update) => reported.push(update),
+    });
+
+    assert.deepEqual(reported, [
+        { type: "message", message: { type: "assistant", text: "Hi there" } },
+    ]);
+});
+
+test("a cancel while a reply is arriving keeps the text that arrived", async () => {
+    const controller = new AbortController();
+    const model = streamingModel(["A compressor lowers", " the loud pa"], () => {
+        controller.abort();
+        throw new Error("This operation was aborted");
+    });
+    const reported: Update[] = [];
+
+    const result = await runAgentLoop(
+        model,
+        tools,
+        [{ type: "user", text: "What is a compressor?" }],
+        { signal: controller.signal, onUpdate: (update) => reported.push(update) },
+    );
+
+    const kept = { type: "assistant", text: "A compressor lowers the loud pa" };
+    assert.deepEqual(result, {
+        messages: [{ type: "user", text: "What is a compressor?" }, kept],
+        stop: "cancelled",
+    });
+    // Stream is off here: the rule does not depend on it.
+    assert.deepEqual(reported, [{ type: "message", message: kept }]);
+});
+
+test("a model call that fails while a reply is arriving keeps the text that arrived", async () => {
+    const lost = new Error("connection lost");
+    const model = streamingModel(["A compressor lowers"], () => {
+        throw lost;
+    });
+
+    const result = await runAgentLoop(model, tools, [
+        { type: "user", text: "What is a compressor?" },
+    ]);
+
+    assert.deepEqual(result, {
+        messages: [
+            { type: "user", text: "What is a compressor?" },
+            { type: "assistant", text: "A compressor lowers" },
+        ],
+        stop: "error",
+        error: lost,
+    });
 });

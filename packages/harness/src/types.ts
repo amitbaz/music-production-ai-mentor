@@ -65,4 +65,6 @@ export class ModelCallError extends Error {
 export type CallOptions = {
     system?: string;
     signal?: AbortSignal;
+    // Called with each piece of assistant text as it arrives
+    onText?: (text: string) => void;
 };
