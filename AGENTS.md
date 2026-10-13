@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Issues live in GitHub Issues for `amitbaz/ableton-co-pilot`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues for `amitbaz/music-production-ai-mentor`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

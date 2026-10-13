@@ -17,7 +17,7 @@ const terminal = createInterface({
     output: process.stdout,
 });
 terminal.setPrompt("\nyou> ");
-console.log('Ableton co-pilot (fake session). Type "exit" to quit.');
+console.log('Music production AI mentor (fake Ableton session). Type "exit" to quit.');
 
 let turn: AbortController | undefined;
 terminal.on("SIGINT", () => {
@@ -75,7 +75,7 @@ function approve(call: ToolCall): Promise<boolean> {
 
 function print(message: Message) {
     if (message.type === "assistant") {
-        console.log(`\ncopilot> ${message.text}`);
+        console.log(`\nmentor> ${message.text}`);
     } else if (message.type === "tool_call") {
         console.log(
             `  [tool] ${message.name}(${JSON.stringify(message.args)})`,
