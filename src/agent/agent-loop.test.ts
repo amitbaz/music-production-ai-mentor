@@ -189,3 +189,94 @@ test("reports each new message as it happens", async () => {
     // Everything except the user's own message, in order.
     assert.deepEqual(reported, result.messages.slice(1));
 });
+
+test("gives the provider the caller's cancel signal", async () => {
+    const controller = new AbortController();
+    let received: AbortSignal | undefined;
+    const provider: Provider = {
+        generate: async (_conversation, _tools, signal) => {
+            received = signal;
+            return [{ type: "assistant", text: "Hi" }];
+        },
+    };
+
+    await runAgentLoop(provider, tools, [{ type: "user", text: "Hello" }], {
+        signal: controller.signal,
+    });
+
+    assert.equal(received, controller.signal);
+});
+
+test("cancelling while waiting for the model stops the turn as cancelled", async () => {
+    const controller = new AbortController();
+    // Behaves like a real provider: the cancel makes the pending call fail.
+    const provider: Provider = {
+        generate: async () => {
+            controller.abort();
+            throw new Error("This operation was aborted");
+        },
+    };
+
+    const result = await runAgentLoop(
+        provider,
+        tools,
+        [{ type: "user", text: "Hello" }],
+        { signal: controller.signal },
+    );
+
+    assert.equal(result.stop, "cancelled");
+    assert.deepEqual(result.messages, [{ type: "user", text: "Hello" }]);
+});
+
+test("cancelling while a tool runs lets it finish and skips the rest", async () => {
+    const controller = new AbortController();
+    const ran: string[] = [];
+    // A tool that is cancelled in the middle of its own run.
+    const slowTools: Tool[] = [
+        {
+            name: "slow",
+            description: "Takes a while",
+            params: { type: "object", properties: {} },
+            run: ({ label }) => {
+                ran.push(String(label));
+                controller.abort();
+                return `finished ${label}`;
+            },
+        },
+    ];
+    const { provider, calls } = scriptedProvider([
+        [
+            { type: "tool_call", id: "call_1", name: "slow", args: { label: "first" } },
+            { type: "tool_call", id: "call_2", name: "slow", args: { label: "second" } },
+        ],
+        [{ type: "assistant", text: "This reply must never be asked for." }],
+    ]);
+
+    const result = await runAgentLoop(
+        provider,
+        slowTools,
+        [{ type: "user", text: "Do two slow things" }],
+        { signal: controller.signal },
+    );
+
+    assert.equal(result.stop, "cancelled");
+    assert.deepEqual(ran, ["first"]);
+    assert.deepEqual(result.messages.slice(3), [
+        {
+            type: "tool_result",
+            callId: "call_1",
+            name: "slow",
+            output: "finished first",
+            isError: false,
+        },
+        {
+            type: "tool_result",
+            callId: "call_2",
+            name: "slow",
+            output: "Cancelled before it ran",
+            isError: true,
+        },
+    ]);
+    // The model is not called again after a cancel.
+    assert.equal(calls.length, 1);
+});

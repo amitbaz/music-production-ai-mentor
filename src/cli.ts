@@ -18,6 +18,12 @@ const terminal = createInterface({
 });
 terminal.setPrompt("\nyou> ");
 console.log('Ableton co-pilot (fake session). Type "exit" to quit.');
+
+let turn: AbortController | undefined;
+terminal.on("SIGINT", () => {
+    if (turn) turn.abort();
+    else terminal.close();
+});
 terminal.prompt();
 
 for await (const line of terminal) {
@@ -25,18 +31,23 @@ for await (const line of terminal) {
     if (text === "exit") break;
 
     if (text !== "") {
+        turn = new AbortController();
         const result = await runAgentLoop(
             provider,
             tools,
             [...conversation, { type: "user", text }],
-            { onMessage: print },
+            { onMessage: print, signal: turn.signal },
         );
 
-        // Kepp everything that happened, even when the turn did not finish
+        turn = undefined;
+
+        // Keep everything that happened, even when the turn did not finish
         conversation = result.messages;
 
         if (result.stop === "error") {
             console.error(`error: ${result.error.message}`);
+        } else if (result.stop === "cancelled") {
+            console.log("cancelled");
         } else if (result.stop === "round_limit") {
             console.error("stopped: too many rounds without finishing");
         }

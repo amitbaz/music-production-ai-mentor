@@ -222,3 +222,16 @@ test("the provider throws Gemini's own message when a request fails", async (t) 
         /Gemini request failed \(429\): Quota exceeded/,
     );
 });
+
+test("the provider passes the cancel signal to fetch", async (t) => {
+    const fetchMock = fakeFetch(t, 200, {
+        candidates: [{ content: { role: "model", parts: [{ text: "Hello!" }] } }],
+    });
+    const provider = createGeminiProvider("test-key", "test-model");
+    const controller = new AbortController();
+
+    await provider.generate([{ type: "user", text: "Hi" }], [], controller.signal);
+
+    const [, options] = fetchMock.mock.calls[0]!.arguments as [string, RequestInit];
+    assert.equal(options.signal, controller.signal);
+});

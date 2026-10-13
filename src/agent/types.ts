@@ -21,5 +21,5 @@ export type ToolCall = Extract<Message, {type: "tool_call"}>
 
 // A model API. Takes the whole conversation and returns the model's new messages.
 export type Provider = {
-    generate: (conversation: Message[], tools: Tool[]) => Promise<Message[]>;
+    generate: (conversation: Message[], tools: Tool[], signal?: AbortSignal) => Promise<Message[]>;
 }

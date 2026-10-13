@@ -133,7 +133,7 @@ export function createGeminiProvider(apiKey: string, model: string): Provider {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
         return {
-            generate: async (conversation: Message[], tools: Tool[]) => {
+            generate: async (conversation: Message[], tools: Tool[], signal?: AbortSignal) => {
                 const response = await fetch(url, {
                     method: "POST",
                     headers: {
@@ -141,6 +141,7 @@ export function createGeminiProvider(apiKey: string, model: string): Provider {
                         "x-goog-api-key": apiKey,
                     },
                     body: JSON.stringify(toGeminiRequest(conversation, tools)),
+                    signal
                 });
 
                 const body = (await response.json()) as GeminiResponse;
