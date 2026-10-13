@@ -1,7 +1,7 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {createFakeAbleton} from "./fake-ableton.ts";
-import type { Tool } from "../../../agent/types.ts";
+import type { Tool } from "@mentor/harness";
 
 function findTool(tools: Tool[], name: string): Tool{
     const tool = tools.find((tool) => tool.name === name);

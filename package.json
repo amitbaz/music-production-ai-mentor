@@ -2,12 +2,13 @@
     "name": "music-production-ai-mentor",
     "private": true,
     "type": "module",
+    "packageManager": "pnpm@12.11.2",
     "scripts": {
-        "start": "node --env-file=.env src/cli.ts",
-        "test": "node --test \"src/**/*.test.ts\"",
-        "typecheck": "tsc",
-        "lint": "biome lint --error-on-warnings src",
-        "check": "npm run typecheck && npm run lint && npm test"
+        "start": "pnpm --filter @mentor/cli start",
+        "test": "pnpm -r test",
+        "typecheck": "pnpm -r typecheck",
+        "lint": "pnpm -r lint",
+        "check": "pnpm -r check"
     },
     "devDependencies": {
         "@biomejs/biome": "^2.5.15",

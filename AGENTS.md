@@ -21,23 +21,28 @@ Question: You cancel while set_tempo is running, and create_track has not starte
 
 ## Boundaries
 
-- `src/agent/` is the harness and imports only from itself. It knows about messages, tools and providers, and nothing about music or any tool set.
-- `src/tools/` holds the tool sets, as `src/tools/<kind>/<name>/`. They import only from `src/agent/`.
-- `src/cli.ts` and `src/system-prompt.ts` are the product, the only place the harness and the tool sets meet.
+The repo is a pnpm workspace. Packages export their `.ts` source; there is no build step.
+
+- `packages/harness/` is `@mentor/harness` and depends on no other package. It knows about messages, tools and providers, and nothing about music or any tool set.
+- `packages/tools/` is `@mentor/tools` and holds the tool sets, as `src/<kind>/<name>/`, each with its own entry such as `@mentor/tools/daws/ableton`. It depends only on the harness.
+- `packages/mentor/` is `@mentor/mentor`, the product: the system prompt, the model and the tool sets, joined by `createMentor`. It is the only place the harness and the tool sets meet.
+- `apps/` holds the apps. `apps/cli/` is the terminal. An app depends only on `@mentor/mentor` and owns what the user sees.
+
+A package can import another only by name, and only when it lists it as a dependency. `pnpm check` fails on an import that breaks this, including a relative path into another package.
 
 ## Tool sets
 
-A tool set is a group of tools for one outside source. Each kind of source has a folder under `src/tools/` and a heading below.
+A tool set is a group of tools for one outside source. Each kind of source has a folder under `packages/tools/src/` and a heading below.
 
-### Supported DAWs (`src/tools/daws/`)
+### Supported DAWs (`packages/tools/src/daws/`)
 
 - **Ableton Live**, in `ableton/`. Its tools act on an in-memory fake until the connection to the real application exists.
 
 ## Constraints
 
 - The project has no runtime dependencies, and provider adapters call the HTTP API with `fetch`. Raise a new dependency with the maintainer as a decision.
-- `npm run check` runs the type check, the linter and the tests. It passes before every commit.
-- API keys and any other sensitive values live in `.env`, which is not committed. Keep their values out of output, logs, tests and commits.
+- `pnpm check` runs the type check, the linter and the tests in every package. It passes before every commit.
+- API keys and any other sensitive values live in a `.env` file inside each app (`apps/cli/.env`), which is not committed. Keep their values out of output, logs, tests and commits.
 
 ## Testing
 
@@ -48,7 +53,7 @@ There are three kinds of test. Choose by what could be wrong: our code, our read
 - Write them first, and see them fail, before the implementation.
 - They run with no network. A scripted provider stands in for the model, and adapter tests replace `fetch`.
 - Assert on what a caller can see: the messages returned, the stop reason, the request that was sent.
-- `npm test` runs all of them.
+- `pnpm test` runs all of them.
 
 ### Recorded replies: do we read real responses correctly?
 
@@ -58,7 +63,7 @@ There are three kinds of test. Choose by what could be wrong: our code, our read
 ### Evals: does the model behave, given our prompt and tools?
 
 - Use them for anything the model decides: which tool it picks, whether it follows the system prompt. A scripted provider cannot test these, because it does what the script says.
-- They call the real API, so they run on demand, apart from `npm test`, and a commit never depends on them.
+- They call the real API, so they run on demand, apart from `pnpm test`, and a commit never depends on them.
 - Each case states a request and an expectation that can be checked in the conversation, such as which tools were called and in what order.
 - Run each case several times and report how many passed. One passing run proves little, because the model varies.
 - There is no eval runner yet. Until there is, check model behaviour with a throwaway script outside the repo, and report what you saw as observed, with the number of runs.

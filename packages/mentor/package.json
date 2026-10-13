@@ -1,0 +1,16 @@
+{
+    "name": "@mentor/mentor",
+    "private": true,
+    "type": "module",
+    "exports": "./src/index.ts",
+    "scripts": {
+        "test": "node --test \"src/**/*.test.ts\"",
+        "typecheck": "tsc",
+        "lint": "biome lint --error-on-warnings src",
+        "check": "pnpm typecheck && pnpm lint && pnpm test"
+    },
+    "dependencies": {
+        "@mentor/harness": "workspace:*",
+        "@mentor/tools": "workspace:*"
+    }
+}

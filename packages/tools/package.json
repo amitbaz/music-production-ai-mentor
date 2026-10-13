@@ -1,0 +1,17 @@
+{
+    "name": "@mentor/tools",
+    "private": true,
+    "type": "module",
+    "exports": {
+        "./daws/ableton": "./src/daws/ableton/fake-ableton.ts"
+    },
+    "scripts": {
+        "test": "node --test \"src/**/*.test.ts\"",
+        "typecheck": "tsc",
+        "lint": "biome lint --error-on-warnings src",
+        "check": "pnpm typecheck && pnpm lint && pnpm test"
+    },
+    "dependencies": {
+        "@mentor/harness": "workspace:*"
+    }
+}

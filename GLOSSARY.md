@@ -1,6 +1,7 @@
 # Glossary
 
 - **Mentor** — the product: a music production mentor the user talks to. It explains when asked to explain, and acts through its tools when asked to act, saying why. Its tool sets are what it can act through, not what it is.
+- **App** — one way the user reaches the mentor, such as the terminal or a desktop window. It owns what the user sees and keeps the conversation; the mentor is the same in every app.
 - **Agent loop** — the cycle at the centre of the harness: send the conversation to the model; if the reply asks for tool calls, run them, append the results, and send again; stop when the model replies with text only (or the round limit is hit).
 - **Harness** — everything around the model that makes it an agent: the agent loop, the tools, the conversation, and the provider adapters.
 - **Conversation** — the ordered list of messages the harness keeps and re-sends in full on every model call. The model has no memory; the conversation is the memory.

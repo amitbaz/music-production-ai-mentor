@@ -1,24 +1,16 @@
-import { createFakeAbleton } from "./tools/daws/ableton/fake-ableton.ts";
-import { createGeminiProvider } from "./agent/providers/gemini.ts";
 import { createInterface } from "node:readline";
-import type { Message, ToolCall } from "./agent/types.ts";
-import { runAgentLoop } from "./agent/agent-loop.ts";
-import { systemPrompt } from "./system-prompt.ts";
-import { withRetry } from "./agent/retry.ts";
+import { createMentor, type Message, type ToolCall } from "@mentor/mentor";
 
 const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
 
-const provider = withRetry(
-    createGeminiProvider(apiKey, "gemini-3.5-flash-lite"),
-    {
-        onRetry: ({ error, retry, maxRetries, waitMs }) =>
-            console.error(
-                `  (${error.message}, trying again in ${waitMs / 1000}s, retry ${retry} of ${maxRetries})`,
-            ),
-    },
-);
-const tools = createFakeAbleton();
+const mentor = createMentor({
+    apiKey,
+    onRetry: ({ error, retry, maxRetries, waitMs }) =>
+        console.error(
+            `  (${error.message}, trying again in ${waitMs / 1000}s, retry ${retry} of ${maxRetries})`,
+        ),
+});
 
 let conversation: Message[] = [];
 
@@ -44,17 +36,11 @@ for await (const line of terminal) {
 
     if (text !== "") {
         turn = new AbortController();
-        const result = await runAgentLoop(
-            provider,
-            tools,
-            [...conversation, { type: "user", text }],
-            {
-                onMessage: print,
-                signal: turn.signal,
-                system: systemPrompt,
-                approve,
-            },
-        );
+        const result = await mentor.runTurn(conversation, text, {
+            onMessage: print,
+            signal: turn.signal,
+            approve,
+        });
 
         turn = undefined;
 

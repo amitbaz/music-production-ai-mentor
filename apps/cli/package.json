@@ -1,0 +1,14 @@
+{
+    "name": "@mentor/cli",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "start": "node --env-file=.env src/cli.ts",
+        "typecheck": "tsc",
+        "lint": "biome lint --error-on-warnings src",
+        "check": "pnpm typecheck && pnpm lint"
+    },
+    "dependencies": {
+        "@mentor/mentor": "workspace:*"
+    }
+}

@@ -1,6 +1,6 @@
 # 0004 — Agent code is separate from Ableton code, as a folder and not yet a package
 
-Date: 2026-10-13 · Status: accepted
+Date: 2026-10-13 · Status: superseded by [0010](0010-a-pnpm-workspace-of-source-packages.md)
 
 ## Context
 

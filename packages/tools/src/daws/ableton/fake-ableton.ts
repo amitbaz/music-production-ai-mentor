@@ -1,4 +1,4 @@
-import type { Tool } from "../../../agent/types.ts";
+import type { Tool } from "@mentor/harness";
 
 export function createFakeAbleton(): Tool[] {
     // The whole fake: created fresh on every call, so callers never share state.
