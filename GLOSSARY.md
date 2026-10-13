@@ -12,4 +12,6 @@
 - **Tool call** — the model's request to run a tool with given arguments.
 - **Tool result** — what the harness sends back after running a tool call, including errors.
 - **Fake Ableton** — an in-memory stand-in for Ableton Live (tempo and named tracks) that the tools act on until the real bridge exists. Resets on every run.
-- **Round** — one model call plus the tool calls it triggers. The agent loop is capped at 10 rounds per user message.
+- **Round** — one model call plus the tool calls it triggers. The agent loop is capped at 10 rounds per turn.
+- **Turn** — everything the agent loop does in answer to one user message: one or more rounds, ending with a stop reason.
+- **Stop reason** — why a turn ended: the model finished, the round limit was hit, or a model call failed. It is reported next to the conversation, never as a message inside it.
