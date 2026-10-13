@@ -1,4 +1,4 @@
-import type { Message, Provider, Tool, ToolCall } from "./types.ts";
+import type { Message, Model, Tool, ToolCall } from "./types.ts";
 
 const MAX_ROUNDS = 10; // Prevent infinite loops if the model keeps calling tools.
 
@@ -22,7 +22,7 @@ export type LoopOptions = {
 
 // Never throws: a failed model call is returned as stop "error"
 export async function runAgentLoop(
-    provider: Provider,
+    model: Model,
     tools: Tool[],
     conversation: Message[],
     options: LoopOptions = {},
@@ -40,7 +40,7 @@ export async function runAgentLoop(
         // Send the whole conversation; get back the model's next messages.
         let reply: Message[];
         try {
-            reply = await provider.generate(messages, tools, {
+            reply = await model.call(messages, tools, {
                 system: options.system,
                 signal: options.signal,
             });

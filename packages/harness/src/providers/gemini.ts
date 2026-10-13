@@ -1,8 +1,8 @@
 import {
-    type GenerateOptions,
+    type CallOptions,
     type Message,
     ModelCallError,
-    type Provider,
+    type Model,
     type Tool,
 } from "../types.ts";
 
@@ -167,15 +167,15 @@ export function fromGeminiResponse(response: GeminiResponse): Message[] {
     return messages;
 }
 
-// A Provider backed by the real Gemini API: translate, send, translate back.
-export function createGeminiProvider(apiKey: string, model: string): Provider {
+// A Model backed by the real Gemini API: translate, send, translate back.
+export function createGeminiModel(apiKey: string, model: string): Model {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
     return {
-        generate: async (
+        call: async (
             conversation: Message[],
             tools: Tool[],
-            options?: GenerateOptions,
+            options?: CallOptions,
         ) => {
             let response: Response;
             try {

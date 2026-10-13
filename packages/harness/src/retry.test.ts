@@ -2,19 +2,19 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runAgentLoop } from "./agent-loop.ts";
 import { withRetry } from "./retry.ts";
-import { type GenerateOptions, type Message, ModelCallError, type Provider } from "./types.ts";
+import { type CallOptions, type Message, ModelCallError, type Model } from "./types.ts";
 
 const hello: Message[] = [{ type: "user", text: "Hello" }];
 const reply: Message[] = [{ type: "assistant", text: "Hi there" }];
 
 const busy = () => new ModelCallError("Model is overloaded", { retryable: true });
 
-// A fake provider whose attempts follow a script: an Error is thrown, messages are returned.
+// A scripted model whose attempts follow a script: an Error is thrown, messages are returned.
 // It records the options of each attempt.
-function scriptedProvider(script: (Error | Message[])[]) {
-    const attempts: (GenerateOptions | undefined)[] = [];
-    const provider: Provider = {
-        generate: async (_conversation, _tools, options) => {
+function scriptedModel(script: (Error | Message[])[]) {
+    const attempts: (CallOptions | undefined)[] = [];
+    const model: Model = {
+        call: async (_conversation, _tools, options) => {
             attempts.push(options);
             const next = script.shift();
             if (!next) throw new Error("The script ran out of replies");
@@ -22,7 +22,7 @@ function scriptedProvider(script: (Error | Message[])[]) {
             return next;
         },
     };
-    return { provider, attempts };
+    return { model, attempts };
 }
 
 // Collects the wait of each retry the wrapper reports.
@@ -32,10 +32,10 @@ function recordedWaits() {
 }
 
 test("returns the reply of a first attempt that works, without a retry", async () => {
-    const { provider, attempts } = scriptedProvider([reply]);
+    const { model, attempts } = scriptedModel([reply]);
     const { waits, onRetry } = recordedWaits();
 
-    const result = await withRetry(provider, { onRetry }).generate(hello, []);
+    const result = await withRetry(model, { onRetry }).call(hello, []);
 
     assert.deepEqual(result, reply);
     assert.equal(attempts.length, 1);
@@ -43,10 +43,10 @@ test("returns the reply of a first attempt that works, without a retry", async (
 });
 
 test("retries a retryable failure, waiting twice as long each time", async () => {
-    const { provider, attempts } = scriptedProvider([busy(), busy(), busy(), busy(), busy(), reply]);
+    const { model, attempts } = scriptedModel([busy(), busy(), busy(), busy(), busy(), reply]);
     const { waits, onRetry } = recordedWaits();
 
-    const result = await withRetry(provider, { firstWaitMs: 1, onRetry }).generate(hello, []);
+    const result = await withRetry(model, { firstWaitMs: 1, onRetry }).call(hello, []);
 
     assert.deepEqual(result, reply);
     assert.equal(attempts.length, 6);
@@ -55,73 +55,73 @@ test("retries a retryable failure, waiting twice as long each time", async () =>
 
 test("reports the failure and the retry number before each wait", async () => {
     const failure = busy();
-    const { provider } = scriptedProvider([failure, reply]);
+    const { model } = scriptedModel([failure, reply]);
     const reports: unknown[] = [];
 
-    await withRetry(provider, {
+    await withRetry(model, {
         firstWaitMs: 1,
         onRetry: (report) => reports.push(report),
-    }).generate(hello, []);
+    }).call(hello, []);
 
     assert.deepEqual(reports, [{ error: failure, retry: 1, maxRetries: 5, waitMs: 1 }]);
 });
 
 test("fails with the last failure when the retries run out", async () => {
     const last = new ModelCallError("Still overloaded", { retryable: true });
-    const { provider, attempts } = scriptedProvider([busy(), busy(), last]);
+    const { model, attempts } = scriptedModel([busy(), busy(), last]);
 
     await assert.rejects(
-        withRetry(provider, { maxRetries: 2, firstWaitMs: 1 }).generate(hello, []),
+        withRetry(model, { maxRetries: 2, firstWaitMs: 1 }).call(hello, []),
         last,
     );
     assert.equal(attempts.length, 3);
 });
 
 test("does not retry when maxRetries is 0", async () => {
-    const { provider, attempts } = scriptedProvider([busy(), reply]);
+    const { model, attempts } = scriptedModel([busy(), reply]);
 
-    await assert.rejects(withRetry(provider, { maxRetries: 0 }).generate(hello, []));
+    await assert.rejects(withRetry(model, { maxRetries: 0 }).call(hello, []));
     assert.equal(attempts.length, 1);
 });
 
 test("does not retry a failure marked as not retryable", async () => {
     const badKey = new ModelCallError("API key not valid", { retryable: false });
-    const { provider, attempts } = scriptedProvider([badKey, reply]);
+    const { model, attempts } = scriptedModel([badKey, reply]);
 
-    await assert.rejects(withRetry(provider, { firstWaitMs: 1 }).generate(hello, []), badKey);
+    await assert.rejects(withRetry(model, { firstWaitMs: 1 }).call(hello, []), badKey);
     assert.equal(attempts.length, 1);
 });
 
 test("does not retry an error that carries no label", async () => {
     const bug = new Error("Cannot read properties of undefined");
-    const { provider, attempts } = scriptedProvider([bug, reply]);
+    const { model, attempts } = scriptedModel([bug, reply]);
 
-    await assert.rejects(withRetry(provider, { firstWaitMs: 1 }).generate(hello, []), bug);
+    await assert.rejects(withRetry(model, { firstWaitMs: 1 }).call(hello, []), bug);
     assert.equal(attempts.length, 1);
 });
 
 test("waits as long as the provider asks, in place of its own wait", async () => {
     const limited = new ModelCallError("Quota exceeded", { retryable: true, retryAfterMs: 7 });
-    const { provider } = scriptedProvider([limited, reply]);
+    const { model } = scriptedModel([limited, reply]);
     const { waits, onRetry } = recordedWaits();
 
-    await withRetry(provider, { firstWaitMs: 1, onRetry }).generate(hello, []);
+    await withRetry(model, { firstWaitMs: 1, onRetry }).call(hello, []);
 
     assert.deepEqual(waits, [7]);
 });
 
 test("fails without waiting when the provider asks for more than a minute", async () => {
     const limited = new ModelCallError("Quota exceeded", { retryable: true, retryAfterMs: 61_000 });
-    const { provider, attempts } = scriptedProvider([limited, reply]);
+    const { model, attempts } = scriptedModel([limited, reply]);
     const { waits, onRetry } = recordedWaits();
 
-    await assert.rejects(withRetry(provider, { onRetry }).generate(hello, []), limited);
+    await assert.rejects(withRetry(model, { onRetry }).call(hello, []), limited);
     assert.equal(attempts.length, 1);
     assert.deepEqual(waits, []);
 });
 
 // Never replies; fails only when its signal fires, as fetch does.
-function hangingAttempt(options?: GenerateOptions) {
+function hangingAttempt(options?: CallOptions) {
     return new Promise<Message[]>((_resolve, reject) => {
         options?.signal?.addEventListener("abort", () => reject(options.signal?.reason));
     });
@@ -129,19 +129,19 @@ function hangingAttempt(options?: GenerateOptions) {
 
 test("stops an attempt that passes its time limit and retries it", async () => {
     let attempts = 0;
-    const provider: Provider = {
-        generate: async (_conversation, _tools, options) => {
+    const model: Model = {
+        call: async (_conversation, _tools, options) => {
             attempts++;
             return attempts === 1 ? hangingAttempt(options) : reply;
         },
     };
     const errors: Error[] = [];
 
-    const result = await withRetry(provider, {
+    const result = await withRetry(model, {
         timeoutMs: 10,
         firstWaitMs: 1,
         onRetry: ({ error }) => errors.push(error),
-    }).generate(hello, []);
+    }).call(hello, []);
 
     assert.deepEqual(result, reply);
     assert.equal(attempts, 2);
@@ -149,9 +149,9 @@ test("stops an attempt that passes its time limit and retries it", async () => {
 });
 
 test("passes the system prompt on to every attempt", async () => {
-    const { provider, attempts } = scriptedProvider([busy(), reply]);
+    const { model, attempts } = scriptedModel([busy(), reply]);
 
-    await withRetry(provider, { firstWaitMs: 1 }).generate(hello, [], { system: "You are a test." });
+    await withRetry(model, { firstWaitMs: 1 }).call(hello, [], { system: "You are a test." });
 
     assert.deepEqual(
         attempts.map((options) => options?.system),
@@ -160,11 +160,11 @@ test("passes the system prompt on to every attempt", async () => {
 });
 
 test("a cancel during a wait ends the turn as cancelled, with no further attempt", async () => {
-    const { provider, attempts } = scriptedProvider([busy(), reply]);
+    const { model, attempts } = scriptedModel([busy(), reply]);
     const controller = new AbortController();
 
     const result = await runAgentLoop(
-        withRetry(provider, { firstWaitMs: 60_000, onRetry: () => controller.abort() }),
+        withRetry(model, { firstWaitMs: 60_000, onRetry: () => controller.abort() }),
         [],
         hello,
         { signal: controller.signal },
@@ -177,15 +177,15 @@ test("a cancel during a wait ends the turn as cancelled, with no further attempt
 test("a cancel during an attempt ends the turn as cancelled, with no retry", async () => {
     let attempts = 0;
     const controller = new AbortController();
-    const provider: Provider = {
-        generate: async (_conversation, _tools, options) => {
+    const model: Model = {
+        call: async (_conversation, _tools, options) => {
             attempts++;
             setImmediate(() => controller.abort());
             return hangingAttempt(options);
         },
     };
 
-    const result = await runAgentLoop(withRetry(provider, { firstWaitMs: 1 }), [], hello, {
+    const result = await runAgentLoop(withRetry(model, { firstWaitMs: 1 }), [], hello, {
         signal: controller.signal,
     });
 
@@ -195,10 +195,10 @@ test("a cancel during an attempt ends the turn as cancelled, with no retry", asy
 
 test("when the retries run out the turn ends with the error and keeps the conversation", async () => {
     const last = new ModelCallError("Still overloaded", { retryable: true });
-    const { provider } = scriptedProvider([busy(), last]);
+    const { model } = scriptedModel([busy(), last]);
 
     const result = await runAgentLoop(
-        withRetry(provider, { maxRetries: 1, firstWaitMs: 1 }),
+        withRetry(model, { maxRetries: 1, firstWaitMs: 1 }),
         [],
         hello,
     );

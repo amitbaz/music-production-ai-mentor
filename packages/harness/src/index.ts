@@ -1,10 +1,12 @@
-export { type LoopOptions, type LoopResult, runAgentLoop } from "./agent-loop.ts";
-export { type RetryOptions, type RetryReport, withRetry } from "./retry.ts";
+export { type AgentOptions, createAgent, type TurnOptions } from "./agent.ts";
+export type { LoopResult } from "./agent-loop.ts";
+export type { Keys } from "./providers/index.ts";
+export type { RetryOptions, RetryReport } from "./retry.ts";
 export {
-    type GenerateOptions,
+    type CallOptions,
     type Message,
+    type Model,
     ModelCallError,
-    type Provider,
     type Tool,
     type ToolCall,
 } from "./types.ts";

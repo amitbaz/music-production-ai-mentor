@@ -3,5 +3,6 @@ export type {
     Message,
     RetryReport,
     ToolCall,
+    TurnOptions,
 } from "@mentor/harness";
-export { createMentor, type MentorOptions, type TurnOptions } from "./mentor.ts";
+export { createMentor, type MentorOptions } from "./mentor.ts";

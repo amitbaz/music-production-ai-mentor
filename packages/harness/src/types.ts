@@ -34,11 +34,11 @@ export type Tool = {
 export type ToolCall = Extract<Message, { type: "tool_call" }>;
 
 // A model API. Takes the whole conversation and returns the model's new messages.
-export type Provider = {
-    generate: (
+export type Model = {
+    call: (
         conversation: Message[],
         tools: Tool[],
-        options?: GenerateOptions,
+        options?: CallOptions,
     ) => Promise<Message[]>;
 };
 
@@ -62,7 +62,7 @@ export class ModelCallError extends Error {
 }
 
 // Optional extras for one model call
-export type GenerateOptions = {
+export type CallOptions = {
     system?: string;
     signal?: AbortSignal;
 };

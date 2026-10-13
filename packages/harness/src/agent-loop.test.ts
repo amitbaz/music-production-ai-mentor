@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runAgentLoop } from "./agent-loop.ts";
-import type { Message, Provider, Tool } from "./types.ts";
+import type { Message, Model, Tool } from "./types.ts";
 
 // One generic tool, so these tests depend on nothing outside the agent folder.
 const tools: Tool[] = [
@@ -20,27 +20,27 @@ const tools: Tool[] = [
     },
 ];
 
-// A fake provider that hands out prepared replies, one per call,
+// A scripted model that hands out prepared replies, one per call,
 // and records what it was sent each time.
-function scriptedProvider(replies: Message[][]) {
+function scriptedModel(replies: Message[][]) {
     const calls: Message[][] = [];
-    const provider: Provider = {
-        generate: async (conversation) => {
+    const model: Model = {
+        call: async (conversation) => {
             calls.push([...conversation]);
             const reply = replies.shift();
             if (!reply) throw new Error("The script ran out of replies");
             return reply;
         },
     };
-    return { provider, calls };
+    return { model, calls };
 }
 
 test("returns the model's text when it calls no tools", async () => {
-    const { provider, calls } = scriptedProvider([
+    const { model, calls } = scriptedModel([
         [{ type: "assistant", text: "Hi there" }],
     ]);
 
-    const result = await runAgentLoop(provider, tools, [
+    const result = await runAgentLoop(model, tools, [
         { type: "user", text: "Hello" },
     ]);
 
@@ -55,12 +55,12 @@ test("returns the model's text when it calls no tools", async () => {
 });
 
 test("runs a tool call and sends the result back to the model", async () => {
-    const { provider, calls } = scriptedProvider([
+    const { model, calls } = scriptedModel([
         [{ type: "tool_call", id: "call_1", name: "shout", args: { text: "hello" } }],
         [{ type: "assistant", text: "It says HELLO." }],
     ]);
 
-    const result = await runAgentLoop(provider, tools, [
+    const result = await runAgentLoop(model, tools, [
         { type: "user", text: "Shout hello" },
     ]);
 
@@ -83,12 +83,12 @@ test("runs a tool call and sends the result back to the model", async () => {
 });
 
 test("a failing tool becomes an error result the model can read", async () => {
-    const { provider } = scriptedProvider([
+    const { model } = scriptedModel([
         [{ type: "tool_call", id: "call_1", name: "shout", args: { text: 5 } }],
         [{ type: "assistant", text: "I need text to shout." }],
     ]);
 
-    const result = await runAgentLoop(provider, tools, [
+    const result = await runAgentLoop(model, tools, [
         { type: "user", text: "Shout 5" },
     ]);
 
@@ -104,12 +104,12 @@ test("a failing tool becomes an error result the model can read", async () => {
 });
 
 test("a tool the model invented becomes an error result", async () => {
-    const { provider } = scriptedProvider([
+    const { model } = scriptedModel([
         [{ type: "tool_call", id: "call_1", name: "delete_everything", args: {} }],
         [{ type: "assistant", text: "I can't do that." }],
     ]);
 
-    const result = await runAgentLoop(provider, tools, [
+    const result = await runAgentLoop(model, tools, [
         { type: "user", text: "Delete everything" },
     ]);
 
@@ -126,9 +126,9 @@ test("stops after 10 rounds without adding a message of its own", async () => {
     const endlessToolCalls: Message[][] = Array.from({ length: 20 }, (_, i) => [
         { type: "tool_call", id: `call_${i}`, name: "shout", args: { text: "again" } },
     ]);
-    const { provider, calls } = scriptedProvider(endlessToolCalls);
+    const { model, calls } = scriptedModel(endlessToolCalls);
 
-    const result = await runAgentLoop(provider, tools, [
+    const result = await runAgentLoop(model, tools, [
         { type: "user", text: "Loop forever" },
     ]);
 
@@ -141,9 +141,9 @@ test("stops after 10 rounds without adding a message of its own", async () => {
 
 test("a failed model call returns the error and keeps the user's message", async () => {
     // An empty script: the first model call fails.
-    const { provider } = scriptedProvider([]);
+    const { model } = scriptedModel([]);
 
-    const result = await runAgentLoop(provider, tools, [
+    const result = await runAgentLoop(model, tools, [
         { type: "user", text: "Hello" },
     ]);
 
@@ -157,11 +157,11 @@ test("a failed model call returns the error and keeps the user's message", async
 
 test("a model call that fails after a tool ran keeps the tool's record", async () => {
     // One reply only: the second model call fails.
-    const { provider } = scriptedProvider([
+    const { model } = scriptedModel([
         [{ type: "tool_call", id: "call_1", name: "shout", args: { text: "hello" } }],
     ]);
 
-    const result = await runAgentLoop(provider, tools, [
+    const result = await runAgentLoop(model, tools, [
         { type: "user", text: "Shout hello" },
     ]);
 
@@ -173,14 +173,14 @@ test("a model call that fails after a tool ran keeps the tool's record", async (
 });
 
 test("reports each new message as it happens", async () => {
-    const { provider } = scriptedProvider([
+    const { model } = scriptedModel([
         [{ type: "tool_call", id: "call_1", name: "shout", args: { text: "hello" } }],
         [{ type: "assistant", text: "It says HELLO." }],
     ]);
     const reported: Message[] = [];
 
     const result = await runAgentLoop(
-        provider,
+        model,
         tools,
         [{ type: "user", text: "Shout hello" }],
         { onMessage: (message) => reported.push(message) },
@@ -190,17 +190,17 @@ test("reports each new message as it happens", async () => {
     assert.deepEqual(reported, result.messages.slice(1));
 });
 
-test("gives the provider the caller's cancel signal", async () => {
+test("gives the model the caller's cancel signal", async () => {
     const controller = new AbortController();
     let received: AbortSignal | undefined;
-    const provider: Provider = {
-        generate: async (_conversation, _tools, options) => {
+    const model: Model = {
+        call: async (_conversation, _tools, options) => {
             received = options?.signal;
             return [{ type: "assistant", text: "Hi" }];
         },
     };
 
-    await runAgentLoop(provider, tools, [{ type: "user", text: "Hello" }], {
+    await runAgentLoop(model, tools, [{ type: "user", text: "Hello" }], {
         signal: controller.signal,
     });
 
@@ -209,16 +209,16 @@ test("gives the provider the caller's cancel signal", async () => {
 
 test("cancelling while waiting for the model stops the turn as cancelled", async () => {
     const controller = new AbortController();
-    // Behaves like a real provider: the cancel makes the pending call fail.
-    const provider: Provider = {
-        generate: async () => {
+    // Behaves like a real model: the cancel makes the pending call fail.
+    const model: Model = {
+        call: async () => {
             controller.abort();
             throw new Error("This operation was aborted");
         },
     };
 
     const result = await runAgentLoop(
-        provider,
+        model,
         tools,
         [{ type: "user", text: "Hello" }],
         { signal: controller.signal },
@@ -244,7 +244,7 @@ test("cancelling while a tool runs lets it finish and skips the rest", async () 
             },
         },
     ];
-    const { provider, calls } = scriptedProvider([
+    const { model, calls } = scriptedModel([
         [
             { type: "tool_call", id: "call_1", name: "slow", args: { label: "first" } },
             { type: "tool_call", id: "call_2", name: "slow", args: { label: "second" } },
@@ -253,7 +253,7 @@ test("cancelling while a tool runs lets it finish and skips the rest", async () 
     ]);
 
     const result = await runAgentLoop(
-        provider,
+        model,
         slowTools,
         [{ type: "user", text: "Do two slow things" }],
         { signal: controller.signal },
@@ -300,7 +300,7 @@ function guardedTool() {
 }
 
 function wipeScript() {
-    return scriptedProvider([
+    return scriptedModel([
         [{ type: "tool_call", id: "call_1", name: "wipe", args: {} }],
         [{ type: "assistant", text: "Done." }],
     ]);
@@ -308,11 +308,11 @@ function wipeScript() {
 
 test("a tool that needs approval runs when the caller approves", async () => {
     const { guarded, ran } = guardedTool();
-    const { provider } = wipeScript();
+    const { model } = wipeScript();
     const asked: string[] = [];
 
     const result = await runAgentLoop(
-        provider,
+        model,
         guarded,
         [{ type: "user", text: "Wipe it" }],
         {
@@ -333,10 +333,10 @@ test("a tool that needs approval runs when the caller approves", async () => {
 
 test("a refused tool does not run, and the model is told", async () => {
     const { guarded, ran } = guardedTool();
-    const { provider, calls } = wipeScript();
+    const { model, calls } = wipeScript();
 
     const result = await runAgentLoop(
-        provider,
+        model,
         guarded,
         [{ type: "user", text: "Wipe it" }],
         { approve: () => false },
@@ -357,9 +357,9 @@ test("a refused tool does not run, and the model is told", async () => {
 
 test("a tool that needs approval is refused when the caller cannot be asked", async () => {
     const { guarded, ran } = guardedTool();
-    const { provider } = wipeScript();
+    const { model } = wipeScript();
 
-    const result = await runAgentLoop(provider, guarded, [
+    const result = await runAgentLoop(model, guarded, [
         { type: "user", text: "Wipe it" },
     ]);
 
@@ -371,13 +371,13 @@ test("a tool that needs approval is refused when the caller cannot be asked", as
 });
 
 test("a tool that does not need approval runs without asking", async () => {
-    const { provider } = scriptedProvider([
+    const { model } = scriptedModel([
         [{ type: "tool_call", id: "call_1", name: "shout", args: { text: "hello" } }],
         [{ type: "assistant", text: "Done." }],
     ]);
     let asked = false;
 
-    await runAgentLoop(provider, tools, [{ type: "user", text: "Shout hello" }], {
+    await runAgentLoop(model, tools, [{ type: "user", text: "Shout hello" }], {
         approve: () => {
             asked = true;
             return true;
@@ -389,11 +389,11 @@ test("a tool that does not need approval runs without asking", async () => {
 
 test("cancelling while being asked counts as cancelled, not refused", async () => {
     const { guarded, ran } = guardedTool();
-    const { provider } = wipeScript();
+    const { model } = wipeScript();
     const controller = new AbortController();
 
     const result = await runAgentLoop(
-        provider,
+        model,
         guarded,
         [{ type: "user", text: "Wipe it" }],
         {
@@ -414,9 +414,9 @@ test("cancelling while being asked counts as cancelled, not refused", async () =
 });
 
 test("a reply with nothing in it stops the turn as empty", async () => {
-    const { provider, calls } = scriptedProvider([[]]);
+    const { model, calls } = scriptedModel([[]]);
 
-    const result = await runAgentLoop(provider, tools, [
+    const result = await runAgentLoop(model, tools, [
         { type: "user", text: "Hello" },
     ]);
 
@@ -426,14 +426,14 @@ test("a reply with nothing in it stops the turn as empty", async () => {
 });
 
 test("a reply with only blank text is empty and is not kept", async () => {
-    const { provider } = scriptedProvider([
+    const { model } = scriptedModel([
         [{ type: "tool_call", id: "call_1", name: "shout", args: { text: "hello" } }],
         [{ type: "assistant", text: "  \n" }],
     ]);
     const reported: Message[] = [];
 
     const result = await runAgentLoop(
-        provider,
+        model,
         tools,
         [{ type: "user", text: "Shout hello" }],
         { onMessage: (message) => reported.push(message) },
@@ -447,21 +447,21 @@ test("a reply with only blank text is empty and is not kept", async () => {
     assert.equal(reported.length, 2);
 });
 
-test("gives the provider the system prompt on every model call", async () => {
+test("gives the model the system prompt on every model call", async () => {
     const received: (string | undefined)[] = [];
     const replies: Message[][] = [
         [{ type: "tool_call", id: "call_1", name: "shout", args: { text: "hello" } }],
         [{ type: "assistant", text: "It says HELLO." }],
     ];
-    const provider: Provider = {
-        generate: async (_conversation, _tools, options) => {
+    const model: Model = {
+        call: async (_conversation, _tools, options) => {
             received.push(options?.system);
             return replies.shift() ?? [];
         },
     };
 
     const result = await runAgentLoop(
-        provider,
+        model,
         tools,
         [{ type: "user", text: "Shout hello" }],
         { system: "You are a test." },

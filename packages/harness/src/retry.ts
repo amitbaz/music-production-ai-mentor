@@ -1,5 +1,5 @@
 import { setTimeout as wait } from "node:timers/promises";
-import { ModelCallError, type Provider } from "./types.ts";
+import { ModelCallError, type Model } from "./types.ts";
 
 // A provider that asks for a longer wait than this fails the model call instead.
 const MAX_PROVIDER_WAIT_MS = 60_000;
@@ -24,16 +24,16 @@ export type RetryOptions = {
     onRetry?: (report: RetryReport) => void;
 };
 
-// Wraps a provider so that a model call retries its retryable failures and times out a hung attempt.
+// Wraps a model so that a model call retries its retryable failures and times out a hung attempt.
 export function withRetry(
-    provider: Provider,
+    model: Model,
     options: RetryOptions = {},
-): Provider {
+): Model {
     const { maxRetries = 5, timeoutMs = 60_000, firstWaitMs = 1000 } = options;
 
     return {
-        generate: async (conversation, tools, generateOptions) => {
-            const cancel = generateOptions?.signal;
+        call: async (conversation, tools, callOptions) => {
+            const cancel = callOptions?.signal;
 
             for (let retry = 0; ; retry++) {
                 // Not AbortSignal.timeout: its timer does not keep the program alive.
@@ -41,8 +41,8 @@ export function withRetry(
                 const timer = setTimeout(() => timeout.abort(), timeoutMs);
                 let error: ModelCallError;
                 try {
-                    return await provider.generate(conversation, tools, {
-                        ...generateOptions,
+                    return await model.call(conversation, tools, {
+                        ...callOptions,
                         signal: cancel
                             ? AbortSignal.any([cancel, timeout.signal])
                             : timeout.signal,

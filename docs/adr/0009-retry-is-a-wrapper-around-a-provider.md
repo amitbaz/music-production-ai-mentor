@@ -8,7 +8,7 @@ A failed model call ended the turn at once (ADR 0005), so every overloaded-provi
 
 ## Decision
 
-- `withRetry(provider, options)` takes a provider and returns a provider. The agent loop is unchanged and knows nothing about retries; the product wraps the provider it builds.
+- `withRetry(provider, options)` takes a provider and returns a provider. The agent loop is unchanged and knows nothing about retries; the product wraps the provider it builds. (ADR 0011 moved the wrapping into the provider lookup.)
 - A provider adapter never retries. It labels a failed attempt by throwing a `ModelCallError` with `retryable` set, and `retryAfterMs` when the provider says how long to wait. The Gemini adapter marks 408, 429, 500, 502, 503, 504 and a dropped connection as retryable.
 - Only a retryable failure is retried. Any other error, including one without the label, fails the model call at once.
 - Defaults: 5 retries, waiting 1s, 2s, 4s, 8s, 16s, with no jitter. `maxRetries` is a setting; 0 turns retry off.

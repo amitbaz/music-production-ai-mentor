@@ -2,6 +2,7 @@
 
 - **Mentor** — the product: a music production mentor the user talks to. It explains when asked to explain, and acts through its tools when asked to act, saying why. Its tool sets are what it can act through, not what it is.
 - **App** — one way the user reaches the mentor, such as the terminal or a desktop window. It owns what the user sees and keeps the conversation; the mentor is the same in every app.
+- **Agent** — a model, a system prompt and a set of tools, joined by the harness. Given a conversation and the user's text it runs one turn. It keeps nothing between turns. The mentor is an agent with those three chosen.
 - **Agent loop** — the cycle at the centre of the harness: send the conversation to the model; if the reply asks for tool calls, run them, append the results, and send again; stop when the model replies with text only (or the round limit is hit).
 - **Harness** — everything around the model that makes it an agent: the agent loop, the tools, the conversation, and the provider adapters.
 - **Conversation** — the ordered list of messages the harness keeps and re-sends in full on every model call. The model has no memory; the conversation is the memory.
@@ -9,8 +10,11 @@
 - **System prompt** — standing instructions for the model: who it is and how to behave. It is sent with every model call, next to the conversation and the tools, and is never a message in the conversation.
 - **Provider meta** — an optional slot on a model-produced message where a provider adapter stores provider-specific values (e.g. Gemini's `thoughtSignature`). The agent loop carries it without reading it.
 - **Provider** — a company's model API (Gemini, Anthropic, …).
-- **Provider adapter** — the one module that knows a provider's HTTP API. It translates the conversation into that provider's request and the reply back. The agent loop never sees provider-specific shapes.
-- **Scripted provider** — a fake provider adapter that returns canned replies, used to test the agent loop without a network.
+- **Model** — one model at one provider, as the agent loop sees it: the thing a model call is made on.
+- **Provider adapter** — the one module that knows a provider's HTTP API. It translates the conversation into that provider's request and the reply back, and gives the harness its models. The agent loop never sees provider-specific shapes.
+- **Model id** — the string that names a model and the provider that serves it, written `provider:model`, such as `gemini:gemini-3.5-flash-lite`. The part after the first colon is the name the provider itself uses.
+- **Provider lookup** — the part of the harness that gives the model for a model id, by finding the provider adapter the id names.
+- **Scripted model** — a fake model that returns canned replies, used to test the agent loop without a network.
 - **Tool** — a named function the model can ask the harness to run, described to the model by a name, a description and an argument schema.
 - **Tool set** — a group of tools for one outside source, such as a DAW. The mentor is given one or more tool sets.
 - **DAW** — a digital audio workstation, the application music is produced in. Ableton Live is the first one supported.

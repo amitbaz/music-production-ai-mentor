@@ -1,6 +1,6 @@
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { createGeminiProvider, fromGeminiResponse, toGeminiRequest } from "./gemini.ts";
+import { createGeminiModel, fromGeminiResponse, toGeminiRequest } from "./gemini.ts";
 import { type Message, ModelCallError, type Tool } from "../types.ts";
 
 const setTempo: Tool = {
@@ -193,14 +193,14 @@ function sentRequest(fetchMock: ReturnType<typeof fakeFetch>) {
     return call.arguments as unknown as [string, RequestInit];
 }
 
-test("the provider posts the translated request and returns the translated reply", async (t) => {
+test("the model posts the translated request and returns the translated reply", async (t) => {
     const fetchMock = fakeFetch(t, 200, {
         candidates: [{ content: { role: "model", parts: [{ text: "Hello!" }] } }],
     });
-    const provider = createGeminiProvider("test-key", "test-model");
+    const model = createGeminiModel("test-key", "test-model");
     const conversation: Message[] = [{ type: "user", text: "Hi" }];
 
-    const reply = await provider.generate(conversation, [setTempo]);
+    const reply = await model.call(conversation, [setTempo]);
 
     assert.deepEqual(reply, [{ type: "assistant", text: "Hello!" }]);
 
@@ -220,24 +220,24 @@ test("the provider posts the translated request and returns the translated reply
     );
 });
 
-test("the provider throws Gemini's own message when a request fails", async (t) => {
+test("the model throws Gemini's own message when a request fails", async (t) => {
     fakeFetch(t, 429, { error: { code: 429, message: "Quota exceeded" } });
-    const provider = createGeminiProvider("test-key", "test-model");
+    const model = createGeminiModel("test-key", "test-model");
 
     await assert.rejects(
-        provider.generate([{ type: "user", text: "Hi" }], [setTempo]),
+        model.call([{ type: "user", text: "Hi" }], [setTempo]),
         /Gemini request failed \(429\): Quota exceeded/,
     );
 });
 
-test("the provider passes the cancel signal to fetch", async (t) => {
+test("the model passes the cancel signal to fetch", async (t) => {
     const fetchMock = fakeFetch(t, 200, {
         candidates: [{ content: { role: "model", parts: [{ text: "Hello!" }] } }],
     });
-    const provider = createGeminiProvider("test-key", "test-model");
+    const model = createGeminiModel("test-key", "test-model");
     const controller = new AbortController();
 
-    await provider.generate([{ type: "user", text: "Hi" }], [], {
+    await model.call([{ type: "user", text: "Hi" }], [], {
         signal: controller.signal,
     });
 
@@ -264,13 +264,13 @@ test("leaves the system field out when there is no system prompt", () => {
     assert.equal("systemInstruction" in request, false);
 });
 
-test("the provider sends the system prompt it is given", async (t) => {
+test("the model sends the system prompt it is given", async (t) => {
     const fetchMock = fakeFetch(t, 200, {
         candidates: [{ content: { role: "model", parts: [{ text: "Hello!" }] } }],
     });
-    const provider = createGeminiProvider("test-key", "test-model");
+    const model = createGeminiModel("test-key", "test-model");
 
-    await provider.generate([{ type: "user", text: "Hi" }], [], {
+    await model.call([{ type: "user", text: "Hi" }], [], {
         system: "You are a test.",
     });
 
@@ -290,27 +290,27 @@ async function failureOf(attempt: Promise<unknown>) {
     return error;
 }
 
-test("the provider marks an overloaded reply as retryable", async (t) => {
+test("the model marks an overloaded reply as retryable", async (t) => {
     fakeFetch(t, 503, { error: { code: 503, message: "The model is overloaded." } });
-    const provider = createGeminiProvider("test-key", "test-model");
+    const model = createGeminiModel("test-key", "test-model");
 
-    const error = await failureOf(provider.generate([{ type: "user", text: "Hi" }], []));
+    const error = await failureOf(model.call([{ type: "user", text: "Hi" }], []));
 
     assert.equal(error.retryable, true);
     assert.equal(error.retryAfterMs, undefined);
     assert.match(error.message, /Gemini request failed \(503\): The model is overloaded\./);
 });
 
-test("the provider marks a rejected request as not retryable", async (t) => {
+test("the model marks a rejected request as not retryable", async (t) => {
     fakeFetch(t, 400, { error: { code: 400, message: "API key not valid." } });
-    const provider = createGeminiProvider("test-key", "test-model");
+    const model = createGeminiModel("test-key", "test-model");
 
-    const error = await failureOf(provider.generate([{ type: "user", text: "Hi" }], []));
+    const error = await failureOf(model.call([{ type: "user", text: "Hi" }], []));
 
     assert.equal(error.retryable, false);
 });
 
-test("the provider reads how long Gemini asks to wait", async (t) => {
+test("the model reads how long Gemini asks to wait", async (t) => {
     fakeFetch(t, 429, {
         error: {
             code: 429,
@@ -322,46 +322,46 @@ test("the provider reads how long Gemini asks to wait", async (t) => {
             ],
         },
     });
-    const provider = createGeminiProvider("test-key", "test-model");
+    const model = createGeminiModel("test-key", "test-model");
 
-    const error = await failureOf(provider.generate([{ type: "user", text: "Hi" }], []));
+    const error = await failureOf(model.call([{ type: "user", text: "Hi" }], []));
 
     assert.equal(error.retryable, true);
     assert.equal(error.retryAfterMs, 12_500);
 });
 
-test("the provider keeps the status of a failure whose body is not JSON", async (t) => {
+test("the model keeps the status of a failure whose body is not JSON", async (t) => {
     t.mock.method(
         globalThis,
         "fetch",
         async () => new Response("<html>Service Unavailable</html>", { status: 503 }),
     );
-    const provider = createGeminiProvider("test-key", "test-model");
+    const model = createGeminiModel("test-key", "test-model");
 
-    const error = await failureOf(provider.generate([{ type: "user", text: "Hi" }], []));
+    const error = await failureOf(model.call([{ type: "user", text: "Hi" }], []));
 
     assert.equal(error.retryable, true);
     assert.match(error.message, /Gemini request failed \(503\): <html>Service Unavailable<\/html>/);
 });
 
-test("the provider marks a dropped connection as retryable", async (t) => {
+test("the model marks a dropped connection as retryable", async (t) => {
     t.mock.method(globalThis, "fetch", async () => {
         throw new TypeError("fetch failed");
     });
-    const provider = createGeminiProvider("test-key", "test-model");
+    const model = createGeminiModel("test-key", "test-model");
 
-    const error = await failureOf(provider.generate([{ type: "user", text: "Hi" }], []));
+    const error = await failureOf(model.call([{ type: "user", text: "Hi" }], []));
 
     assert.equal(error.retryable, true);
     assert.match(error.message, /Gemini request failed: fetch failed/);
 });
 
-test("the provider does not relabel a cancelled request", async (t) => {
+test("the model does not relabel a cancelled request", async (t) => {
     const cancelled = new DOMException("This operation was aborted", "AbortError");
     t.mock.method(globalThis, "fetch", async () => {
         throw cancelled;
     });
-    const provider = createGeminiProvider("test-key", "test-model");
+    const model = createGeminiModel("test-key", "test-model");
 
-    await assert.rejects(provider.generate([{ type: "user", text: "Hi" }], []), cancelled);
+    await assert.rejects(model.call([{ type: "user", text: "Hi" }], []), cancelled);
 });

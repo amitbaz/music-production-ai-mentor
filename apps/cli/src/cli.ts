@@ -1,11 +1,8 @@
 import { createInterface } from "node:readline";
 import { createMentor, type Message, type ToolCall } from "@mentor/mentor";
 
-const apiKey = process.env.GEMINI_API_KEY;
-if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
-
 const mentor = createMentor({
-    apiKey,
+    keys: { gemini: process.env.GEMINI_API_KEY },
     onRetry: ({ error, retry, maxRetries, waitMs }) =>
         console.error(
             `  (${error.message}, trying again in ${waitMs / 1000}s, retry ${retry} of ${maxRetries})`,
@@ -36,7 +33,7 @@ for await (const line of terminal) {
 
     if (text !== "") {
         turn = new AbortController();
-        const result = await mentor.runTurn(conversation, text, {
+        const result = await mentor.generate(conversation, text, {
             onMessage: print,
             signal: turn.signal,
             approve,

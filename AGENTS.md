@@ -51,7 +51,7 @@ There are three kinds of test. Choose by what could be wrong: our code, our read
 ### Offline tests: is our code right?
 
 - Write them first, and see them fail, before the implementation.
-- They run with no network. A scripted provider stands in for the model, and adapter tests replace `fetch`.
+- They run with no network. A scripted model stands in for the model, and adapter tests replace `fetch`.
 - Assert on what a caller can see: the messages returned, the stop reason, the request that was sent.
 - `pnpm test` runs all of them.
 
@@ -62,7 +62,7 @@ There are three kinds of test. Choose by what could be wrong: our code, our read
 
 ### Evals: does the model behave, given our prompt and tools?
 
-- Use them for anything the model decides: which tool it picks, whether it follows the system prompt. A scripted provider cannot test these, because it does what the script says.
+- Use them for anything the model decides: which tool it picks, whether it follows the system prompt. A scripted model cannot test these, because it does what the script says.
 - They call the real API, so they run on demand, apart from `pnpm test`, and a commit never depends on them.
 - Each case states a request and an expectation that can be checked in the conversation, such as which tools were called and in what order.
 - Run each case several times and report how many passed. One passing run proves little, because the model varies.
