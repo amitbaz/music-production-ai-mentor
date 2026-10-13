@@ -194,8 +194,8 @@ test("gives the provider the caller's cancel signal", async () => {
     const controller = new AbortController();
     let received: AbortSignal | undefined;
     const provider: Provider = {
-        generate: async (_conversation, _tools, signal) => {
-            received = signal;
+        generate: async (_conversation, _tools, options) => {
+            received = options?.signal;
             return [{ type: "assistant", text: "Hi" }];
         },
     };
@@ -445,4 +445,29 @@ test("a reply with only blank text is empty and is not kept", async () => {
         ["user", "tool_call", "tool_result"],
     );
     assert.equal(reported.length, 2);
+});
+
+test("gives the provider the system prompt on every model call", async () => {
+    const received: (string | undefined)[] = [];
+    const replies: Message[][] = [
+        [{ type: "tool_call", id: "call_1", name: "shout", args: { text: "hello" } }],
+        [{ type: "assistant", text: "It says HELLO." }],
+    ];
+    const provider: Provider = {
+        generate: async (_conversation, _tools, options) => {
+            received.push(options?.system);
+            return replies.shift()!;
+        },
+    };
+
+    const result = await runAgentLoop(
+        provider,
+        tools,
+        [{ type: "user", text: "Shout hello" }],
+        { system: "You are a test." },
+    );
+
+    // Two rounds, so the prompt is sent twice, and it never enters the conversation.
+    assert.deepEqual(received, ["You are a test.", "You are a test."]);
+    assert.equal(result.messages.length, 4);
 });

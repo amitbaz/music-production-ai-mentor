@@ -3,6 +3,7 @@ import { createGeminiProvider } from "./agent/providers/gemini.ts";
 import { createInterface } from "node:readline";
 import type { Message, ToolCall } from "./agent/types.ts";
 import { runAgentLoop } from "./agent/agent-loop.ts";
+import { systemPrompt } from "./system-prompt.ts";
 
 const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
@@ -17,7 +18,9 @@ const terminal = createInterface({
     output: process.stdout,
 });
 terminal.setPrompt("\nyou> ");
-console.log('Music production AI mentor (fake Ableton session). Type "exit" to quit.');
+console.log(
+    'Music production AI mentor (fake Ableton session). Type "exit" to quit.',
+);
 
 let turn: AbortController | undefined;
 terminal.on("SIGINT", () => {
@@ -36,7 +39,12 @@ for await (const line of terminal) {
             provider,
             tools,
             [...conversation, { type: "user", text }],
-            { onMessage: print, signal: turn.signal, approve },
+            {
+                onMessage: print,
+                signal: turn.signal,
+                system: systemPrompt,
+                approve,
+            },
         );
 
         turn = undefined;

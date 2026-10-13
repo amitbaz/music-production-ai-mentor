@@ -230,8 +230,45 @@ test("the provider passes the cancel signal to fetch", async (t) => {
     const provider = createGeminiProvider("test-key", "test-model");
     const controller = new AbortController();
 
-    await provider.generate([{ type: "user", text: "Hi" }], [], controller.signal);
+    await provider.generate([{ type: "user", text: "Hi" }], [], {
+        signal: controller.signal,
+    });
 
     const [, options] = fetchMock.mock.calls[0]!.arguments as [string, RequestInit];
     assert.equal(options.signal, controller.signal);
+});
+
+test("sends the system prompt in Gemini's own field, not as a message", () => {
+    const request = toGeminiRequest(
+        [{ type: "user", text: "Hi" }],
+        [],
+        "You are a test.",
+    );
+
+    assert.deepEqual(request.systemInstruction, {
+        parts: [{ text: "You are a test." }],
+    });
+    assert.deepEqual(request.contents, [{ role: "user", parts: [{ text: "Hi" }] }]);
+});
+
+test("leaves the system field out when there is no system prompt", () => {
+    const request = toGeminiRequest([{ type: "user", text: "Hi" }], []);
+
+    assert.equal("systemInstruction" in request, false);
+});
+
+test("the provider sends the system prompt it is given", async (t) => {
+    const fetchMock = fakeFetch(t, 200, {
+        candidates: [{ content: { role: "model", parts: [{ text: "Hello!" }] } }],
+    });
+    const provider = createGeminiProvider("test-key", "test-model");
+
+    await provider.generate([{ type: "user", text: "Hi" }], [], {
+        system: "You are a test.",
+    });
+
+    const [, options] = fetchMock.mock.calls[0]!.arguments as [string, RequestInit];
+    assert.deepEqual(JSON.parse(options.body as string).systemInstruction, {
+        parts: [{ text: "You are a test." }],
+    });
 });

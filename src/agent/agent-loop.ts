@@ -3,7 +3,10 @@ import type { Message, Provider, Tool, ToolCall } from "./types.ts";
 const MAX_ROUNDS = 10; // Prevent infinite loops if the model keeps calling tools.
 
 export type LoopResult =
-    | { messages: Message[]; stop: "finished" | "empty" | "round_limit" | "cancelled" }
+    | {
+          messages: Message[];
+          stop: "finished" | "empty" | "round_limit" | "cancelled";
+      }
     | { messages: Message[]; stop: "error"; error: Error };
 
 export type LoopOptions = {
@@ -11,6 +14,8 @@ export type LoopOptions = {
     onMessage?: (message: Message) => void;
     // Lets the caller cancel the turn
     signal?: AbortSignal;
+    // The system prompt, sent with every model call
+    system?: string;
     // Asked before running a tool marked needsApproval; true means go ahead
     approve?: (call: ToolCall) => boolean | Promise<boolean>;
 };
@@ -35,7 +40,10 @@ export async function runAgentLoop(
         // Send the whole conversation; get back the model's next messages.
         let reply: Message[];
         try {
-            reply = await provider.generate(messages, tools, options.signal);
+            reply = await provider.generate(messages, tools, {
+                system: options.system,
+                signal: options.signal,
+            });
         } catch (e) {
             // A cancel makes the pending call fail; that is not an error.
             if (options.signal?.aborted) return { messages, stop: "cancelled" };
@@ -45,7 +53,8 @@ export async function runAgentLoop(
 
         // No tool call and no text: the model chose to say nothing. Nothing is kept.
         const isEmpty = reply.every(
-            (message) => message.type === "assistant" && message.text.trim() === "",
+            (message) =>
+                message.type === "assistant" && message.text.trim() === "",
         );
         if (isEmpty) return { messages, stop: "empty" };
 

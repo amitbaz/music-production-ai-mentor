@@ -1,10 +1,22 @@
 // One entry in the conversation. `type` says which of the four kinds it is.
 // providerMeta holds provider-specific extras (e.g. Gemini's thoughtSignature); the loop never reads it.
 export type Message =
-| {type: "user"; text: string}
-| {type: "assistant"; text:string; providerMeta?: unknown}
-| {type: "tool_call" ; id: string; name: string; args: Record<string, unknown>; providerMeta?: unknown}
-| {type: "tool_result"; callId: string; name: string; output: string; isError: boolean}
+    | { type: "user"; text: string }
+    | { type: "assistant"; text: string; providerMeta?: unknown }
+    | {
+          type: "tool_call";
+          id: string;
+          name: string;
+          args: Record<string, unknown>;
+          providerMeta?: unknown;
+      }
+    | {
+          type: "tool_result";
+          callId: string;
+          name: string;
+          output: string;
+          isError: boolean;
+      };
 
 // Something the model can ask the harness to run.
 export type Tool = {
@@ -16,12 +28,22 @@ export type Tool = {
     // Ask the user before running
     needsApproval?: boolean;
     // Runs in our program. The model only ever sees the returned string.
-    run: (args: Record<string, unknown>) =>string | Promise<string>;
-}
+    run: (args: Record<string, unknown>) => string | Promise<string>;
+};
 
-export type ToolCall = Extract<Message, {type: "tool_call"}>
+export type ToolCall = Extract<Message, { type: "tool_call" }>;
 
 // A model API. Takes the whole conversation and returns the model's new messages.
 export type Provider = {
-    generate: (conversation: Message[], tools: Tool[], signal?: AbortSignal) => Promise<Message[]>;
-}
+    generate: (
+        conversation: Message[],
+        tools: Tool[],
+        options?: GenerateOptions,
+    ) => Promise<Message[]>;
+};
+
+// Optional extras for one model call
+export type GenerateOptions = {
+    system?: string;
+    signal?: AbortSignal;
+};

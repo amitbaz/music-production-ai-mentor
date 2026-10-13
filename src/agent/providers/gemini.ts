@@ -1,10 +1,14 @@
-import type { Message, Provider, Tool } from "../types.ts";
+import type { GenerateOptions, Message, Provider, Tool } from "../types.ts";
 
 // The shapes Gemini expects. A "content" is one turn and "parts" are the pieces of that turn.
 type GeminiPart = Record<string, unknown>;
 type GeminiContent = { role: "user" | "model"; parts: GeminiPart[] };
 
-export function toGeminiRequest(conversation: Message[], tools: Tool[]) {
+export function toGeminiRequest(
+    conversation: Message[],
+    tools: Tool[],
+    system?: string,
+) {
     const contents: GeminiContent[] = [];
 
     for (const message of conversation) {
@@ -24,6 +28,7 @@ export function toGeminiRequest(conversation: Message[], tools: Tool[]) {
     }
 
     return {
+        ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
         contents,
         tools: [
             {
@@ -84,7 +89,7 @@ function signtatureFrom(providerMeta: unknown): GeminiPart {
 type GeminiResponse = {
     candidates?: { content?: { parts: GeminiReplyPart[] } }[];
     // Present instead of candidates when the request itself was rejected
-    error? : { message?: string}
+    error?: { message?: string };
 };
 
 type GeminiReplyPart = {
@@ -130,27 +135,35 @@ export function fromGeminiResponse(response: GeminiResponse): Message[] {
 
 // A Provider backed by the real Gemini API: translate, send, translate back.
 export function createGeminiProvider(apiKey: string, model: string): Provider {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
-        return {
-            generate: async (conversation: Message[], tools: Tool[], signal?: AbortSignal) => {
-                const response = await fetch(url, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "x-goog-api-key": apiKey,
-                    },
-                    body: JSON.stringify(toGeminiRequest(conversation, tools)),
-                    signal
-                });
+    return {
+        generate: async (
+            conversation: Message[],
+            tools: Tool[],
+            options?: GenerateOptions,
+        ) => {
+            const response = await fetch(url, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": apiKey,
+                },
+                body: JSON.stringify(
+                    toGeminiRequest(conversation, tools, options?.system),
+                ),
+                signal: options?.signal,
+            });
 
-                const body = (await response.json()) as GeminiResponse;
+            const body = (await response.json()) as GeminiResponse;
 
-                if(!response.ok) {
-                    const reason = body.error?.message ?? JSON.stringify(body);
-                    throw new Error(`Gemini request failed (${response.status}): ${reason}`);
-                }
-                return fromGeminiResponse(body);
+            if (!response.ok) {
+                const reason = body.error?.message ?? JSON.stringify(body);
+                throw new Error(
+                    `Gemini request failed (${response.status}): ${reason}`,
+                );
             }
-        }
+            return fromGeminiResponse(body);
+        },
+    };
 }

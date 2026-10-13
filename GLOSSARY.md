@@ -1,9 +1,11 @@
 # Glossary
 
+- **Mentor** — the product: a music production mentor the user talks to. It explains when asked to explain, and acts through its tools when asked to act, saying why. Ableton is the first set of tools it has, not what it is.
 - **Agent loop** — the cycle at the centre of the harness: send the conversation to the model; if the reply asks for tool calls, run them, append the results, and send again; stop when the model replies with text only (or the round limit is hit).
 - **Harness** — everything around the model that makes it an agent: the agent loop, the tools, the conversation, and the provider adapters.
 - **Conversation** — the ordered list of messages the harness keeps and re-sends in full on every model call. The model has no memory; the conversation is the memory.
 - **Message** — one entry in the conversation, in our own neutral format. Four kinds: user text, assistant text, tool call, tool result.
+- **System prompt** — standing instructions for the model: who it is and how to behave. It is sent with every model call, next to the conversation and the tools, and is never a message in the conversation.
 - **Provider meta** — an optional slot on a model-produced message where a provider adapter stores provider-specific values (e.g. Gemini's `thoughtSignature`). The agent loop carries it without reading it.
 - **Provider** — a company's model API (Gemini, Anthropic, …).
 - **Provider adapter** — the one module that knows a provider's HTTP API. It translates the conversation into that provider's request and the reply back. The agent loop never sees provider-specific shapes.
