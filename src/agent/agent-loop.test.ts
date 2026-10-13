@@ -412,3 +412,37 @@ test("cancelling while being asked counts as cancelled, not refused", async () =
     );
     assert.equal(result.stop, "cancelled");
 });
+
+test("a reply with nothing in it stops the turn as empty", async () => {
+    const { provider, calls } = scriptedProvider([[]]);
+
+    const result = await runAgentLoop(provider, tools, [
+        { type: "user", text: "Hello" },
+    ]);
+
+    assert.equal(result.stop, "empty");
+    assert.deepEqual(result.messages, [{ type: "user", text: "Hello" }]);
+    assert.equal(calls.length, 1);
+});
+
+test("a reply with only blank text is empty and is not kept", async () => {
+    const { provider } = scriptedProvider([
+        [{ type: "tool_call", id: "call_1", name: "shout", args: { text: "hello" } }],
+        [{ type: "assistant", text: "  \n" }],
+    ]);
+    const reported: Message[] = [];
+
+    const result = await runAgentLoop(
+        provider,
+        tools,
+        [{ type: "user", text: "Shout hello" }],
+        { onMessage: (message) => reported.push(message) },
+    );
+
+    assert.equal(result.stop, "empty");
+    assert.deepEqual(
+        result.messages.map((message) => message.type),
+        ["user", "tool_call", "tool_result"],
+    );
+    assert.equal(reported.length, 2);
+});

@@ -3,7 +3,7 @@ import type { Message, Provider, Tool, ToolCall } from "./types.ts";
 const MAX_ROUNDS = 10; // Prevent infinite loops if the model keeps calling tools.
 
 export type LoopResult =
-    | { messages: Message[]; stop: "finished" | "round_limit" | "cancelled" }
+    | { messages: Message[]; stop: "finished" | "empty" | "round_limit" | "cancelled" }
     | { messages: Message[]; stop: "error"; error: Error };
 
 export type LoopOptions = {
@@ -42,6 +42,12 @@ export async function runAgentLoop(
             const error = e instanceof Error ? e : new Error(String(e));
             return { messages, stop: "error", error };
         }
+
+        // No tool call and no text: the model chose to say nothing. Nothing is kept.
+        const isEmpty = reply.every(
+            (message) => message.type === "assistant" && message.text.trim() === "",
+        );
+        if (isEmpty) return { messages, stop: "empty" };
 
         for (const message of reply) add(message);
 
