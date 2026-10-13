@@ -67,6 +67,8 @@ There are three kinds of test. Choose by what could be wrong: our code, our read
 
 `docs/adr/` records why the loop, the message format and the provider interface are shaped as they are. Read the records that touch what you are about to change, and write a new one when a decision replaces an old one. Use the terms in `GLOSSARY.md` in code, tests and commit messages.
 
+`docs/reference.md` lists other harnesses to read for ideas when designing a harness feature. The harness itself stays hand-written.
+
 ## Agent skills
 
 ### Issue tracker
