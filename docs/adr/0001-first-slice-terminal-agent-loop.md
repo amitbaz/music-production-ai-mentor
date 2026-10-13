@@ -16,7 +16,7 @@ Build only this first:
 - Whole responses, no streaming.
 - Test-first throughout; the agent loop is tested against a scripted provider. The one exception is the initial exploratory call to Gemini.
 - The loop stops after 10 rounds per user message. A failing tool returns its error as the tool result rather than throwing.
-- Amit types all the code; the assistant supplies full code with explanation and reviews.
+- The maintainer types all the code; the assistant supplies full code with explanation and reviews.
 
 ## Deferred
 

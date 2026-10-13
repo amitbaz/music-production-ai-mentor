@@ -1,6 +1,6 @@
 # Glossary
 
-- **Mentor** — the product: a music production mentor the user talks to. It explains when asked to explain, and acts through its tools when asked to act, saying why. Ableton is the first set of tools it has, not what it is.
+- **Mentor** — the product: a music production mentor the user talks to. It explains when asked to explain, and acts through its tools when asked to act, saying why. Its tool sets are what it can act through, not what it is.
 - **Agent loop** — the cycle at the centre of the harness: send the conversation to the model; if the reply asks for tool calls, run them, append the results, and send again; stop when the model replies with text only (or the round limit is hit).
 - **Harness** — everything around the model that makes it an agent: the agent loop, the tools, the conversation, and the provider adapters.
 - **Conversation** — the ordered list of messages the harness keeps and re-sends in full on every model call. The model has no memory; the conversation is the memory.
@@ -11,6 +11,8 @@
 - **Provider adapter** — the one module that knows a provider's HTTP API. It translates the conversation into that provider's request and the reply back. The agent loop never sees provider-specific shapes.
 - **Scripted provider** — a fake provider adapter that returns canned replies, used to test the agent loop without a network.
 - **Tool** — a named function the model can ask the harness to run, described to the model by a name, a description and an argument schema.
+- **Tool set** — a group of tools for one outside source, such as a DAW. The mentor is given one or more tool sets.
+- **DAW** — a digital audio workstation, the application music is produced in. Ableton Live is the first one supported.
 - **Tool call** — the model's request to run a tool with given arguments.
 - **Tool result** — what the harness sends back after running a tool call, including errors.
 - **Fake Ableton** — an in-memory stand-in for Ableton Live (tempo and named tracks) that the tools act on until the real bridge exists. Resets on every run.
