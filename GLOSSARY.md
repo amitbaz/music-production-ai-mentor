@@ -17,6 +17,11 @@
 - **Tool result** — what the harness sends back after running a tool call, including errors.
 - **Fake Ableton** — an in-memory stand-in for Ableton Live (tempo and named tracks) that the tools act on until the real bridge exists. Resets on every run.
 - **Round** — one model call plus the tool calls it triggers. The agent loop is capped at 10 rounds per turn.
+- **Model call** — asking the model once for its next messages, as the agent loop sees it. One per round; made of one or more attempts.
+- **Attempt** — one request sent to the provider.
+- **Retryable failure** — a failed attempt that the provider adapter marks as likely to pass if tried again, such as an overloaded provider or a dropped connection.
+- **Retry** — a further attempt after a retryable failure, made after a wait that grows each time. A model call fails when a failure is not retryable or the retries run out.
+- **Timeout** — an attempt stopped because it passed its time limit. It is a retryable failure, and is not a cancel.
 - **Turn** — everything the agent loop does in answer to one user message: one or more rounds, ending with a stop reason.
 - **Stop reason** — why a turn ended: the model finished, the model replied with nothing, the round limit was hit, a model call failed, or the user cancelled. It is reported next to the conversation, never as a message inside it.
 - **Cancel** — the user stopping a turn before it ends. What already happened stays in the conversation; a tool that is running finishes, and tool calls that had not started get a tool result saying so.

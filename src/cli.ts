@@ -4,11 +4,20 @@ import { createInterface } from "node:readline";
 import type { Message, ToolCall } from "./agent/types.ts";
 import { runAgentLoop } from "./agent/agent-loop.ts";
 import { systemPrompt } from "./system-prompt.ts";
+import { withRetry } from "./agent/retry.ts";
 
 const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
 
-const provider = createGeminiProvider(apiKey, "gemini-3.5-flash-lite");
+const provider = withRetry(
+    createGeminiProvider(apiKey, "gemini-3.5-flash-lite"),
+    {
+        onRetry: ({ error, retry, maxRetries, waitMs }) =>
+            console.error(
+                `  (${error.message}, trying again in ${waitMs / 1000}s, retry ${retry} of ${maxRetries})`,
+            ),
+    },
+);
 const tools = createFakeAbleton();
 
 let conversation: Message[] = [];

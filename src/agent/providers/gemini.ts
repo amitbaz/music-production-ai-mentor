@@ -1,4 +1,10 @@
-import type { GenerateOptions, Message, Provider, Tool } from "../types.ts";
+import {
+    type GenerateOptions,
+    type Message,
+    ModelCallError,
+    type Provider,
+    type Tool,
+} from "../types.ts";
 
 // The shapes Gemini expects. A "content" is one turn and "parts" are the pieces of that turn.
 type GeminiPart = Record<string, unknown>;
@@ -91,8 +97,34 @@ type GeminiResponse = {
     // Present instead of candidates when Gemini refuses the prompt
     promptFeedback?: { blockReason?: string };
     // Present instead of candidates when the request itself was rejected
-    error?: { message?: string };
+    error?: {
+        message?: string;
+        // On a rate limit, one entry says how long to wait, e.g. retryDelay "12s"
+        details?: { retryDelay?: string }[];
+    };
 };
+
+// The statuses worth another attempt; the same list the Gemini SDK retries.
+const RETRYABLE_STATUSES = [408, 429, 500, 502, 503, 504];
+
+// Turns a failed HTTP reply into a labelled failure. The body is not always JSON.
+function failedRequest(status: number, text: string): ModelCallError {
+    let body: GeminiResponse = {};
+    try {
+        body = JSON.parse(text);
+    } catch {
+        // An error page from a proxy; the raw text is the reason.
+    }
+
+    const delay = body.error?.details?.find((d) => d.retryDelay)?.retryDelay;
+    return new ModelCallError(
+        `Gemini request failed (${status}): ${body.error?.message ?? text}`,
+        {
+            retryable: RETRYABLE_STATUSES.includes(status),
+            ...(delay ? { retryAfterMs: Number.parseFloat(delay) * 1000 } : {}),
+        },
+    );
+}
 
 type GeminiReplyPart = {
     text?: string;
@@ -145,26 +177,33 @@ export function createGeminiProvider(apiKey: string, model: string): Provider {
             tools: Tool[],
             options?: GenerateOptions,
         ) => {
-            const response = await fetch(url, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "x-goog-api-key": apiKey,
-                },
-                body: JSON.stringify(
-                    toGeminiRequest(conversation, tools, options?.system),
-                ),
-                signal: options?.signal,
-            });
-
-            const body = (await response.json()) as GeminiResponse;
-
-            if (!response.ok) {
-                const reason = body.error?.message ?? JSON.stringify(body);
-                throw new Error(
-                    `Gemini request failed (${response.status}): ${reason}`,
+            let response: Response;
+            try {
+                response = await fetch(url, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": apiKey,
+                    },
+                    body: JSON.stringify(
+                        toGeminiRequest(conversation, tools, options?.system),
+                    ),
+                    signal: options?.signal,
+                });
+            } catch (e) {
+                // fetch reports a dropped connection as a TypeError; a cancel is not one.
+                if (!(e instanceof TypeError)) throw e;
+                throw new ModelCallError(
+                    `Gemini request failed: ${e.message}`,
+                    { retryable: true, cause: e },
                 );
             }
+
+            // Read the status before the body: a failed reply may not be JSON.
+            if (!response.ok) {
+                throw failedRequest(response.status, await response.text());
+            }
+            const body = (await response.json()) as GeminiResponse;
             return fromGeminiResponse(body);
         },
     };

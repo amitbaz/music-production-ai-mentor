@@ -42,6 +42,25 @@ export type Provider = {
     ) => Promise<Message[]>;
 };
 
+// A failed attempt, labelled by the provider adapter. Only a retryable one is tried again.
+export class ModelCallError extends Error {
+    retryable: boolean;
+    // How long the provider asked us to wait before the next attempt
+    retryAfterMs?: number;
+
+    constructor(
+        message: string,
+        options: { retryable: boolean; retryAfterMs?: number; cause?: unknown },
+    ) {
+        super(message, { cause: options.cause });
+        this.name = "ModelCallError";
+        this.retryable = options.retryable;
+        if (options.retryAfterMs !== undefined) {
+            this.retryAfterMs = options.retryAfterMs;
+        }
+    }
+}
+
 // Optional extras for one model call
 export type GenerateOptions = {
     system?: string;
