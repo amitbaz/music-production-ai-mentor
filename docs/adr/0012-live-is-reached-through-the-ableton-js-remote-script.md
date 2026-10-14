@@ -32,4 +32,4 @@ Rejected:
 - A user learns that Live is unreachable only when the mentor first uses an Ableton tool.
 - Live loads Remote Scripts when it starts, so a script update needs a restart of Live.
 - Offline tests replace the socket with scripted replies, as adapter tests replace `fetch`, and replies recorded from Live are saved as test inputs with personal names removed. Fake Ableton is deleted when the real tools arrive.
-- Not yet tried in Live: the script on Live 12.4, the registering of our own file, and the password option.
+- Tried in Live 12.4.6 (#3): the script loads and answers, our own file registers with one added line to the script's table of handlers, and the password accepts the right one and refuses a wrong one. The script does not check which web page a connection comes from; with the password on, a page can connect but cannot run a command.

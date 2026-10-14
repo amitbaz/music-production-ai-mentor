@@ -37,5 +37,5 @@ Rejected:
 
 - A user on an older Live is told to update before the tools work.
 - The mentor sees the structure of an arrangement, not how it sounds.
-- Automation on the arrangement timeline is unsettled: a script cannot write it directly, and two indirect routes (through a Session View clip, or by recording) are untried.
+- Automation on the arrangement timeline is unsettled: a script cannot write it directly. The route through a Session View clip was tried in Live 12.4.6 (#3): copying the clip to the arrangement drops its envelope. The route by recording is untried.
 - Nothing in the client is written for macOS only; Windows later is the Remote Scripts folder path and a round of testing.

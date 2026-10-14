@@ -15,13 +15,13 @@ The older public listing by NSUSpray stops at Live 11.0.0; it was used only to t
 
 Markers: **[LOM]** read in the LOM reference · **[notes]** read in Ableton's release notes · **[stubs]** present in the type stubs (so the member exists in Python, in a 12.3-era Live) · **[code]** read in the ableton-js script · **[local]** seen in the prototype on Live 12.3.2 · **[inferred]** my reasoning · **[unverified]** could not confirm. "Absent" means the member is in neither the LOM reference nor the stubs. The first four markers count as verified from a primary source.
 
-The machine runs Live **12.3.2**. Anything marked 12.4 or later is not available on it.
+The machine ran Live **12.3.2** when this was written. It now runs 12.4.6, and the facts tried there are in [Checked in Live 12.4.6](#checked-in-live-1246).
 
 ## Short answer: what is not possible, or only partly
 
 This list is also the record of what the Ableton tool set does not support yet ([ADR 0015](../adr/0015-the-first-real-ableton-tool-set-has-a-narrow-scope.md)). Until an item is solved, the mentor tells the user the steps. Two additions from the design discussion:
 
-- **Arrangement automation may be reachable indirectly.** Two routes are untried: write the envelope in a Session clip and copy the clip to the arrangement with `Track.duplicate_clip_to_arrangement`, or record parameter changes with arrangement recording on. **[unverified]**
+- **Arrangement automation through a Session clip does not work.** A Session clip's envelope is dropped when `Track.duplicate_clip_to_arrangement` copies the clip, on 12.4.6. **[local]** The other route, recording parameter changes with arrangement recording on, is untried. **[unverified]**
 - **Session View is not supported by decision**, although the API offers it.
 
 **Not in the API at all** (absent from both the LOM reference and the stubs):
@@ -232,7 +232,7 @@ Answers to the specific cases:
 **Setting from displayed text.** There is no function that takes "250 Hz" and sets the parameter. Three routes exist:
 
 1. Quantised parameters: find the text in `value_items` and set `value` to its index. **[inferred]** from the LOM description
-2. Since 12.2: set `display_value` to the number shown (250 for "250 Hz"). The release notes define it only as "the parameter's value as visible in the user interface"; how it treats units that change with range, such as ms and s, is **[unverified]**.
+2. Since 12.2: set `display_value` to the number shown (250 for "250 Hz"). The release notes define it only as "the parameter's value as visible in the user interface"; how it treats units that change with range, such as ms and s, is **[unverified]**. On 12.4.6 it took Hz, dB and % as shown, and clamped a value out of range without an error. **[local]**
 3. Otherwise: search raw values between `min` and `max` with `str_for_value` until the text matches. **[inferred]**
 
 ## 7. Clips
@@ -262,7 +262,7 @@ Answers to the specific cases:
 | Change length | Unclear | `end_time` is read-only. `loop_end`, `end_marker` and `looping` are settable; whether they move an arrangement clip's right edge is not stated. | | [LOM]; [unverified] |
 | Consolidate, crop to time selection, reverse, fades | **No** | absent. `Clip.crop()` crops to the loop or markers. | | [inferred] from absence; [LOM] |
 
-Fixes that show these functions were unstable: a crash in `create_audio_clip` and `create_midi_clip` fixed in 12.4, and crashes in `duplicate_clip_to_arrangement` fixed in 12.3 and 12.4. **[notes]** The machine's 12.3.2 predates the 12.4 fixes.
+Fixes that show these functions were unstable: a crash in `create_audio_clip` and `create_midi_clip` fixed in 12.4, and crashes in `duplicate_clip_to_arrangement` fixed in 12.3 and 12.4. **[notes]** On 12.4.6, creating, duplicating and deleting an arrangement MIDI clip worked without a crash. **[local]**
 
 ### Clip properties
 
@@ -405,15 +405,54 @@ Known gaps: ableton-js says the `output_meter_level` listener hangs "every few 1
 | Open a plug-in window | Since 12.4.3 | `PluginDevice.is_editor_open` | [notes] |
 | Change Live's preferences, audio device, sample rate | No | | [inferred] from absence |
 
+## Checked in Live 12.4.6
+
+On 2026-10-14 a throwaway script, kept outside the repo, tried the facts that [#3](https://github.com/amitbaz/music-production-ai-mentor/issues/3) listed on Live 12 Suite **12.4.6** (macOS) through the ableton-js Remote Script 5.0.4. It worked on a scratch MIDI track in the maintainer's Live Set and deleted the track afterwards. Everything here is **[local]**, seen once. The connection, the password and object ids are in [connecting to Ableton Live](connecting-to-ableton-live.md#checked-in-live-1246).
+
+**Native parameters are written and read back in shown units, through `display_value`.**
+
+- `value` is in Live's internal units, which are often not what the user sees. EQ Eight `1 Frequency A` and Auto Filter `Frequency` run 0–1; Utility `Output` runs −1 to 1. EQ Eight `1 Gain A` happens to match its dB (−15 to 15).
+- `display_value` reads the shown number, and setting it worked:
+
+  | Parameter | `display_value` set to | Read back | Shown text (`str_for_value`) |
+  | --- | --- | --- | --- |
+  | EQ Eight `1 Frequency A` | 1000 | 1000 (value 0.598) | 1000 Hz |
+  | EQ Eight `1 Frequency A` | 120.5 | 121 | 121 Hz |
+  | EQ Eight `1 Gain A` | −4.5 | −4.5 | −4.50 dB |
+  | Auto Filter `Frequency` | 2500 | 2500 (value 0.699) | 2.50 kHz |
+  | Utility `Output` | −3, then 12 | −3, then 12 (value 0.343) | −3.00 dB, 12.0 dB |
+  | Utility `Stereo Width` | 150 | 150 (value 1.22) | 150 % |
+  | EQ Eight `1 Filter Type A` (a list) | 3 | 3 | Bell |
+
+  The values appeared in Live's device view as written.
+- **Out of range: `display_value` clamps without an error, `value` refuses.** `display_value` 50000 on EQ frequency became 22.0 kHz, and 40 on Utility `Output` became 35.0 dB, with `ok: true` both times. `value` outside `min`–`max` failed with `RuntimeError: Invalid value. Check the parameters range with min/max`. A tool that writes `display_value` must check the shown range itself if it is to refuse, and `min` / `max` are in internal units: the shown bounds are `str_for_value(min)` and `str_for_value(max)`, as text.
+- **A list parameter takes its index, not the choice's name.** `"Bell"` was refused with an `ArgumentError` (the C++ signature wants a float). `value_items` gives the names in index order, so the client maps a name to its index. For a parameter that is not a list, `value_items` fails with "Only quantized parameters have value items".
+- `default_value` fails on a list parameter: "There is no default value available for this type of parameter".
+- Utility's gain parameter is named **`Output`** in 12.4.6, not `Gain`.
+- What a parameter offers through the script: functions `begin_gesture`, `end_gesture`, `re_enable_automation`, `str_for_value`; properties `automation_state`, `canonical_parent`, `default_value`, `display_value`, `is_enabled`, `is_quantized`, `max`, `min`, `name`, `original_name`, `state`, `value`.
+- Not tried: units that change across the range, such as ms and s.
+
+**Arrangement clips: create, duplicate and delete worked, and Live did not crash.**
+
+- `Track.create_midi_clip(0, 4)` made a 4-beat MIDI clip at 0. `Track.duplicate_clip_to_arrangement(clip, 8)` made a copy at 8–12. `Track.delete_clip` removed each one, and `arrangement_clips` showed each step.
+- Copy then delete, which is the planned way to move a clip, works as two calls.
+- `Track.insert_device(name)` with no index added the device at the end of the chain. A new MIDI track is created from the user's default MIDI track, devices included: on this machine, Pitch, Velocity and FabFilter Pro-Q 3.
+
+**Arrangement automation through a Session View clip does not work.**
+
+- A Session clip got an envelope for Utility `Output` with `create_automation_envelope` and two `insert_step` calls. `value_at_time` read it back. Envelope values are internal units and are clamped to `min`–`max`: steps of −12 and 6 read back as −1 and 1.
+- `duplicate_clip_to_arrangement` copied the clip to beat 16. The copy's `automation_envelope(Output)` was `None`, the parameter's `automation_state` stayed `none`, and the maintainer saw an empty Utility `Output` automation lane in the Arrangement. The envelope is dropped, not turned into track automation.
+- The other indirect route, recording parameter changes with arrangement recording on, was not tried.
+
 ## What was not verified
 
-- **Nothing was run.** Every row is from documents and listings. Only the items marked [local] were seen working, in the earlier prototype.
+- **Most rows were not run.** Every row is from documents and listings, except the items marked [local]: the earlier prototype on 12.3.2, and [Checked in Live 12.4.6](#checked-in-live-1246).
 - **The Live version behind the type stubs.** They were taken as a 12.3-era listing by what they contain and lack.
 - **Whether the Python API has every LOM member, and under the same name.** The LOM reference is written for Max for Live. `SimplerDevice.replace_sample` and `PluginDevice.is_editor_open` are in the LOM reference and not in the stubs, which fits a version gap but was not confirmed in Python.
 - **"Absent" as proof of "not possible".** A member missing from both sources may still exist in Live 12.4.x, or be reachable through a private module. The stubs do show a `save_current_set` on an internal licensing class, which a control surface is not given.
 - **Undo.** What `begin_undo_step` / `end_undo_step` group, and whether each API call is its own undo step.
 - **`Envelope.create_event`**, which ableton-js calls and the stubs lack. Whether `create_automation_envelope` works on an arrangement clip.
-- **`display_value`** behaviour for parameters whose unit changes across the range.
+- **`display_value`** behaviour for parameters whose unit changes across the range. Fixed units (Hz, dB, %) were tried on 12.4.6.
 - **Whether setting `loop_end` or `end_marker` resizes an arrangement clip.**
 - **The version that added** `Track.create_audio_clip`, `ClipSlot.create_audio_clip`, `Track.duplicate_device`, `Envelope.events_in_range`, `Scene.tempo_enabled`.
 - **Which settings of Operator, Sampler, Gate, Auto Filter and Glue Compressor are ordinary parameters.** This needs a parameter dump per device from a running Live.

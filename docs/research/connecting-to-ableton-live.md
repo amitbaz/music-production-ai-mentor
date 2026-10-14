@@ -247,14 +247,38 @@ What this shows:
 - It is not enough for third-party plug-ins. What the mentor can read there depends on the plug-in's size and format, and on what the user configured. A plug-in that reports only `Device On` is one the mentor cannot read, and it can tell.
 - How to reach third-party plug-in settings another way is an open research question. Hearing the audio is covered in [the other research note](hearing-live-audio-and-where-the-agent-runs.md).
 
+## Checked in Live 12.4.6
+
+On 2026-10-14 a throwaway script, kept outside the repo, tried the connection facts that [#3](https://github.com/amitbaz/music-production-ai-mentor/issues/3) listed. Machine: Live 12 Suite **12.4.6** (2026-09-10 build) on macOS, the ableton-js Remote Script **5.0.4**, Node 22.23.3 with the built-in `WebSocket`. Everything here is **[local]**, seen once on one machine. What the checks showed about parameters, clips and automation is in [what Live lets a script do](what-live-lets-a-script-do.md#checked-in-live-1246).
+
+- **The script loads and answers.** It listened on `127.0.0.1:39031`. `internal.get_prop version` answered `5.0.4`; `application.get_prop` gave `major_version` 12, `minor_version` 4, `bugfix_version` 6. Both checks the client needs on connect work.
+- **Python.** Live 12.4.6 embeds Python **3.11.6** (`sys.version`, read through our own file below).
+- **Our own file registers with one added line.** A file `Mentor.py` at the top of the script folder, with a class built on the script's `Interface`, was registered by one line added to the `handlers` table in `AbletonJS.py`:
+
+  ```python
+  "mentor": __import__("Mentor", globals(), None, ["Mentor"], 1).Mentor(c_instance, self.socket),
+  ```
+
+  The inline `__import__` keeps it to one line, with no import at the top of the file. A command with `ns: "mentor"` reached the file's function, and its result came back like any other. No other upstream file was changed.
+- **The password works as the source reads.** With `PASSWORD` set in `Config.py`, the `connect` event carries `requiresAuth: true` and a `salt`. The client answers with the first command `internal.authenticate`, `{ hash: HMAC-SHA256(key = password, message = salt) }` in hex.
+  - Right password: `{ ok: true, data: true }`, and later commands run.
+  - Wrong password: an `error` event `"Invalid password"`, then the script closes the socket (the client saw close code 1006).
+  - No authentication: every command gets an `error` event `"Unauthorized"`, and the socket stays open.
+- **A web page and the port.** The script does not check the `Origin` header. An upgrade request sent with `Origin: https://evil.example` got `101 Switching Protocols` and the `connect` event, with the password off and with it on. It also serves an HTML page at `GET /` without asking for anything.
+  - Password off: such a page can send any command.
+  - Password on: the page sees the salt, but its command, a tempo change, was answered `"Unauthorized"` and the tempo did not change. A page without the password cannot act, and each wrong guess costs it a new connection.
+  - Browser-side limits on public pages reaching `127.0.0.1` were not tried.
+- **Another Live Set loaded.** The script sends a `disconnect` event, closes the socket (code 1005) and starts again. A new connection about one second later worked and authenticated. An id from before was answered `Unknown object id`, because the script empties its id table when it starts again. The client sees a lost connection, so its own table is emptied by the rule it already has.
+- **An object deleted while connected.** The script keeps the old Python wrapper in its table, so its id is still known. Reading or writing through it fails with `errorType: "ArgumentError"` and a message that names a C++ signature, for example `Python argument types in None.None(Track) did not match C++ signature: None(TTrackPyHandle)`. That was the same for a track, a device, a parameter and an arrangement clip. A wrong argument type on a live object gives the same `ArgumentError` (a parameter set to `"Bell"` instead of a number), so the client can only read it as "deleted" after it has checked the argument types itself. An id the script never gave out is answered `Unknown object id: …`.
+
 ## What was not verified
 
 - **Timing and undo.** The prototype in [Prototype results](#prototype-results) sent real commands, but latency per call, tick length, behaviour under load, and whether each call is one undo step were not measured.
 - The Python Remote Script API has no official reference. Every claim about what it can do comes from third-party code or from the Max for Live LOM reference.
 - Whether third-party Remote Scripts load in Live Intro and Lite.
-- The Python version embedded in Live 11, and in Live 12.4.x (12.1 is documented as 3.11.6).
+- The Python version embedded in Live 11. Live 12.4.6 embeds 3.11.6 (see [Checked in Live 12.4.6](#checked-in-live-1246)).
 - Whether Python threads are safe inside Live. AbletonOSC's author says they hang Live; ableton-js and ableton-mcp use them.
-- Whether ableton-js v5 and ableton-mcp work on Live 12.4.6. ableton-js v5.0.4 and AbletonOSC were seen loading on 12.3.2.
+- Whether ableton-mcp works on Live 12.4.6. ableton-js v5.0.4 was seen working on 12.4.6, and AbletonOSC loading on 12.3.2.
 - The Extensions SDK API reference and licence text (behind a beta login), and whether an extension can keep a server open between invocations.
 - The Node version inside Max for Live's `node.script`.
 - A virtual MIDI port on Windows, and the Windows firewall's reaction to AbletonOSC binding `0.0.0.0`.

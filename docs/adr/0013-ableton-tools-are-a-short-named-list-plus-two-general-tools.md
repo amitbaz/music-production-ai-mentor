@@ -37,4 +37,4 @@ Rejected:
 - The client keeps a table from object id to Live object. It is emptied when the connection is lost, and an old id then gives an error that tells the model to read again.
 - A detail the mentor did not ask for is a detail it does not know; the overview must name enough for it to know where to look.
 - The list can only be proven by measuring real requests: rounds per request and uses of the general tools.
-- Not yet tried in Live: what an id does after its object is deleted or another Live Set is loaded, and writing a parameter in shown units.
+- Tried in Live 12.4.6 (#3). A parameter is written in shown units through its `display_value`, which clamps a value out of range without an error, so the client checks the range itself; a list parameter takes the index of the choice, so the client maps the name. An id of a deleted object fails with a Python `ArgumentError` that the client turns into the read-again error. Loading another Live Set closes the connection, so the table is emptied by the rule above.
