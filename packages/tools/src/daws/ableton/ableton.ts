@@ -6,9 +6,10 @@ type LiveTrack = { id: string; name: string; type: string; mute: boolean; solo: 
 type LiveDevice = { id: string; name: string; class_name: string };
 type LiveParameter = { id: string; value: number };
 
-// The Ableton tool set. It reaches the Live Set open in Ableton Live through the Remote Script.
-export function createAbleton(): Tool[] {
-    const client = createClient();
+// The Ableton tool set. It reaches the Live Set open in Ableton Live through the Remote Script,
+// at the address the app gives.
+export function createAbleton(options: { address?: string }): Tool[] {
+    const client = createClient(options.address);
 
     return [
         {

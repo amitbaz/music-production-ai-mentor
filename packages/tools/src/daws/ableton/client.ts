@@ -1,5 +1,4 @@
 // Our client for the ableton-js Remote Script, which listens inside Live on a local WebSocket.
-const ADDRESS = "ws://127.0.0.1:39031";
 
 // One call on a Live object: `ns` is the kind of object, `nsid` the script's id for it.
 export type Command = { ns: string; nsid?: string; name: string; args?: unknown };
@@ -10,7 +9,8 @@ type Waiting = { resolve: (results: Result[]) => void; reject: (error: Error) =>
 
 export type Client = ReturnType<typeof createClient>;
 
-export function createClient() {
+// The address is the script's WebSocket, such as ws://127.0.0.1:39031. The app gives it.
+export function createClient(address: string | undefined) {
     // Opened on the first send, not before.
     let connection: Promise<WebSocket> | undefined;
     const waiting = new Map<string, Waiting>();
@@ -19,9 +19,9 @@ export function createClient() {
     const objectIds = new Map<string, string>();
     const counts = new Map<string, number>();
 
-    function connect() {
+    function connect(address: string) {
         return new Promise<WebSocket>((resolve, reject) => {
-            const socket = new WebSocket(ADDRESS);
+            const socket = new WebSocket(address);
             socket.addEventListener("message", (event) => {
                 const reply = JSON.parse(String(event.data)) as Reply;
                 // The script greets each new connection before it takes commands.
@@ -47,7 +47,8 @@ export function createClient() {
     return {
         // Sends several commands in one message and returns their results in order.
         async send(commands: Command[]): Promise<unknown[]> {
-            connection ??= connect();
+            if (!address) throw new Error("No address for Ableton Live is set, so it cannot be reached");
+            connection ??= connect(address);
             const socket = await connection;
             const uuid = String(nextUuid++);
             const results = await new Promise<Result[]>((resolve, reject) => {

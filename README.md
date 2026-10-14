@@ -37,7 +37,7 @@ cp apps/cli/.env.example apps/cli/.env   # then set GEMINI_API_KEY in it
 pnpm start
 ```
 
-For the Ableton tools you also need Ableton Live 12.4 or newer on macOS. Until the setup command exists, install the Remote Script by hand: copy the `midi-script` folder of [ableton-js](https://github.com/leolabs/ableton-js) 5.0.4 to `~/Music/Ableton/User Library/Remote Scripts/AbletonJS`, restart Live, and choose `AbletonJS` as a Control Surface in Settings → Link, Tempo & MIDI. Leave its password off for now.
+For the Ableton tools you also need Ableton Live 12.4 or newer on macOS. Until the setup command exists, install the Remote Script by hand: copy the `midi-script` folder of [ableton-js](https://github.com/leolabs/ableton-js) 5.0.4 to `~/Music/Ableton/User Library/Remote Scripts/AbletonJS`, restart Live, and choose `AbletonJS` as a Control Surface in Settings → Link, Tempo & MIDI. Leave its password off for now. `ABLETON_ADDRESS` in `apps/cli/.env` says where the script listens; `.env.example` has its default, `ws://127.0.0.1:39031`.
 
 `pnpm check` runs the type check, the linter and the tests in every package. The tests need no network and no key.
 

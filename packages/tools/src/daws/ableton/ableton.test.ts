@@ -60,6 +60,8 @@ function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
 }
 
 const realWebSocket = globalThis.WebSocket;
+// Not the script's default port, so a test can tell the address given was used.
+const ADDRESS = "ws://127.0.0.1:40123";
 
 // Puts the stand-in in place of the global WebSocket for one test.
 function useStandIn(t: TestContext, live: LiveSet) {
@@ -174,7 +176,7 @@ test("read_set gives an overview of the Live Set as compact JSON", async (t) => 
     set({ tracks: [drums, kick, vocal], return_tracks: [reverb], master_track: main });
     useStandIn(t, live);
 
-    const output = await findTool(createAbleton(), "read_set").run({});
+    const output = await findTool(createAbleton({ address: ADDRESS }), "read_set").run({});
 
     assert.doesNotMatch(output, /\n/);
     assert.deepEqual(JSON.parse(output), {
@@ -225,7 +227,7 @@ test("read_set keeps each object's id across reads, and gives a new object a new
     const main = track({ name: "Main", type: "main", volume: "0.0 dB", pan: "C" });
     set({ tracks: [bass], return_tracks: [], master_track: main });
     useStandIn(t, live);
-    const readSet = findTool(createAbleton(), "read_set");
+    const readSet = findTool(createAbleton({ address: ADDRESS }), "read_set");
 
     await readSet.run({});
     // The user adds a track above, then renames the bass.
@@ -247,19 +249,19 @@ test("read_set keeps each object's id across reads, and gives a new object a new
     );
 });
 
-test("no connection is opened before a tool is first used, and later calls reuse it", async (t) => {
+test("no connection is opened before a tool is first used, and later calls reuse it at the address given", async (t) => {
     const { live, track, set } = liveSet({ tempo: 120, numerator: 4, denominator: 4 });
     set({ tracks: [], return_tracks: [], master_track: track({ name: "Main", type: "main", volume: "0.0 dB", pan: "C" }) });
     useStandIn(t, live);
 
-    const readSet = findTool(createAbleton(), "read_set");
+    const readSet = findTool(createAbleton({ address: ADDRESS }), "read_set");
     assert.equal(StandInSocket.opened.length, 0);
 
     await readSet.run({});
     await readSet.run({});
     assert.deepEqual(
         StandInSocket.opened.map((socket) => socket.url),
-        ["ws://127.0.0.1:39031"],
+        [ADDRESS],
     );
 });
 
@@ -272,7 +274,7 @@ test("read_set sends the same number of messages for a large Live Set as for a s
         );
         set({ tracks, return_tracks: [reverb], master_track: track({ name: "Main", type: "main", volume: "0.0 dB", pan: "C" }) });
         useStandIn(t, live);
-        await findTool(createAbleton(), "read_set").run({});
+        await findTool(createAbleton({ address: ADDRESS }), "read_set").run({});
         return StandInSocket.opened.flatMap((socket) => socket.sent).length;
     }
 
@@ -281,4 +283,14 @@ test("read_set sends the same number of messages for a large Live Set as for a s
 
     assert.equal(large, small);
     assert.ok(large <= 4, `sent ${large} messages`);
+});
+
+test("with no address for Live, read_set fails with an error saying so and opens no connection", async (t) => {
+    useStandIn(t, new Map());
+
+    await assert.rejects(
+        async () => findTool(createAbleton({}), "read_set").run({}),
+        /No address for Ableton Live/,
+    );
+    assert.equal(StandInSocket.opened.length, 0);
 });

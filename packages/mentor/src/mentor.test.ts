@@ -24,9 +24,9 @@ function scriptedModel(replies: Message[][]) {
 }
 
 // A stand-in for the global WebSocket, answering like the ableton-js Remote Script
-// for a Live Set with only the Main track. It counts the connections opened.
+// for a Live Set with only the Main track. It records the address of each connection opened.
 class StandInSocket extends EventTarget {
-    static opened = 0;
+    static opened: string[] = [];
     static props: Record<string, unknown> = {
         tempo: 120,
         signature_numerator: 4,
@@ -42,9 +42,9 @@ class StandInSocket extends EventTarget {
         sends: [],
     };
 
-    constructor() {
+    constructor(url: string) {
         super();
-        StandInSocket.opened++;
+        StandInSocket.opened.push(url);
         setTimeout(() => this.reply({ event: "connect", uuid: null }));
     }
 
@@ -69,7 +69,7 @@ class StandInSocket extends EventTarget {
 // Puts the stand-in in place of the global WebSocket for one test.
 function useStandIn(t: TestContext) {
     const real = globalThis.WebSocket;
-    StandInSocket.opened = 0;
+    StandInSocket.opened = [];
     globalThis.WebSocket = StandInSocket as unknown as typeof WebSocket;
     t.after(() => {
         globalThis.WebSocket = real;
@@ -111,7 +111,7 @@ test("a turn sends the user text after the conversation, with the system prompt 
     ]);
 });
 
-test("a turn's tool calls reach Live over the connection opened in the turn before", async (t: TestContext) => {
+test("a turn's tool calls reach Live at the app's address, over the connection opened in the turn before", async (t: TestContext) => {
     useStandIn(t);
     const { model } = scriptedModel([
         [{ type: "tool_call", id: "1", name: "read_set", args: {} }],
@@ -119,7 +119,7 @@ test("a turn's tool calls reach Live over the connection opened in the turn befo
         [{ type: "tool_call", id: "2", name: "read_set", args: {} }],
         [{ type: "assistant", text: "Still 120" }],
     ]);
-    const mentor = createMentor({ model });
+    const mentor = createMentor({ model, abletonAddress: "ws://127.0.0.1:40123" });
 
     const first = await mentor.generate([], "what is the tempo?");
     const second = await mentor.generate(first.messages, "and now?");
@@ -127,7 +127,7 @@ test("a turn's tool calls reach Live over the connection opened in the turn befo
     const read = second.messages.findLast((message) => message.type === "tool_result");
     assert.equal(read?.isError, false);
     assert.equal(JSON.parse(read?.output ?? "").tempo, 120);
-    assert.equal(StandInSocket.opened, 1);
+    assert.deepEqual(StandInSocket.opened, ["ws://127.0.0.1:40123"]);
 });
 
 test("a turn reports each new message through the app's callback", async (t: TestContext) => {
@@ -138,7 +138,7 @@ test("a turn reports each new message through the app's callback", async (t: Tes
     ]);
     const seen: string[] = [];
 
-    await createMentor({ model }).generate([], "what is the tempo?", {
+    await createMentor({ model, abletonAddress: "ws://127.0.0.1:40123" }).generate([], "what is the tempo?", {
         onUpdate: (update) => {
             if (update.type === "message") seen.push(update.message.type);
         },
