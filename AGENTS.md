@@ -43,6 +43,7 @@ A tool set is a group of tools for one outside source. Each kind of source has a
 - The project has no runtime dependencies, and provider adapters call the HTTP API with `fetch`. Raise a new dependency with the maintainer as a decision.
 - `pnpm check` runs the type check, the linter and the tests in every package. It passes before every commit.
 - API keys and any other sensitive values live in a `.env` file inside each app (`apps/cli/.env`), which is not committed. Keep their values out of output, logs, tests and commits.
+- When a change adds, removes or replaces something a user can do, or starts or finishes an item under Planned, update the Status, What it does today and Planned sections of `README.md` in the same commit.
 
 ## Testing
 
