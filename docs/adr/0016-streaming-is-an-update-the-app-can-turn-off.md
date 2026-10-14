@@ -1,4 +1,4 @@
-# 0012 — Streaming is an update the app can turn off
+# 0016 — Streaming is an update the app can turn off
 
 Date: 2026-10-13 · Status: accepted
 
