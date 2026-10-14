@@ -37,6 +37,9 @@ A tool set is a group of tools for one outside source. Each kind of source has a
 ### Supported DAWs (`packages/tools/src/daws/`)
 
 - **Ableton Live**, in `ableton/`. Its tools reach the Live Set open in Live through the ableton-js Remote Script.
+  - `ableton.ts` makes the client and lists the tools; `ableton.test.ts` tests what belongs to the whole tool set (the connection, object ids, batching) through a tool.
+  - `client.ts` is the connection to the Remote Script; `live.ts` holds what Live sends back; `stand-in-live.ts` is the stand-in WebSocket the tests use.
+  - Each tool has one file and its test under `tools/`, in the folder of its group from ADR 0013: `reads/`, `changes/`, `removals/` or `general/`. The file exports a function that takes the client and returns the tool.
 
 ## Constraints
 

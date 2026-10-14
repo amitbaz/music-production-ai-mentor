@@ -22,6 +22,7 @@
 - **Tool result** — what the harness sends back after running a tool call, including errors.
 - **Live Set** — the project open in Ableton Live: its tracks, devices, clips and settings, whether saved to a file or not.
 - **Remote Script** — code that runs inside Ableton Live and lets an outside program read and change the Live Set. The Ableton tools reach Live through one.
+- **Client** — the part of a tool set that talks to an outside program for its tools, such as the one that connects to the Remote Script in Live. It connects when a tool first needs it and gives out the object ids.
 - **Arrangement View** — the timeline of a Live Set, where clips are laid out from left to right to form the finished piece. The other view, Session View, is a grid of clips launched by hand.
 - **Native device** — an instrument or effect that is part of Ableton Live, such as EQ Eight or Compressor. A third-party plug-in is not one.
 - **Object id** — a short name such as `t17` or `d204` that a read gives to a track, device or clip, and that a later tool call uses to say which one it means. It follows the object through renames and reorders, and lasts as long as the connection to Live.

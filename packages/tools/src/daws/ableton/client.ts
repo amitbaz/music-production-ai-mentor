@@ -44,20 +44,35 @@ export function createClient(address: string | undefined) {
         });
     }
 
+    // Sends several commands in one message and returns their results in order.
+    async function send(commands: Command[]): Promise<unknown[]> {
+        if (!address) throw new Error("No address for Ableton Live is set, so it cannot be reached");
+        connection ??= connect(address);
+        const socket = await connection;
+        const uuid = String(nextUuid++);
+        const results = await new Promise<Result[]>((resolve, reject) => {
+            waiting.set(uuid, { resolve, reject });
+            socket.send(JSON.stringify({ uuid, commands }));
+        });
+        return results.map((result) => {
+            if (!result.ok) throw new Error(result.error);
+            return result.data;
+        });
+    }
+
     return {
-        // Sends several commands in one message and returns their results in order.
-        async send(commands: Command[]): Promise<unknown[]> {
-            if (!address) throw new Error("No address for Ableton Live is set, so it cannot be reached");
-            connection ??= connect(address);
-            const socket = await connection;
-            const uuid = String(nextUuid++);
-            const results = await new Promise<Result[]>((resolve, reject) => {
-                waiting.set(uuid, { resolve, reject });
-                socket.send(JSON.stringify({ uuid, commands }));
-            });
-            return results.map((result) => {
-                if (!result.ok) throw new Error(result.error);
-                return result.data;
+        send,
+
+        // Sends the commands for every item in one message, and gives back each item's results.
+        async sendEach<T>(items: T[], commands: (item: T) => Command[]): Promise<unknown[][]> {
+            const perItem = items.map(commands);
+            const results = await send(perItem.flat());
+            let start = 0;
+            return perItem.map((itemCommands) => {
+                const end = start + itemCommands.length;
+                const itemResults = results.slice(start, end);
+                start = end;
+                return itemResults;
             });
         },
 
