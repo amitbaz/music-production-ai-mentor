@@ -71,6 +71,8 @@ for await (const line of terminal) {
 }
 
 terminal.close();
+// The connection to Live, once opened, would keep the process running.
+process.exit();
 
 function approve(call: ToolCall): Promise<boolean> {
     return new Promise((resolve) => {
