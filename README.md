@@ -20,6 +20,11 @@ Early. The mentor runs in the terminal on Gemini. Its Ableton tools act on an in
 - **The real Ableton Live** ([#2](https://github.com/amitbaz/music-production-ai-mentor/issues/2)): read the Live Set and change tracks, native devices, clips and the arrangement, through a Remote Script.
 - **Load a tool set only when the mentor needs it** ([#1](https://github.com/amitbaz/music-production-ai-mentor/issues/1)).
 - **Evals** for what the model decides: which tool it picks, and whether it follows the system prompt.
+- **Run tools in parallel**: when the model asks for several tools in one reply, run them at the same time instead of one after another.
+- **Third-party plug-ins in Ableton**: read and change the settings of plug-ins that are not native devices. Left out of the first tool set by [ADR 0015](docs/adr/0015-the-first-real-ableton-tool-set-has-a-narrow-scope.md); see [reaching third-party plug-ins](docs/research/reaching-third-party-plug-ins.md).
+- **A desktop app**, next to the terminal one.
+- **Listening**: let the mentor hear your mix, so its advice is based on the sound and not only on the settings. See [how the agent can hear Live](docs/research/hearing-live-audio-and-where-the-agent-runs.md).
+- **Stems and sound analysis**: tools that split a track into stems and measure the sound, such as loudness, frequency balance and dynamics.
 
 ## Quick start
 
