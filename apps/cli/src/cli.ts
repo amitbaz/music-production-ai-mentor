@@ -25,7 +25,7 @@ const terminal = createInterface({
 });
 terminal.setPrompt("\nyou> ");
 console.log(
-    'Music production AI mentor (fake Ableton session). Type "exit" to quit.',
+    'Music production AI mentor. Type "exit" to quit.',
 );
 
 // Whether a streamed assistant message is on screen with its line still open

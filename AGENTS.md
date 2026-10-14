@@ -36,7 +36,7 @@ A tool set is a group of tools for one outside source. Each kind of source has a
 
 ### Supported DAWs (`packages/tools/src/daws/`)
 
-- **Ableton Live**, in `ableton/`. Its tools act on an in-memory fake until the connection to the real application exists.
+- **Ableton Live**, in `ableton/`. Its tools reach the Live Set open in Live through the ableton-js Remote Script.
 
 ## Constraints
 

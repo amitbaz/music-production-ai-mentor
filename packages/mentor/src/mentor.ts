@@ -3,7 +3,7 @@ import {
     createAgent,
     type Model,
 } from "@mentor/harness";
-import { createFakeAbleton } from "@mentor/tools/daws/ableton";
+import { createAbleton } from "@mentor/tools/daws/ableton";
 import { systemPrompt } from "./system-prompt.ts";
 
 // The mentor's model, the same in every app.
@@ -19,7 +19,7 @@ export function createMentor(options: MentorOptions) {
     return createAgent({
         model: MODEL_ID,
         ...options,
-        tools: createFakeAbleton(),
+        tools: createAbleton(),
         system: systemPrompt,
     });
 }

@@ -20,7 +20,6 @@
 - **DAW** — a digital audio workstation, the application music is produced in. Ableton Live is the first one supported.
 - **Tool call** — the model's request to run a tool with given arguments.
 - **Tool result** — what the harness sends back after running a tool call, including errors.
-- **Fake Ableton** — an in-memory stand-in for Ableton Live (tempo and named tracks) that the tools act on until the real bridge exists. Resets on every run.
 - **Live Set** — the project open in Ableton Live: its tracks, devices, clips and settings, whether saved to a file or not.
 - **Remote Script** — code that runs inside Ableton Live and lets an outside program read and change the Live Set. The Ableton tools reach Live through one.
 - **Arrangement View** — the timeline of a Live Set, where clips are laid out from left to right to form the finished piece. The other view, Session View, is a grid of clips launched by hand.

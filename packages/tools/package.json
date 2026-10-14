@@ -3,7 +3,7 @@
     "private": true,
     "type": "module",
     "exports": {
-        "./daws/ableton": "./src/daws/ableton/fake-ableton.ts"
+        "./daws/ableton": "./src/daws/ableton/ableton.ts"
     },
     "scripts": {
         "test": "node --test \"src/**/*.test.ts\"",
