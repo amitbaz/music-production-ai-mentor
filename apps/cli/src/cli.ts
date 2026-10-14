@@ -11,6 +11,7 @@ const STREAMING = true;
 
 const mentor = createMentor({
     keys: { gemini: process.env.GEMINI_API_KEY },
+    abletonAddress: process.env.ABLETON_ADDRESS,
     onRetry: ({ error, retry, maxRetries, waitMs }) =>
         console.error(
             `  (${error.message}, trying again in ${waitMs / 1000}s, retry ${retry} of ${maxRetries})`,
@@ -25,7 +26,7 @@ const terminal = createInterface({
 });
 terminal.setPrompt("\nyou> ");
 console.log(
-    'Music production AI mentor (fake Ableton session). Type "exit" to quit.',
+    'Music production AI mentor. Type "exit" to quit.',
 );
 
 // Whether a streamed assistant message is on screen with its line still open
@@ -70,6 +71,8 @@ for await (const line of terminal) {
 }
 
 terminal.close();
+// The connection to Live, once opened, would keep the process running.
+process.exit();
 
 function approve(call: ToolCall): Promise<boolean> {
     return new Promise((resolve) => {

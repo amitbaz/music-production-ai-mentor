@@ -1,0 +1,135 @@
+// Test only: a stand-in for the global WebSocket that answers like the ableton-js
+// Remote Script, and a builder for the Live Set it answers about. Each Ableton test uses it
+// the way the Gemini adapter tests replace the global fetch.
+import type { TestContext } from "node:test";
+import type { Command } from "./client.ts";
+
+type Request = { uuid: string; commands: Command[] };
+
+// A stand-in Live Set: the objects the script would answer for, keyed by the script's own ids.
+// The song is under "song". Each object holds the namespace it belongs to and maps a
+// property to its value; a parameter also holds the text Live shows for it, which is
+// what str_for_value answers.
+type LiveSet = Map<string, Record<string, unknown>>;
+
+// A stand-in for the global WebSocket that answers like the ableton-js Remote Script.
+export class StandInSocket extends EventTarget {
+    static opened: StandInSocket[] = [];
+    static live: LiveSet = new Map();
+
+    url: string;
+    sent: Request[] = [];
+
+    constructor(url: string) {
+        super();
+        this.url = url;
+        StandInSocket.opened.push(this);
+        setTimeout(() => {
+            this.dispatchEvent(new Event("open"));
+            this.reply({ event: "connect", data: { port: 39031, requiresAuth: false }, uuid: null });
+        });
+    }
+
+    send(text: string) {
+        const request = JSON.parse(text) as Request;
+        this.sent.push(request);
+        const data = request.commands.map((command) => answer(StandInSocket.live, command));
+        setTimeout(() => this.reply({ event: "result", data, uuid: request.uuid }));
+    }
+
+    close() {
+        setTimeout(() => this.dispatchEvent(new Event("close")));
+    }
+
+    reply(message: unknown) {
+        this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(message) }));
+    }
+}
+
+function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
+    const object = live.get(ns === "song" ? "song" : (nsid ?? ""));
+    if (!object) return { ok: false, error: `Unknown object id: ${nsid}`, errorType: "Exception" };
+    // The script would look the name up on the wrong kind of object and fail.
+    if (object.ns !== ns) return { ok: false, error: `${nsid} is not a ${ns}`, errorType: "Exception" };
+    if (name === "get_prop") {
+        const { prop } = args as { prop: string };
+        return { ok: true, data: object[prop] ?? null };
+    }
+    if (name === "str_for_value") return { ok: true, data: object.shown };
+    return { ok: false, error: `Function call failed: ${name} doesn't exist`, errorType: "Exception" };
+}
+
+const realWebSocket = globalThis.WebSocket;
+// Not the script's default port, so a test can tell the address given was used.
+export const ADDRESS = "ws://127.0.0.1:40123";
+
+// Puts the stand-in in place of the global WebSocket for one test.
+export function useStandIn(t: TestContext, live: LiveSet) {
+    StandInSocket.opened = [];
+    StandInSocket.live = live;
+    globalThis.WebSocket = StandInSocket as unknown as typeof WebSocket;
+    t.after(() => {
+        globalThis.WebSocket = realWebSocket;
+    });
+}
+
+type TrackSpec = {
+    name: string;
+    type: "audio" | "midi" | "group" | "return" | "main";
+    volume: string;
+    pan: string;
+    sends?: string[];
+    mute?: boolean;
+    solo?: boolean;
+    group?: { id: string };
+    devices?: { name: string; class_name: string }[];
+};
+
+// Builds a stand-in Live Set the way the script describes one.
+export function liveSet(song: { tempo: number; numerator: number; denominator: number }) {
+    const live: LiveSet = new Map();
+    let next = 1;
+    const id = () => `live_${next++}`;
+
+    function parameter(shown: string) {
+        const paramId = id();
+        live.set(paramId, { ns: "device-parameter", shown });
+        return { id: paramId, name: "", value: 0, is_quantized: false };
+    }
+
+    function track(spec: TrackSpec) {
+        const trackId = id();
+        const mixerId = id();
+        const serialized = {
+            id: trackId,
+            name: spec.name,
+            solo: spec.solo ?? false,
+            mute: spec.mute ?? false,
+            color: 0,
+            color_index: 0,
+            is_grouped: spec.group !== undefined,
+            type: spec.type,
+        };
+        live.set(trackId, {
+            ns: "track",
+            devices: (spec.devices ?? []).map((device) => {
+                const deviceId = id();
+                live.set(deviceId, { ns: "device" });
+                return { id: deviceId, name: device.name, type: "audio_effect", class_name: device.class_name };
+            }),
+            mixer_device: { id: mixerId },
+            group_track: spec.group ?? null,
+        });
+        live.set(mixerId, {
+            ns: "mixer-device",
+            volume: parameter(spec.volume),
+            panning: parameter(spec.pan),
+            sends: (spec.sends ?? []).map(parameter),
+        });
+        return serialized;
+    }
+
+    const set = { ns: "song", tempo: song.tempo, signature_numerator: song.numerator, signature_denominator: song.denominator };
+    live.set("song", set);
+    return { live, track, set: (props: Record<string, unknown>) => Object.assign(set, props) };
+}

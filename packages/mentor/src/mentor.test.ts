@@ -23,6 +23,59 @@ function scriptedModel(replies: Message[][]) {
     return { model, calls };
 }
 
+// A stand-in for the global WebSocket, answering like the ableton-js Remote Script
+// for a Live Set with only the Main track. It records the address of each connection opened.
+class StandInSocket extends EventTarget {
+    static opened: string[] = [];
+    static props: Record<string, unknown> = {
+        tempo: 120,
+        signature_numerator: 4,
+        signature_denominator: 4,
+        tracks: [],
+        return_tracks: [],
+        master_track: { id: "live_1", name: "Main", type: "main", mute: false, solo: false },
+        devices: [],
+        mixer_device: { id: "live_2" },
+        group_track: null,
+        volume: { id: "live_3", value: 0.85 },
+        panning: { id: "live_4", value: 0 },
+        sends: [],
+    };
+
+    constructor(url: string) {
+        super();
+        StandInSocket.opened.push(url);
+        setTimeout(() => this.reply({ event: "connect", uuid: null }));
+    }
+
+    send(text: string) {
+        const { uuid, commands } = JSON.parse(text) as {
+            uuid: string;
+            commands: { name: string; args?: { prop: string } }[];
+        };
+        // A property comes from the table; a shown value is always 0.0 dB.
+        const data = commands.map((command) => ({
+            ok: true,
+            data: command.name === "get_prop" ? StandInSocket.props[command.args?.prop ?? ""] : "0.0 dB",
+        }));
+        setTimeout(() => this.reply({ event: "result", uuid, data }));
+    }
+
+    reply(message: unknown) {
+        this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(message) }));
+    }
+}
+
+// Puts the stand-in in place of the global WebSocket for one test.
+function useStandIn(t: TestContext) {
+    const real = globalThis.WebSocket;
+    StandInSocket.opened = [];
+    globalThis.WebSocket = StandInSocket as unknown as typeof WebSocket;
+    t.after(() => {
+        globalThis.WebSocket = real;
+    });
+}
+
 // The url and options of the first request a test sent.
 function sentRequest(fetchMock: { mock: { calls: { arguments: unknown[] }[] } }) {
     const call = fetchMock.mock.calls[0];
@@ -46,7 +99,10 @@ test("a turn sends the user text after the conversation, with the system prompt 
         { type: "user", text: "hi again" },
     ]);
     assert.equal(calls[0]?.options?.system, systemPrompt);
-    assert.ok(calls[0]?.tools.some((tool) => tool.name === "set_tempo"));
+    assert.deepEqual(
+        calls[0]?.tools.map((tool) => tool.name),
+        ["read_set"],
+    );
     assert.equal(result.stop, "finished");
     assert.deepEqual(result.messages, [
         ...before,
@@ -55,43 +111,39 @@ test("a turn sends the user text after the conversation, with the system prompt 
     ]);
 });
 
-test("a turn's tool calls act on the same Ableton session as the turn before", async () => {
+test("a turn's tool calls reach Live at the app's address, over the connection opened in the turn before", async (t: TestContext) => {
+    useStandIn(t);
     const { model } = scriptedModel([
-        [{ type: "tool_call", id: "1", name: "set_tempo", args: { bpm: 90 } }],
-        [{ type: "assistant", text: "Done" }],
-        [{ type: "tool_call", id: "2", name: "get_session", args: {} }],
-        [{ type: "assistant", text: "It is 90" }],
+        [{ type: "tool_call", id: "1", name: "read_set", args: {} }],
+        [{ type: "assistant", text: "120 BPM" }],
+        [{ type: "tool_call", id: "2", name: "read_set", args: {} }],
+        [{ type: "assistant", text: "Still 120" }],
     ]);
-    const mentor = createMentor({ model });
+    const mentor = createMentor({ model, abletonAddress: "ws://127.0.0.1:40123" });
 
-    const first = await mentor.generate([], "set the tempo to 90");
-    const second = await mentor.generate(first.messages, "what is the tempo?");
+    const first = await mentor.generate([], "what is the tempo?");
+    const second = await mentor.generate(first.messages, "and now?");
 
-    const session = second.messages.findLast(
-        (message) => message.type === "tool_result",
-    );
-    assert.match(session?.output ?? "", /"tempo":90/);
+    const read = second.messages.findLast((message) => message.type === "tool_result");
+    assert.equal(read?.isError, false);
+    assert.equal(JSON.parse(read?.output ?? "").tempo, 120);
+    assert.deepEqual(StandInSocket.opened, ["ws://127.0.0.1:40123"]);
 });
 
-test("a turn reports each new message and asks approval through the app's callbacks", async () => {
+test("a turn reports each new message through the app's callback", async (t: TestContext) => {
+    useStandIn(t);
     const { model } = scriptedModel([
-        [{ type: "tool_call", id: "1", name: "delete_track", args: { name: "Bass" } }],
-        [{ type: "assistant", text: "Left it alone" }],
+        [{ type: "tool_call", id: "1", name: "read_set", args: {} }],
+        [{ type: "assistant", text: "120 BPM" }],
     ]);
     const seen: string[] = [];
-    const asked: string[] = [];
 
-    await createMentor({ model }).generate([], "delete the bass", {
+    await createMentor({ model, abletonAddress: "ws://127.0.0.1:40123" }).generate([], "what is the tempo?", {
         onUpdate: (update) => {
             if (update.type === "message") seen.push(update.message.type);
         },
-        approve: (call) => {
-            asked.push(call.name);
-            return false;
-        },
     });
 
-    assert.deepEqual(asked, ["delete_track"]);
     assert.deepEqual(seen, ["tool_call", "tool_result", "assistant"]);
 });
 

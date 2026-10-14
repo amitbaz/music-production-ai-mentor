@@ -18,7 +18,7 @@ Live offers a script hundreds of properties and functions. The model sees only t
   - a read returns what the next action needs;
   - an action says which object it means without a lookup;
   - an action's result states the value before and after.
-- Reading is overview first, details on request. Nothing is cached and the client does not listen for changes; each read asks Live. Read results are compact text.
+- Reading is overview first, details on request. Nothing is cached and the client does not listen for changes; each read asks Live. Read results are compact text. (The format of read results is replaced by ADR 0017.)
 - Tracks, devices and clips are addressed by object ids: short ids such as `t17` and `d204`, made by the client the first time an object is read. Parameters inside a device are addressed by name. Every result repeats the names.
 - Values are read and written in the units Live shows (dB, Hz, %).
 

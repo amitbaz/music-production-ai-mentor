@@ -4,22 +4,21 @@ An AI mentor for music producers. You talk to it in plain language: it explains 
 
 ## Status
 
-Early. The mentor runs in the terminal on Gemini. Its Ableton tools act on an in-memory fake of Live, so nothing touches a real Live Set yet. The connection to the real Ableton Live is designed ([ADRs 0012–0015](docs/adr/)) and is the next step.
+Early. The mentor runs in the terminal on Gemini and reads the Live Set open in Ableton Live, so far only as an overview. The Remote Script it reaches Live through is installed by hand for now. Reading the rest of the Live Set and changing it are next ([#2](https://github.com/amitbaz/music-production-ai-mentor/issues/2)).
 
 ## What it does today
 
 - Talk to the mentor in the terminal, with its reply shown as it is written.
 - It tells explaining from acting by how you ask, and looks at the current state before changing anything.
-- Ableton tools, acting on the fake Ableton: `get_session`, `set_tempo`, `create_track`, `delete_track`.
-- `delete_track` asks for your approval before it runs. A refusal is passed back to the mentor, and the turn goes on.
+- `read_set` gives the mentor an overview of the Live Set open in Ableton Live, saved or not: tempo, time signature, and each track with its kind, group, volume, pan, sends, mute and solo, and its devices. It connects to Live the first time it is used.
 - Ctrl+C cancels a turn. What already happened stays in the conversation.
 - A failed model call is retried after a growing wait, and an attempt that hangs is timed out.
 
 ## Planned
 
-- **The real Ableton Live** ([#2](https://github.com/amitbaz/music-production-ai-mentor/issues/2)): read the Live Set and change tracks, native devices, clips and the arrangement, through a Remote Script.
+- **The real Ableton Live** ([#2](https://github.com/amitbaz/music-production-ai-mentor/issues/2)): read device parameters, clips and the arrangement, and change tracks, native devices, clips and the arrangement. A setup command installs the Remote Script, and approval comes back with `delete`.
 - **Load a tool set only when the mentor needs it** ([#1](https://github.com/amitbaz/music-production-ai-mentor/issues/1)).
-- **Evals** for what the model decides: which tool it picks, and whether it follows the system prompt.
+- **Evals** for what the model decides: which tool it picks, whether it follows the system prompt, and which format tool results should use ([#16](https://github.com/amitbaz/music-production-ai-mentor/issues/16)).
 - **Run tools in parallel**: when the model asks for several tools in one reply, run them at the same time instead of one after another.
 - **Third-party plug-ins in Ableton**: read and change the settings of plug-ins that are not native devices. Left out of the first tool set by [ADR 0015](docs/adr/0015-the-first-real-ableton-tool-set-has-a-narrow-scope.md); see [reaching third-party plug-ins](docs/research/reaching-third-party-plug-ins.md).
 - **A desktop app**, next to the terminal one.
@@ -37,6 +36,8 @@ pnpm install
 cp apps/cli/.env.example apps/cli/.env   # then set GEMINI_API_KEY in it
 pnpm start
 ```
+
+For the Ableton tools you also need Ableton Live 12.4 or newer on macOS. Until the setup command exists, install the Remote Script by hand: copy the `midi-script` folder of [ableton-js](https://github.com/leolabs/ableton-js) 5.0.4 to `~/Music/Ableton/User Library/Remote Scripts/AbletonJS`, restart Live, and choose `AbletonJS` as a Control Surface in Settings → Link, Tempo & MIDI. Leave its password off for now. `ABLETON_ADDRESS` in `apps/cli/.env` says where the script listens; `.env.example` has its default, `ws://127.0.0.1:39031`.
 
 `pnpm check` runs the type check, the linter and the tests in every package. The tests need no network and no key.
 
