@@ -1,4 +1,5 @@
 import { createInterface } from "node:readline";
+import { styleText } from "node:util";
 import {
     createMentor,
     type Message,
@@ -107,12 +108,17 @@ function print(message: Message) {
     if (message.type === "assistant") {
         console.log(`\nmentor> ${message.text}`);
     } else if (message.type === "tool_call") {
-        console.log(
-            `  [tool] ${message.name}(${JSON.stringify(message.args)})`,
-        );
+        console.log(`\n⏺ ${message.name}(${JSON.stringify(message.args)})`);
     } else if (message.type === "tool_result") {
-        console.log(
-            `  [${message.isError ? "error" : "result"}] ${message.output}`,
-        );
+        const line = `  ⎿  ${summary(message.output)}`;
+        console.log(message.isError ? styleText("red", line) : line);
     }
+}
+
+// The first line of a tool's output, cut to fit the screen. The model still sees all of it.
+function summary(output: string): string {
+    const [first = "", ...rest] = output.split("\n");
+    const width = (process.stdout.columns ?? 80) - 6;
+    const line = first.length > width ? `${first.slice(0, width - 1)}…` : first;
+    return rest.length > 0 ? `${line} (+${rest.length} lines)` : line;
 }
