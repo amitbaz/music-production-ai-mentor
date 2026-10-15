@@ -87,6 +87,22 @@ test("edit_tracks duplicates a track after creating one in the same call, and fi
     assert.deepEqual(song.tracks.map((track) => track.name), ["Kick", "Bass", "Bass", "Lead"]);
 });
 
+test("edit_tracks, when a track is made but cannot be named, still gives its object id", async (t) => {
+    const { live, song, editTracks } = await withTracks(t);
+    const original = (live.get("song") as Record<string, (args: { index: number }) => { id: string }>).create_midi_track as (args: { index: number }) => { id: string };
+    (live.get("song") as Record<string, unknown>).create_midi_track = (args: { index: number }) => {
+        const made = original(args);
+        (live.get(made.id) as Record<string, unknown>).refuses = "name";
+        return made;
+    };
+
+    const [change] = await edit(editTracks, { action: "create", kind: "midi", name: "Lead" });
+
+    assert.deepEqual(change.track, "t5");
+    assert.match(change.error, /made, but could not be named.*name could not be set/);
+    assert.equal(song.tracks.length, 3);
+});
+
 test("edit_tracks refuses to duplicate a return track or Main", async (t) => {
     const { song, editTracks } = await withTracks(t);
 
@@ -185,6 +201,16 @@ test("edit_tracks, when the channel is not one of the new type, says what change
         before: { type: "Main", channel: "Main" },
         after: { type: "Drum Bus", channel: "Track In" },
     });
+});
+
+test("edit_tracks, when Live refuses the channel after the type was set, reports the type that changed", async (t) => {
+    const { live, kick, editTracks } = await withTracks(t);
+    (live.get(kick.id) as Record<string, unknown>).refuses = "output_routing_channel";
+
+    const [change] = await edit(editTracks, { action: "edit", track: "t1", output: { type: "Drum Bus", channel: "Post Mixer" } });
+
+    assert.match(change.error, /output_routing_channel could not be set/);
+    assert.deepEqual(change.changed.output.after, { type: "Drum Bus", channel: "Track In" });
 });
 
 test("edit_tracks refuses what a kind of track does not have, and says which tracks do", async (t) => {

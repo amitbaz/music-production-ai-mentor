@@ -157,6 +157,8 @@ function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
     if (name === "set_prop") {
         const { prop, value } = args as { prop: string; value: unknown };
         if (object.ns === "device-parameter") return setParameter(object, prop, value);
+        // A property Live refuses to set, as when it is busy.
+        if (object.refuses === prop) return { ok: false, error: `${prop} could not be set`, errorType: "Exception" };
         try {
             if (object.routing && ROUTING.test(prop)) routingProp(object.routing as Record<"input" | "output", RoutingSpec>, prop, value as string);
             else object[prop] = value;

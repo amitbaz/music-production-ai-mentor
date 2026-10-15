@@ -23,13 +23,13 @@ const ROUTING = {
     },
 };
 
-// A change that went wrong after some of it was already done: the error says why, and `changed`
-// is what happened before it.
+// A change that went wrong after some of it was already done: the error says why, and `done` is
+// what the result must still tell, such as the track that was made or what was changed.
 class HalfDone extends Error {
-    changed: Record<string, unknown>;
-    constructor(message: string, changed: Record<string, unknown>) {
+    done: Record<string, unknown>;
+    constructor(message: string, done: Record<string, unknown>) {
         super(message);
-        this.changed = changed;
+        this.done = done;
     }
 }
 
@@ -86,7 +86,7 @@ async function run(client: Client, args: Record<string, unknown>) {
             results.push({
                 ...(typeof asked.action === "string" && { action: asked.action }),
                 ...(typeof asked.track === "string" && { track: asked.track }),
-                ...(error instanceof HalfDone && { changed: error.changed }),
+                ...(error instanceof HalfDone && error.done),
                 error: message,
             });
         }
@@ -111,7 +111,7 @@ async function apply(client: Client, change: unknown, known: Known) {
     if (action === "create") return create(client, change as Change, known);
     if (action === "duplicate") return duplicate(client, change as Change, known);
     if (action === "edit") return edit(client, change as Change, known);
-    throw new Error(`action must be ${ACTIONS.slice(0, -1).join(", ")} or ${ACTIONS.at(-1)}, not ${String(action)}. edit_tracks cannot delete a track.`);
+    throw new Error(`action must be create, duplicate or edit, not ${String(action)}. edit_tracks cannot delete a track.`);
 }
 
 function nameArg(change: Change) {
@@ -154,7 +154,12 @@ async function create(client: Client, change: Change, known: Known) {
     ])) as [LiveTrack];
     // The Live Set has a track more, which a later duplicate must not take for its copy.
     Object.assign(known, await readKnown(client));
-    return { action: "create", track: client.objectId("t", created.id), kind, name: await rename(client, created.id, name) };
+    const track = client.objectId("t", created.id);
+    try {
+        return { action: "create", track, kind, name: await rename(client, created.id, name) };
+    } catch (error) {
+        throw new HalfDone(`The ${kind} track ${track} was made, but could not be named: ${(error as Error).message}`, { track, kind });
+    }
 }
 
 async function duplicate(client: Client, change: Change, known: Known) {
@@ -170,7 +175,12 @@ async function duplicate(client: Client, change: Change, known: Known) {
     const copy = now.tracks.find((track) => !known.tracks.some((before) => before.id === track.id));
     Object.assign(known, now);
     if (!copy) throw new Error(`Ableton Live did not make a copy of ${id}. Read again with read_set to see the Live Set.`);
-    return { action: "duplicate", from: id, track: client.objectId("t", copy.id), name: await rename(client, copy.id, name) };
+    const copyId = client.objectId("t", copy.id);
+    try {
+        return { action: "duplicate", from: id, track: copyId, name: await rename(client, copy.id, name) };
+    } catch (error) {
+        throw new HalfDone(`${id} was duplicated as ${copyId}, but the copy could not be named: ${(error as Error).message}`, { copy: copyId });
+    }
 }
 
 function routeArg(change: Change, direction: Direction): Wanted | undefined {
@@ -195,11 +205,12 @@ type RouteState = Awaited<ReturnType<typeof readRouting>>;
 
 // Reads the routing of a track in one direction: where it is now, and what Live offers.
 async function readRouting(client: Client, scriptId: string, direction: Direction) {
-    const [type, channel, types, channels] = await client.send(
-        ["routing_type", "routing_channel", "available_%_routing_types", "available_%_routing_channels"].map((prop) =>
-            getProp("track", prop.includes("%") ? prop.replace("%", direction) : `${direction}_${prop}`, scriptId),
-        ),
-    );
+    const [type, channel, types, channels] = await client.send([
+        getProp("track", `${direction}_routing_type`, scriptId),
+        getProp("track", `${direction}_routing_channel`, scriptId),
+        getProp("track", `available_${direction}_routing_types`, scriptId),
+        getProp("track", `available_${direction}_routing_channels`, scriptId),
+    ]);
     return { now: { type: names([type])[0] as string, channel: names([channel])[0] as string }, types: names(types), channels: names(channels) };
 }
 
@@ -257,7 +268,7 @@ async function edit(client: Client, change: Change, known: Known) {
         }
     } catch (error) {
         if (Object.keys(changed).length === 0) throw error;
-        throw new HalfDone((error as Error).message, changed);
+        throw new HalfDone((error as Error).message, { changed });
     }
     return { action: "edit", track: id, name: (changed.name as { after: string } | undefined)?.after ?? before.name, changed };
 }
@@ -272,20 +283,26 @@ async function setRouting(
     route: RouteState,
     changed: Record<string, unknown>,
 ) {
-    if (want.type !== undefined && want.type !== route.now.type) {
-        await client.send([setProp("track", `${direction}_routing_type`, want.type, scriptId)]);
-    }
-    let problem: Error | undefined;
-    if (want.channel !== undefined) {
-        const current = await readRouting(client, scriptId, direction);
-        if (want.channel === current.now.channel) {
-            // Already so.
-        } else if (current.channels.includes(want.channel)) {
-            await client.send([setProp("track", `${direction}_routing_channel`, want.channel, scriptId)]);
-        } else {
-            problem = new Error(noChannel(direction, current.now.type, want.channel, current.channels));
+    let problem: unknown;
+    try {
+        if (want.type !== undefined && want.type !== route.now.type) {
+            await client.send([setProp("track", `${direction}_routing_type`, want.type, scriptId)]);
         }
+        if (want.channel !== undefined) {
+            const current = await readRouting(client, scriptId, direction);
+            if (want.channel === current.now.channel) {
+                // Already so.
+            } else if (current.channels.includes(want.channel)) {
+                await client.send([setProp("track", `${direction}_routing_channel`, want.channel, scriptId)]);
+            } else {
+                problem = new Error(noChannel(direction, current.now.type, want.channel, current.channels));
+            }
+        }
+    } catch (error) {
+        problem = error;
     }
-    changed[direction] = { before: route.now, after: (await readRouting(client, scriptId, direction)).now };
+    // What was set stays set when a later write fails, so it is reported either way.
+    const after = (await readRouting(client, scriptId, direction)).now;
+    if (!problem || after.type !== route.now.type || after.channel !== route.now.channel) changed[direction] = { before: route.now, after };
     if (problem) throw problem;
 }

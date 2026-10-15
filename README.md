@@ -19,7 +19,7 @@ Early. The mentor runs in the terminal on Gemini and reads the Live Set open in 
 - `edit_tracks` creates audio, MIDI and return tracks, duplicates tracks, and renames them and sets mute, solo, arm and routing, with a list of changes made in order. Each result gives the object id of the track and, for an edit, before and after for what changed. A change that fails is reported with the reason (a routing that does not exist is refused with the names that do) and the others still happen. It cannot delete a track.
 - `transport` plays and stops, jumps to a bar, sets the loop region and the tempo (20 to 999 BPM), with before and after for each. Bars are numbered as Live's ruler shows them.
 - `show` selects a track, device or clip in Live by its object id, and opens the device view or clip view for the last two, so the user is looking at what the mentor is talking about.
-- None of these three asks for approval; only removals will.
+- None of `set_parameters`, `edit_tracks`, `transport` and `show` asks for approval; only removals will.
 - Ctrl+C cancels a turn. What already happened stays in the conversation.
 - A failed model call is retried after a growing wait, and an attempt that hangs is timed out.
 - A reply cut off by the model's output limit is kept as far as it got, and none of its tool calls run. The terminal shows "(reply cut off)". See [ADR 0018](docs/adr/0018-a-long-conversation-is-summarised.md).
