@@ -8,7 +8,7 @@ export function readArrangement(client: Client): Tool {
     return {
         name: "read_arrangement",
         description:
-            "The Arrangement View of the Live Set open in Ableton Live: the locators, and for each track its arrangement clips as rows [object id, name, start, end]. Positions are bar numbers as Live's ruler shows them, counted from 1 by the Live Set's time signature; 17.5 is halfway through bar 17, and a clip's end is where the next bar after it begins. Bars are counted by the time signature the Live Set has now; a change of time signature along the arrangement cannot be read. Tracks with no arrangement clips are left out, and so are Session View clips, return tracks and Main. If the clips would be too many to list, it gives only the number of clips and the first and last bar for each track, and says to ask again for less. Use tracks (object ids from read_set) and from_bar and to_bar to ask for less.",
+            "The Arrangement View of the Live Set open in Ableton Live: the locators, and for each track its arrangement clips as rows [object id, name, start, end]. Positions are bar numbers as Live's ruler shows them, counted from 1 by the Live Set's time signature; 17.5 is halfway through bar 17, and a clip's end is where the next bar after it begins. Bars are counted by the time signature the Live Set has now; a change of time signature along the arrangement cannot be read. Tracks with no arrangement clips are left out, and so are Session View clips, group tracks (the clips are on the tracks inside), return tracks and Main. If the clips would be too many to list, it gives only the number of clips and the first and last bar for each track, and says to ask again for less. Use tracks (object ids from read_set) and from_bar and to_bar to ask for less.",
         params: {
             type: "object",
             properties: {
@@ -49,13 +49,16 @@ async function read(client: Client, args: Record<string, unknown>) {
     const beatsPerBar = (numerator * 4) / denominator;
     const bar = (beats: number) => barOf(beats, beatsPerBar);
 
+    // Every track gets its id, in Live's order, so the ids match read_set; a group track holds
+    // no clips of its own, and Live refuses to give it any.
     const trackIds = tracks.map((track) => client.objectId("t", track.id));
+    const holdsClips = tracks.map((track) => track.type !== "group");
     for (const id of asked ?? []) {
-        if (!trackIds.includes(id)) {
-            throw new Error(`${id} is not a track with an Arrangement View. Use the object ids of tracks from read_set; return tracks and Main have none.`);
+        if (!trackIds.some((trackId, index) => trackId === id && holdsClips[index])) {
+            throw new Error(`${id} is not a track that holds arrangement clips. Use the object ids of audio and MIDI tracks from read_set; group tracks, return tracks and Main have none.`);
         }
     }
-    const chosen = tracks.filter((_, index) => !asked || asked.includes(trackIds[index] as string));
+    const chosen = tracks.filter((_, index) => holdsClips[index] && (!asked || asked.includes(trackIds[index] as string)));
 
     const clipLists = (await client.sendEach(chosen, (track) => [
         getProp("track", "arrangement_clips", track.id),

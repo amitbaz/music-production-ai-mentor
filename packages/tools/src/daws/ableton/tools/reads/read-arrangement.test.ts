@@ -50,6 +50,30 @@ test("read_arrangement lists the locators and each track's arrangement clips, in
     });
 });
 
+test("read_arrangement skips group tracks, which Live refuses arrangement clips, and lists their children", async (t) => {
+    const { live, track, set } = liveSet({ tempo: 120, numerator: 4, denominator: 4 });
+    const drums = track({ name: "Drums", type: "group", volume: "0.0 dB", pan: "C" });
+    const kick = track({ ...midiTrack("Kick"), group: drums, arrangement: [midi("Four on the floor", 0, 16)] });
+    set({
+        tracks: [drums, kick],
+        return_tracks: [],
+        master_track: track({ ...main }),
+        cue_points: [{ id: "live_cue", name: "IDEA", time: 64 }],
+    });
+    useStandIn(t, live);
+
+    const result = JSON.parse(await readArrangement(createClient(ADDRESS)).run({}));
+
+    assert.deepEqual(result, {
+        locators: [{ name: "IDEA", bar: 17 }],
+        tracks: [{ id: "t2", name: "Kick", clips: [["c1", "Four on the floor", 1, 5]] }],
+    });
+    await assert.rejects(
+        async () => readArrangement(createClient(ADDRESS)).run({ tracks: ["t1"] }),
+        /t1 is not a track that holds arrangement clips/,
+    );
+});
+
 test("read_arrangement counts bars by the time signature of the Live Set", async (t) => {
     const { live, track, set } = liveSet({ tempo: 120, numerator: 6, denominator: 8 });
     // A bar of 6/8 is three beats.
@@ -164,5 +188,5 @@ test("read_arrangement lists only the tracks asked for, and the clips inside the
 test("read_arrangement refuses an id that is not a track", async (t) => {
     bigLiveSet(t);
 
-    await assert.rejects(async () => readArrangement(createClient(ADDRESS)).run({ tracks: ["t99"] }), /t99 is not a track/);
+    await assert.rejects(async () => readArrangement(createClient(ADDRESS)).run({ tracks: ["t99"] }), /t99 is not a track that holds arrangement clips/);
 });

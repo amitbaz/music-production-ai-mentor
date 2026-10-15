@@ -110,6 +110,10 @@ function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
         if (object.clipless && (prop === "clip_slots" || prop === "arrangement_clips")) {
             return { ok: false, error: `${prop} is not available on this track`, errorType: "Exception" };
         }
+        // Seen in Live 12.4: a group track refuses its arrangement clips, though its children have some.
+        if (object.group && prop === "arrangement_clips") {
+            return { ok: false, error: "Main, Group and Return Tracks have no arrangement clips", errorType: "Exception" };
+        }
         return { ok: true, data: object[prop] ?? null };
     }
     if (name === "str_for_value") {
@@ -290,6 +294,7 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
             ns: "track",
             name: spec.name,
             clipless: spec.type === "return" || spec.type === "main",
+            group: spec.type === "group",
             devices: (spec.devices ?? []).map(device),
             clip_slots: (spec.session ?? []).map((spec) => {
                 const slotId = id();
