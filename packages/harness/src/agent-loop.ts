@@ -120,8 +120,6 @@ export async function runAgentLoop(
     return stopWith("round_limit");
 }
 
-
-
 // Runs one tool call. Never throws: any failure becomes an error result for the model.
 async function runToolCall(
     call: ToolCall,
