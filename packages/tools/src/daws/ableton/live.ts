@@ -11,3 +11,4 @@ export type LiveClip = { id: string; name: string; is_midi_clip: boolean; start_
 export function isPlugin(device: LiveDevice) {
     return device.class_name === "PluginDevice" || device.class_name === "AuPluginDevice";
 }
+export type LiveCuePoint = { id: string; name: string; time: number };

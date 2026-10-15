@@ -32,6 +32,7 @@
 - **Pairing a DAW** — the one-time step on a computer that lets the mentor reach a DAW: for Ableton Live, installing the mentor's Remote Script and creating the password it is reached with. Unpairing undoes it. Pairing is not connecting: once a DAW is paired, the client connects to it whenever it is open. The mentor can be talked to whether a DAW is paired or not.
 - **Client** — the part of a tool set that talks to an outside program for its tools, such as the one that connects to the Remote Script in Live. It connects when a tool first needs it and gives out the object ids.
 - **Arrangement View** — the timeline of a Live Set, where clips are laid out from left to right to form the finished piece. The other view, Session View, is a grid of clips launched by hand.
+- **Locator** — a named marker on the timeline of the Arrangement View, such as "Drop". Live's own word is cue point.
 - **Native device** — an instrument or effect that is part of Ableton Live, such as EQ Eight or Compressor. A third-party plug-in is not one.
 - **Rack chain** — one of the parallel signal paths inside a rack device, such as an Audio Effect Rack, each with its own devices in order. A rack can hold racks.
 - **Object id** — a short name such as `t17`, `d204`, `c3` or `ch2` that a read gives to a track, device, clip or rack chain, and that a later tool call uses to say which one it means. It follows the object through renames and reorders, and lasts as long as the connection to Live.
