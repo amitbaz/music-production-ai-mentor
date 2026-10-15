@@ -51,14 +51,19 @@ class StandInSocket extends EventTarget {
     send(text: string) {
         const { uuid, commands } = JSON.parse(text) as {
             uuid: string;
-            commands: { name: string; args?: { prop: string } }[];
+            commands: { ns: string; name: string; args?: { prop: string } }[];
         };
-        // A property comes from the table, the versions are ones the client accepts, and a shown
-        // value is always 0.0 dB.
+        // A property comes from the table, the versions are ones the client accepts (our own file
+        // has its own), and a shown value is always 0.0 dB.
         const versions: Record<string, unknown> = { get_version: "5.0.4", get_major_version: 12, get_minor_version: 4 };
         const data = commands.map((command) => ({
             ok: true,
-            data: command.name === "get_prop" ? StandInSocket.props[command.args?.prop ?? ""] : (versions[command.name] ?? "0.0 dB"),
+            data:
+                command.name === "get_prop"
+                    ? StandInSocket.props[command.args?.prop ?? ""]
+                    : command.ns === "mentor" && command.name === "get_version"
+                      ? "1"
+                      : (versions[command.name] ?? "0.0 dB"),
         }));
         setTimeout(() => this.reply({ event: "result", uuid, data }));
     }
@@ -103,7 +108,18 @@ test("a turn sends the user text after the conversation, with the system prompt 
     assert.equal(calls[0]?.options?.system, systemPrompt);
     assert.deepEqual(
         calls[0]?.tools.map((tool) => tool.name),
-        ["read_set", "read_tracks", "read_arrangement", "read_clip", "set_parameters", "edit_tracks", "transport", "show"],
+        [
+            "read_set",
+            "read_tracks",
+            "read_arrangement",
+            "read_clip",
+            "set_parameters",
+            "edit_tracks",
+            "transport",
+            "show",
+            "edit_devices",
+            "find_in_browser",
+        ],
     );
     assert.equal(result.stop, "finished");
     assert.deepEqual(result.messages, [

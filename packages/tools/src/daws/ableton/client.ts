@@ -12,6 +12,9 @@ export type Client = ReturnType<typeof createClient>;
 
 // The version of the pinned script that pairing installs, in remote-scripts/ableton-js/version.py.
 const SCRIPT_VERSION = "5.0.4";
+// The version of our own file in that script, VERSION in remote-scripts/ableton-js/Mentor.py. It is
+// asked for apart from the script's, so the script's files stay as they are upstream.
+const MENTOR_VERSION = "1";
 
 // How long Live has to greet a new connection, accept the password and give its versions, so a
 // stalled Live, or another program on the port, cannot hang a tool.
@@ -26,8 +29,8 @@ const CONTROL_SURFACE = "MusicMentor as a Control Surface in Settings → Link, 
 const NOT_PAIRED = `Ableton Live is not paired with the mentor yet. Run pnpm pair ableton, restart Live, and choose ${CONTROL_SURFACE}.`;
 const REFUSED = "Ableton Live refused the password. Pair Ableton again with pnpm pair ableton, then restart Live.";
 const UNREACHABLE = "Could not reach Ableton Live. Is it open, with MusicMentor chosen as a Control Surface in Settings → Link, Tempo & MIDI?";
-const WRONG_SCRIPT = (version: string) =>
-    `The MusicMentor script in Ableton Live is version ${version}, and the mentor needs ${SCRIPT_VERSION}. Pair Ableton again with pnpm pair ableton, then restart Live.`;
+const WRONG_SCRIPT = (version: string, mentorFile: string) =>
+    `The MusicMentor script in Ableton Live is version ${version} (mentor file ${mentorFile}), and the mentor needs ${SCRIPT_VERSION} (mentor file ${MENTOR_VERSION}). Pair Ableton again with pnpm pair ableton, then restart Live.`;
 const OLD_LIVE = (version: string) => `Ableton Live ${version} is too old: the mentor needs Live 12.4 or later. Update Live, then try again.`;
 const LOST =
     "The connection to Ableton Live was lost, as when Live is closed or another Live Set is opened. Try again; object ids from before must be read again.";
@@ -84,6 +87,7 @@ export function createClient(address: string | undefined, password?: string) {
                     const { requiresAuth, salt } = (reply.data ?? {}) as { requiresAuth?: boolean; salt?: string };
                     if (requiresAuth && !password) return fail(NOT_PAIRED);
                     const commands: Command[] = [
+                        { ns: "mentor", name: "get_version" },
                         { ns: "internal", name: "get_version" },
                         { ns: "application", name: "get_major_version" },
                         { ns: "application", name: "get_minor_version" },
@@ -95,9 +99,12 @@ export function createClient(address: string | undefined, password?: string) {
                     const uuid = String(nextUuid++);
                     waiting.set(uuid, {
                         resolve: (results) => {
-                            // The versions are the last three results, after the password's if there is one.
-                            const [script, major, minor] = results.slice(-3).map((result) => (result.ok ? result.data : undefined));
-                            if (script !== SCRIPT_VERSION) return fail(WRONG_SCRIPT(String(script)));
+                            // The versions are the last four results, after the password's if there is one. A copy
+                            // of the script without our file has no handler for it, so its answer is an error.
+                            const [mentor, script, major, minor] = results.slice(-4).map((result) => (result.ok ? result.data : undefined));
+                            if (script !== SCRIPT_VERSION || mentor !== MENTOR_VERSION) {
+                                return fail(WRONG_SCRIPT(String(script), mentor === undefined ? "missing" : String(mentor)));
+                            }
                             // A version that could not be read counts as too old.
                             const newEnough = Number(major) > 12 || (Number(major) === 12 && Number(minor) >= 4);
                             if (!newEnough) return fail(OLD_LIVE(`${major}.${minor}`));

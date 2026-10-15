@@ -4,7 +4,9 @@ import { existsSync } from "node:fs";
 import { cp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-// The pinned ableton-js Remote Script, its files unchanged, kept in the repo.
+// The pinned ableton-js Remote Script, kept in the repo with its files unchanged but for our own
+// Mentor.py and the one line of AbletonJS.py that registers it. What to try by hand in Live is in
+// remote-scripts/checklist.md.
 const SOURCE = join(import.meta.dirname, "..", "..", "..", "remote-scripts", "ableton-js");
 
 // Our own folder name, so another app's AbletonJS folder is never touched. Live lists the script by it.

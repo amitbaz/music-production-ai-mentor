@@ -4,7 +4,7 @@ An AI mentor for music producers. You talk to it in plain language: it explains 
 
 ## Status
 
-Early. The mentor runs in the terminal on Gemini and reads the Live Set open in Ableton Live: an overview, the detail of the tracks it chooses, the arrangement and the inside of a clip. `pnpm pair ableton` installs the Remote Script it reaches Live through. It changes device parameters and the mixer, tracks, the transport and what is selected in Live; changing devices, clips and notes is next ([#2](https://github.com/amitbaz/music-production-ai-mentor/issues/2)).
+Early. The mentor runs in the terminal on Gemini and reads the Live Set open in Ableton Live: an overview, the detail of the tracks it chooses, the arrangement and the inside of a clip. `pnpm pair ableton` installs the Remote Script it reaches Live through. It changes device parameters and the mixer, tracks, effect chains, the transport and what is selected in Live, and finds devices, presets and samples by name; changing clips and notes is next ([#2](https://github.com/amitbaz/music-production-ai-mentor/issues/2)).
 
 ## What it does today
 
@@ -20,7 +20,9 @@ Early. The mentor runs in the terminal on Gemini and reads the Live Set open in 
 - `transport` plays and stops, jumps to a bar, sets the loop region and the tempo (20 to 999 BPM), with before and after for each. Bars are numbered as Live's ruler shows them.
 - `show` selects a track, device or clip in Live by its object id, and opens the device view or clip view for the last two, so the user is looking at what the mentor is talking about.
 - So the user sees what changes, `edit_tracks` and `set_parameters` first bring the track into view: the folded groups it is in are opened, the track is expanded if the Arrangement View shows it as a thin strip, the track is selected, and Live is made to scroll to it by focusing the view and moving the selection one track away and back (selecting from a script does not scroll). When the view could not be moved, the result says so in `view_problems` and the change is still made. For a device, the device is then selected, the device view opens and the device chain is scrolled to it the same way. `show` does the same.
-- None of `set_parameters`, `edit_tracks`, `transport` and `show` asks for approval; only removals will.
+- `edit_devices` lets the mentor build and reorder effect chains: it adds a native device by name to a track or rack chain at a position (and gives its object id), moves a device within its chain or to another, and switches one on or off, each reported with the new order or the state before and after. A list of edits is applied in order and a failed one does not stop the rest. It cannot delete a device. `find_in_browser` finds devices, presets and samples by part of their name in Live's browser, telling which kind each is and where it is; it walks the browser, because Live offers no search, and says when it stopped early.
+- The Remote Script also holds one Python file of ours, `Mentor.py`, with the functions the ableton-js script cannot reach: moving a device, adding notes with probability, a Compressor's sidechain source and a Simpler's sample. Only moving a device has a tool so far. The client checks its version when it connects. What to try in Live before a release is in [`packages/tools/remote-scripts/checklist.md`](packages/tools/remote-scripts/checklist.md).
+- None of `set_parameters`, `edit_tracks`, `edit_devices`, `transport` and `show` asks for approval; only removals will.
 - Ctrl+C cancels a turn. What already happened stays in the conversation.
 - A failed model call is retried after a growing wait, and an attempt that hangs is timed out.
 - A reply cut off by the model's output limit is kept as far as it got, and none of its tool calls run. The terminal shows "(reply cut off)". See [ADR 0018](docs/adr/0018-a-long-conversation-is-summarised.md).
@@ -29,7 +31,7 @@ Early. The mentor runs in the terminal on Gemini and reads the Live Set open in 
 
 ## Planned
 
-- **The real Ableton Live** ([#2](https://github.com/amitbaz/music-production-ai-mentor/issues/2)): change native devices, clips and the arrangement; device parameters and the mixer, tracks, the transport and the selection are in. Approval comes back with `delete`.
+- **The real Ableton Live** ([#2](https://github.com/amitbaz/music-production-ai-mentor/issues/2)): change clips, notes and the arrangement; device parameters and the mixer, tracks, effect chains, the transport and the selection are in. Approval comes back with `delete`.
 - **A `mentor` command** ([#37](https://github.com/amitbaz/music-production-ai-mentor/issues/37)): type `mentor`, `mentor auth gemini` or `mentor pair ableton` from any folder.
 - **Load a tool set only when the mentor needs it** ([#1](https://github.com/amitbaz/music-production-ai-mentor/issues/1)).
 - **Evals** for what the model decides: which tool it picks, whether it follows the system prompt, which format tool results should use ([#16](https://github.com/amitbaz/music-production-ai-mentor/issues/16)), and what a summary of a long conversation keeps ([#18](https://github.com/amitbaz/music-production-ai-mentor/issues/18)).
@@ -59,7 +61,7 @@ For the Ableton tools you also need Ableton Live 12.4 or newer on macOS. Pair it
 pnpm pair ableton
 ```
 
-This copies the [ableton-js](https://github.com/leolabs/ableton-js) 5.0.4 Remote Script, kept unchanged in `packages/tools/remote-scripts/ableton-js/`, to `~/Music/Ableton/User Library/Remote Scripts/MusicMentor`. It also writes a new password into the script and into `apps/cli/.env`. Then restart Live and choose `MusicMentor` as a Control Surface in Settings → Link, Tempo & MIDI. If you installed `AbletonJS` by hand before, choose `MusicMentor` in its slot instead, so `AbletonJS` is chosen nowhere: both listen on the same port, and `AbletonJS` has no password. `ABLETON_ADDRESS` in `apps/cli/.env` says where the script listens; `.env.example` has its default, `ws://127.0.0.1:39031`.
+This copies the [ableton-js](https://github.com/leolabs/ableton-js) 5.0.4 Remote Script, kept in `packages/tools/remote-scripts/ableton-js/` with its files unchanged but for one Python file of ours and the one line that registers it, to `~/Music/Ableton/User Library/Remote Scripts/MusicMentor`. It also writes a new password into the script and into `apps/cli/.env`. Then restart Live and choose `MusicMentor` as a Control Surface in Settings → Link, Tempo & MIDI. If you installed `AbletonJS` by hand before, choose `MusicMentor` in its slot instead, so `AbletonJS` is chosen nowhere: both listen on the same port, and `AbletonJS` has no password. `ABLETON_ADDRESS` in `apps/cli/.env` says where the script listens; `.env.example` has its default, `ws://127.0.0.1:39031`.
 
 ## Uninstall
 

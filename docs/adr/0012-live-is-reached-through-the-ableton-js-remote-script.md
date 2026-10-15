@@ -41,3 +41,9 @@ Rejected:
 - `pnpm unpair ableton` deletes that folder and removes the password from the app's `.env`, so nothing pairing wrote is left. Choosing the Control Surface in Live, and setting it back to None, stay the user's steps.
 - The mentor starts whether a DAW is paired or not. When Live cannot be reached, the error tells the two cases apart by whether the app has a password: not paired (pair Ableton), or paired but nothing answering (is Live open, with `MusicMentor` chosen?).
 - The app reaches the install and removal functions only through `@mentor/mentor`, which re-exports them next to its types. This widens ADR 0010's "re-exports the few types an app needs" by these functions alone: pairing a DAW is something the app does before any conversation, so it cannot go through a tool.
+
+## Amendment (2026-10-15): our file and the version check
+
+- Our file is `Mentor.py` at the top of the script folder, registered under the namespace `mentor` by one line in the table of handlers in `AbletonJS.py`. It gives `move_device`, `add_notes` (with probability), `set_compressor_sidechain` and `replace_simpler_sample`, and `get_version`. What to try by hand in Live is in `packages/tools/remote-scripts/checklist.md`.
+- The client asks for `mentor.get_version` next to the script's own version, in the same message. A copy of the script without our file has no handler for `mentor`, so it fails that command, and the client tells the user to pair again and restart Live. The script's `version.py` stays as upstream has it, so an ableton-js update is still a folder swap plus the one line. Raising `VERSION` in `Mentor.py` and the client's `MENTOR_VERSION` together is how a change to our file reaches users; the stand-in Live reads `Mentor.py`'s `VERSION`, so the tests fail if the two differ.
+- Rejected: raising `version.py`, which edits an upstream file.
