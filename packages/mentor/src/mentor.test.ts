@@ -62,7 +62,7 @@ class StandInSocket extends EventTarget {
                 command.name === "get_prop"
                     ? StandInSocket.props[command.args?.prop ?? ""]
                     : command.ns === "mentor" && command.name === "get_version"
-                      ? "2"
+                      ? "3"
                       : (versions[command.name] ?? "0.0 dB"),
         }));
         setTimeout(() => this.reply({ event: "result", uuid, data }));
@@ -122,6 +122,8 @@ test("a turn sends the user text after the conversation, with the system prompt 
             "delete",
             "live_get",
             "live_change",
+            "edit_arrangement",
+            "write_notes",
         ],
     );
     assert.equal(result.stop, "finished");

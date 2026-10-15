@@ -5,3 +5,5 @@ export { show } from "./show.ts";
 export { transport } from "./transport.ts";
 export { editDevices } from "./edit-devices.ts";
 export { findInBrowser } from "./find-in-browser.ts";
+export { writeNotes } from "./write-notes.ts";
+export { editArrangement } from "./edit-arrangement.ts";

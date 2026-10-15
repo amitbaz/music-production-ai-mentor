@@ -1,9 +1,8 @@
 import type { Tool } from "@mentor/harness";
 import { goneMessage, isGone } from "../../changing.ts";
 import { type Client, getProp } from "../../client.ts";
-import { roundBeats } from "../../reading.ts";
-
-type LiveNote = { note_id: number; pitch: number; start_time: number; duration: number; velocity: number; probability: number };
+import type { LiveNote } from "../../live.ts";
+import { EARLIEST_BEAT, noteKey, roundBeats } from "../../reading.ts";
 
 // What is inside goes before what holds it, notes, clips, devices, then tracks, so a call that
 // names a track and a device on it removes both.
@@ -61,15 +60,11 @@ async function remove(client: Client, id: string) {
     return { id, name };
 }
 
-// A note id stands for its clip's script id and Live's own note_id, as clip:note_id.
 async function removeNote(client: Client, id: string) {
-    const key = client.scriptId(id);
-    const at = key.lastIndexOf(":");
-    const clip = key.slice(0, at);
-    const noteId = Number(key.slice(at + 1));
+    const { clip, noteId } = noteKey(client, id);
     const [name, notes] = (await client.send([
         getProp("clip", "name", clip),
-        { ns: "clip", nsid: clip, name: "get_notes_extended", args: {} },
+        { ns: "clip", nsid: clip, name: "get_notes_extended", args: { from_time: EARLIEST_BEAT } },
     ])) as [string, LiveNote[]];
     const note = notes.find((candidate) => candidate.note_id === noteId);
     if (!note) throw new Error(`${id} is no longer in its clip. Read the clip again with read_clip to get current ids.`);

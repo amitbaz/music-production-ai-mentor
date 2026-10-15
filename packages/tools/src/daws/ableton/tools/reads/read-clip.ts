@@ -1,16 +1,15 @@
 import type { Tool } from "@mentor/harness";
 import { reportingGone } from "../../changing.ts";
 import { type Client, getProp } from "../../client.ts";
-import { numberArg, RESULT_LIMIT, roundBeats } from "../../reading.ts";
-
-type LiveNote = { pitch: number; start_time: number; duration: number; velocity: number; probability: number };
+import type { LiveNote } from "../../live.ts";
+import { EARLIEST_BEAT, noteRow, numberArg, RESULT_LIMIT, warpShown } from "../../reading.ts";
 
 // What is inside one clip: the notes of a MIDI clip, the settings of an audio clip.
 export function readClip(client: Client): Tool {
     return {
         name: "read_clip",
         description:
-            "What is inside one clip, by its object id from read_arrangement. A MIDI clip gives its notes as rows [pitch, start, length, velocity, probability]: pitch is a MIDI note number (60 is C3 in Live), start and length are in beats (quarter notes) from the start of the clip, velocity is 1 to 127 and probability 0 to 1. An audio clip gives its warp mode (off when warping is off), gain, pitch in semitones and cents, and its sample file, or missing_sample when the file cannot be found. A clip with too many notes to list gives only the number of notes; ask again with from_beat and to_beat.",
+            "What is inside one clip, by its object id from read_arrangement. A MIDI clip gives its notes as rows [object id, pitch, start, length, velocity, probability], where the object id, such as n4, is what write_notes takes to change the note: pitch is a MIDI note number (60 is C3 in Live), start and length are in beats (quarter notes) from the start of the clip, where a note before the start, which does not play, has a negative start; velocity is 1 to 127 and probability 0 to 1. An audio clip gives its warp mode (beats, tones, texture, repitch, complex or complex_pro; off when warping is off), gain, pitch in semitones and cents, and its sample file, or missing_sample when the file cannot be found. A clip with too many notes to list gives only the number of notes; ask again with from_beat and to_beat.",
         params: {
             type: "object",
             properties: {
@@ -32,7 +31,7 @@ async function readIt(client: Client, args: Record<string, unknown>) {
     const { clip: id } = args;
     if (typeof id !== "string") throw new Error("clip is needed: the object id of a clip, such as c3, from read_arrangement");
     if (!/^c\d+$/.test(id)) throw new Error(`${id} is not a clip. Use an object id such as c3 from read_arrangement.`);
-    const fromBeat = numberArg(args, "from_beat") ?? 0;
+    const fromBeat = numberArg(args, "from_beat") ?? EARLIEST_BEAT;
     const toBeat = numberArg(args, "to_beat");
     if (toBeat !== undefined && toBeat <= fromBeat) throw new Error("to_beat must be after from_beat");
     const clipId = client.scriptId(id);
@@ -49,7 +48,7 @@ async function readIt(client: Client, args: Record<string, unknown>) {
             id,
             name,
             kind: "audio",
-            warp: warping ? warpMode : "off",
+            warp: warpShown(warping, warpMode),
             gain,
             pitch_semitones: coarse,
             pitch_cents: fine,
@@ -67,7 +66,7 @@ async function readIt(client: Client, args: Record<string, unknown>) {
     ])) as [LiveNote[]];
     const rows = notes
         .toSorted((a, b) => a.start_time - b.start_time || a.pitch - b.pitch)
-        .map((note) => [note.pitch, roundBeats(note.start_time), roundBeats(note.duration), note.velocity, note.probability]);
+        .map((note) => noteRow(client, clipId, note));
     const listed = JSON.stringify({ id, name, kind: "midi", notes: rows });
     if (listed.length <= RESULT_LIMIT) return listed;
 

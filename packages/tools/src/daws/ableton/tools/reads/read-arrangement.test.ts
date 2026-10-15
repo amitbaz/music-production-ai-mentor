@@ -8,7 +8,7 @@ const midi = (name: string, start: number, end: number) => ({ name, kind: "midi"
 const main = { name: "Main", type: "main", volume: "0.0 dB", pan: "C" } as const;
 const midiTrack = (name: string) => ({ name, type: "midi", volume: "0.0 dB", pan: "C" }) as const;
 
-test("read_arrangement lists the locators and each track's arrangement clips, in bars counted from 1", async (t) => {
+test("read_arrangement lists the locators and each track's arrangement clips with their object ids, in bars counted from 1", async (t) => {
     const { live, track, set } = liveSet({ tempo: 120, numerator: 4, denominator: 4 });
     const kick = track({
         ...midiTrack("Kick"),
@@ -33,8 +33,8 @@ test("read_arrangement lists the locators and each track's arrangement clips, in
     assert.doesNotMatch(output, /\n/);
     assert.deepEqual(JSON.parse(output), {
         locators: [
-            { name: "Intro", bar: 1 },
-            { name: "Drop", bar: 17 },
+            { id: "l1", name: "Intro", bar: 1 },
+            { id: "l2", name: "Drop", bar: 17 },
         ],
         tracks: [
             {
@@ -65,7 +65,7 @@ test("read_arrangement skips group tracks, which Live refuses arrangement clips,
     const result = JSON.parse(await readArrangement(createClient(ADDRESS)).run({}));
 
     assert.deepEqual(result, {
-        locators: [{ name: "IDEA", bar: 17 }],
+        locators: [{ id: "l1", name: "IDEA", bar: 17 }],
         tracks: [{ id: "t2", name: "Kick", clips: [["c1", "Four on the floor", 1, 5]] }],
     });
     await assert.rejects(
@@ -164,7 +164,7 @@ test("read_arrangement, when the clips would pass the result limit, gives counts
 
     assert.ok(output.length < 40_000, `${output.length} characters`);
     const result = JSON.parse(output);
-    assert.deepEqual(result.locators, [{ name: "Start", bar: 1 }]);
+    assert.deepEqual(result.locators, [{ id: "l1", name: "Start", bar: 1 }]);
     assert.deepEqual(result.tracks[0], { id: "t1", name: "Track 1", clip_count: 400, first_bar: 1, last_bar: 401 });
     assert.match(result.note, /tracks/);
     assert.match(result.note, /from_bar/);

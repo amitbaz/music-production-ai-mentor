@@ -148,6 +148,23 @@ function attempt(run: () => unknown) {
     }
 }
 
+// What only an audio clip has, by the word Live 12.4.6 used when a MIDI clip was asked for it.
+const AUDIO_ONLY: Record<string, string> = {
+    warping: "Warping",
+    warp_mode: "Warping",
+    gain: "Gain",
+    gain_display_string: "Gain",
+    pitch_coarse: "Pitch",
+    pitch_fine: "Pitch",
+    file_path: "FilePath",
+};
+
+// The warp modes by their number in Live: 5 is REX, which a script cannot set.
+const WARP_NAMES = ["beats", "tones", "texture", "repitch", "complex", "rex", "complex_pro"];
+
+// Clip gains and the text Live 12.4.6 showed for them.
+const GAIN_SHOWN: Record<number, string> = { 0: "-inf dB", 0.3: "-6.20 dB", 0.35: "-2.60 dB", 0.4: "0.00 dB", 0.7: "12.0 dB", 1: "24.0 dB" };
+
 // What Live accepts to insert by name: only native devices.
 const NATIVE_DEVICES = ["Auto Filter", "Compressor", "EQ Eight", "Limiter", "Reverb", "Saturator", "Utility"];
 
@@ -173,6 +190,10 @@ function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
         if (object.clipless && (prop === "clip_slots" || prop === "arrangement_clips")) {
             return { ok: false, error: `${prop} is not available on this track`, errorType: "Exception" };
         }
+        // Seen in Live 12.4.6: a MIDI clip refuses what only an audio clip has.
+        if (object.ns === "clip" && object.is_midi_clip && AUDIO_ONLY[prop]) {
+            return { ok: false, error: `${AUDIO_ONLY[prop]} is only available for Audio Clips`, errorType: "Exception" };
+        }
         // Seen in Live 12.4: a group track refuses its arrangement clips, though its children have some.
         if (object.group && prop === "arrangement_clips") {
             return { ok: false, error: "Main, Group and Return Tracks have no arrangement clips", errorType: "Exception" };
@@ -195,6 +216,8 @@ function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
         if (object.refuses === prop) return { ok: false, error: `${prop} could not be set`, errorType: "Exception" };
         try {
             if (object.routing && ROUTING.test(prop)) routingProp(object.routing as Record<"input" | "output", RoutingSpec>, prop, value as string);
+            // A property with a check of its own, as Live has for a clip's loop and the song's time.
+            else if (typeof object[`set_${prop}`] === "function") (object[`set_${prop}`] as (value: unknown) => void)(value);
             else object[prop] = value;
         } catch (error) {
             return { ok: false, error: (error as Error).message, errorType: "Exception" };
@@ -315,7 +338,7 @@ export type DeviceSpec = {
     chains?: { name: string; mute?: boolean; solo?: boolean; devices?: DeviceSpec[] }[];
 };
 
-// Live gives each note of a clip an id of its own, note_id; the stand-in numbers them from 1 unless given.
+// Live numbers the notes of each clip from 1; a note without a note_id gets its place in the list.
 type NoteSpec = { pitch: number; start_time: number; duration: number; velocity: number; probability: number; note_id?: number };
 
 type AudioSpec = {
@@ -389,35 +412,73 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
     // A clip as the script serializes it; the object behind it holds what a read of the clip asks for.
     function clip(spec: ClipSpec) {
         const clipId = id();
-        const object: Record<string, unknown> = {
-            ns: "clip",
-            name: spec.name,
-            is_midi_clip: spec.kind === "midi",
-            notes: (spec.notes ?? []).map((note, index) => ({ note_id: index + 1, ...note })),
-            warping: true,
-            warp_mode: "beats",
-            gain_display_string: "0.0 dB",
-            pitch_coarse: 0,
-            pitch_fine: 0,
-            file_path: "/Samples/loop.wav",
-            ...spec.audio,
-            // Live's own function, which the script calls with a list of arguments: the note ids.
-            remove_notes_by_id: (args: unknown) => {
-                if (!Array.isArray(args)) throw new Error("remove_notes_by_id takes its note ids as a list of arguments");
-                const [ids] = args as [number[]];
-                object.notes = (object.notes as { note_id: number }[]).filter((note) => !ids.includes(note.note_id));
-            },
-        };
-        live.set(clipId, object);
-        return {
+        const notes: NoteSpec[] = (spec.notes ?? []).map((note, index) => ({ note_id: index + 1, ...note }));
+        const start = spec.start ?? 0;
+        const end = spec.end ?? 4;
+        const serialized = {
             id: clipId,
             name: spec.name,
             is_audio_clip: spec.kind === "audio",
             is_midi_clip: spec.kind === "midi",
-            start_time: spec.start ?? 0,
-            end_time: spec.end ?? 4,
+            start_time: start,
+            end_time: end,
             muted: spec.muted ?? false,
         };
+        const object: Record<string, unknown> = {
+            ns: "clip",
+            spec,
+            serialized,
+            name: spec.name,
+            muted: spec.muted ?? false,
+            is_midi_clip: spec.kind === "midi",
+            looping: true,
+            loop_start: 0,
+            loop_end: end - start,
+            gain: 0.4,
+            // As Live 12.4.6 does: the text names the warp mode, and the property gives its number.
+            set_warp_mode: (name: unknown) => {
+                if (name === "rex") throw new Error("Invalid warp mode");
+                const number = WARP_NAMES.indexOf(String(name));
+                if (number < 0) throw new Error(`type object 'WarpMode' has no attribute '${String(name)}'`);
+                object.warp_mode = String(number);
+            },
+            // The texts Live 12.4.6 showed for these gains; any other is not known to the stand-in.
+            set_gain: (gain: unknown) => {
+                object.gain = gain;
+                object.gain_display_string = GAIN_SHOWN[Math.round((gain as number) * 10000) / 10000] ?? `gain ${String(gain)}`;
+            },
+            set_loop_start: (beats: unknown) => {
+                if ((beats as number) >= (object.loop_end as number)) throw new Error("Cannot set LoopStart behind LoopEnd");
+                object.loop_start = beats;
+            },
+            set_loop_end: (beats: unknown) => {
+                if ((beats as number) <= (object.loop_start as number)) throw new Error("Cannot set LoopEnd before LoopStart");
+                object.loop_end = beats;
+            },
+            notes,
+            // Live's own function, which the script calls with a list of arguments: the note ids.
+            remove_notes_by_id: (args: unknown) => {
+                if (!Array.isArray(args)) throw new Error("remove_notes_by_id takes its note ids as a list of arguments");
+                const [ids] = args as [number[]];
+                const kept = notes.filter((note) => !ids.includes(note.note_id as number));
+                notes.splice(0, notes.length, ...kept);
+            },
+            // As the script does: each change names a note by note_id and sets the fields it gives. Seen in
+            // Live 12.4.6: it looks only at the notes from beat 0, so a note before the start stays as it was.
+            apply_note_modifications: ({ notes: changes }: { notes: (Partial<NoteSpec> & { note_id: number })[] }) => {
+                for (const change of changes) Object.assign(notes.find((note) => note.note_id === change.note_id && note.start_time >= 0) ?? {}, change);
+            },
+            warping: true,
+            // Live gives the warp mode as its number: 0 is Beats.
+            warp_mode: "0",
+            gain_display_string: "0.00 dB",
+            pitch_coarse: 0,
+            pitch_fine: 0,
+            file_path: "/Samples/loop.wav",
+            ...spec.audio,
+        };
+        live.set(clipId, object);
+        return serialized;
     }
 
     function deviceParameter(spec: ParameterSpec) {
@@ -482,6 +543,15 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
     function track(spec: TrackSpec) {
         const trackId = id();
         const mixerId = id();
+        const arrangement = (spec.arrangement ?? []).map(clip);
+        // Keeps the clips in time order, as Live gives them.
+        const place = (added: { id: string; start_time: number }) => {
+            arrangement.push(added as (typeof arrangement)[number]);
+            arrangement.sort((a, b) => a.start_time - b.start_time);
+            // Seen in Live 12.4.6: a clip made or copied by a script moves the playback position to it.
+            set.current_song_time = added.start_time;
+            return added;
+        };
         const serialized = {
             id: trackId,
             name: spec.name,
@@ -519,7 +589,27 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
                     },
                 };
             }),
-            arrangement_clips: (spec.arrangement ?? []).map(clip),
+            arrangement_clips: arrangement,
+            // As Live does: a MIDI clip of a length in beats, on a MIDI track only.
+            create_midi_clip: ({ start_time, length }: { start_time: number; length: number }) => {
+                if (spec.type !== "midi") throw new Error("Clip creation failed: MIDI clips can only be created on MIDI tracks");
+                return place(clip({ name: "", kind: "midi", start: start_time, end: start_time + length }));
+            },
+            // As Live does: a copy of a clip of the same kind as the track, at a time in beats.
+            duplicate_clip_to_arrangement: ({ clip_id, time }: { clip_id: string; time: number }) => {
+                const original = live.get(clip_id);
+                if (!original) throw new Error(`Unknown object id: ${clip_id}`);
+                const { spec: from, serialized: was, notes } = original as { spec: ClipSpec; serialized: { start_time: number; end_time: number; name: string }; notes: NoteSpec[] };
+                if ((from.kind === "midi") !== (spec.type === "midi")) throw new Error("Incompatible track types for clip duplication");
+                const copy = { ...from, name: was.name, start: time, end: time + was.end_time - was.start_time, notes: structuredClone(notes) };
+                return place(clip(copy));
+            },
+            delete_clip: ({ clip_id }: { clip_id: string }) => {
+                const index = arrangement.findIndex((held) => held.id === clip_id);
+                if (index < 0) throw new Error(`Unknown object id: ${clip_id}`);
+                arrangement.splice(index, 1);
+                live.delete(clip_id);
+            },
             mixer_device: { id: mixerId },
             group_track: spec.group ?? null,
         });
@@ -552,6 +642,24 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
         loop_start: 0,
         loop_length: 4,
         current_song_time: 0,
+        song_length: 1024,
+        // As Live does: the playback position cannot go past the end of the arrangement.
+        set_current_song_time: (beats: unknown) => {
+            if ((beats as number) > (set.song_length as number)) throw new Error("Cannot set the Songtime behind the Songlength");
+            set.current_song_time = beats;
+        },
+        // As Live does: adds a locator at the playback position, or removes the one there. The script
+        // gives them in time order.
+        set_or_delete_cue: () => {
+            // Seen in Live 12.4.6: the position is snapped to the grid first, here to the nearest bar.
+            const perBar = (song.numerator * 4) / song.denominator;
+            const time = Math.round((set.current_song_time as number) / perBar) * perBar;
+            const cues = set.cue_points as { id: string; time: number }[];
+            const index = cues.findIndex((cue) => cue.time === time);
+            if (index >= 0) cues.splice(index, 1);
+            else cues.push(cue(String(cues.length + 1), time));
+            cues.sort((a, b) => a.time - b.time);
+        },
         is_playing: false,
         create_audio_track: ({ index }: { index: number }) => created("audio", "Audio", "tracks", index),
         create_midi_track: ({ index }: { index: number }) => created("midi", "MIDI", "tracks", index),
@@ -651,7 +759,31 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
             return object.name as string;
         };
     }
-    live.set("mentor", { ns: "mentor", moveDevice: mover(), delete: deleter() });
+    live.set("mentor", {
+        ns: "mentor",
+        moveDevice: mover(),
+        delete: deleter(),
+        // As our file does: each change names a note by note_id, whatever its start. A note marked
+        // stuck stands for one Live does not change.
+        modify_notes: ({ clip_id, notes }: { clip_id: string; notes: (Partial<NoteSpec> & { note_id: number })[] }) => {
+            const held = (live.get(clip_id) as { notes: (NoteSpec & { stuck?: boolean })[] } | undefined)?.notes;
+            if (!held) throw new Error(`Unknown object id: ${clip_id}`);
+            for (const change of notes) {
+                const note = held.find((candidate) => candidate.note_id === change.note_id);
+                if (note && !note.stuck) Object.assign(note, change);
+            }
+        },
+        // As our file does: the notes go into the clip with the next numbers, which it answers.
+        add_notes: ({ clip_id, notes }: { clip_id: string; notes: NoteSpec[] }) => {
+            const held = (live.get(clip_id) as { notes: NoteSpec[] } | undefined)?.notes;
+            if (!held) throw new Error(`Unknown object id: ${clip_id}`);
+            return notes.map((note) => {
+                const note_id = Math.max(0, ...held.map((other) => other.note_id ?? 0)) + 1;
+                held.push({ ...note, note_id });
+                return note_id;
+            });
+        },
+    });
 
     // The browser as Live's script describes it: root items that hold their children, where a
     // folder has `children`, a device is_device, and anything else loadable is a preset or sample.
@@ -674,5 +806,13 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
         live.set("browser", { ns: "browser", ...Object.fromEntries(Object.entries(roots).map(([root, items]) => [root, items.map(browserItem)])) });
     }
 
-    return { live, track, clip, browser, set: (props: Record<string, unknown>) => Object.assign(set, props) };
+    // A locator, as the script gives it in the song's cue_points; its name can be set.
+    function cue(name: string, time: number) {
+        const cueId = id();
+        const serialized = { id: cueId, name, time };
+        live.set(cueId, { ns: "cue-point", name, time, serialized });
+        return serialized;
+    }
+
+    return { live, track, clip, cue, browser, set: (props: Record<string, unknown>) => Object.assign(set, props) };
 }

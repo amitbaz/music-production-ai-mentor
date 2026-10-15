@@ -60,7 +60,8 @@ async function setup(t: TestContext) {
 
     const remove = async (ids: unknown) => JSON.parse(await tool.run({ ids })).deleted;
     const names = async () => (await overview()).tracks.map((track) => [track.name, track.devices?.map((device) => device.name)]);
-    const notes = async () => JSON.parse(await readClip(client).run({ clip: arrangementClip })).notes;
+    // The notes as read_clip gives them, without their object ids.
+    const notes = async () => JSON.parse(await readClip(client).run({ clip: arrangementClip })).notes.map((row: unknown[]) => row.slice(1));
     return {
         live,
         client,

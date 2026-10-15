@@ -2,6 +2,7 @@ import type { Tool } from "@mentor/harness";
 import { createClient } from "./client.ts";
 import {
     deleteTool,
+    editArrangement,
     editDevices,
     editTracks,
     findInBrowser,
@@ -14,6 +15,7 @@ import {
     setParameters,
     show,
     transport,
+    writeNotes,
 } from "./tools/index.ts";
 
 // The Ableton tool set. Its tools reach the Live Set open in Ableton Live through the
@@ -34,6 +36,8 @@ export function createAbleton(options: { address?: string; password?: string }):
         deleteTool(client),
         liveGet(client),
         liveChange(client),
+        editArrangement(client),
+        writeNotes(client),
     ];
 }
 

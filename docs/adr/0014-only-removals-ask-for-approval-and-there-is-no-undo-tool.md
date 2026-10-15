@@ -27,3 +27,4 @@ Rejected:
 - The mentor can make a change the user did not want, such as a wrong EQ move; the result shows it and the old value can be written back.
 - Something the mentor created is taken back with `delete`, which asks. Something it deleted comes back only through the user's own undo.
 - Moving an arrangement clip is done as duplicate then delete, because a script cannot move one directly. That is a move, not a removal, and does not ask.
+- Removing a locator is done by `edit_arrangement` and does not ask (#12, as the issue asked): a locator is a marker, not the user's work, and comes back with `add_locator` at its bar. A clip is never put on bars that hold another clip, because Live makes room by cutting the clip under it, which would remove the user's work without asking.
