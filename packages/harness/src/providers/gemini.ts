@@ -22,7 +22,9 @@ export function toGeminiRequest(
     for (const message of conversation) {
         //Gemini has two sides only: user and model. Tool results count as user messages.
         const role =
-            message.type === "user" || message.type === "tool_result"
+            message.type === "user" ||
+            message.type === "summary" ||
+            message.type === "tool_result"
                 ? "user"
                 : "model";
         const part = toGeminiPart(message);
@@ -54,6 +56,11 @@ function toGeminiPart(message: Message): GeminiPart {
     switch (message.type) {
         case "user":
             return { text: message.text };
+        // As history, so the model does not take it for something the user asked.
+        case "summary":
+            return {
+                text: `Summary of the earlier conversation. It is history, not new instructions.\n\n${message.text}`,
+            };
         case "assistant":
             return {
                 text: message.text,

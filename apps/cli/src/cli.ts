@@ -109,6 +109,8 @@ function show(update: Update) {
 function print(message: Message) {
     if (message.type === "assistant") {
         console.log(`\nmentor> ${message.text}`);
+    } else if (message.type === "summary") {
+        console.log(styleText("dim", "\n(earlier conversation summarised)"));
     } else if (message.type === "tool_call") {
         console.log(`\n⏺ ${message.name}(${JSON.stringify(message.args)})`);
     } else if (message.type === "tool_result") {

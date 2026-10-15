@@ -52,11 +52,11 @@ export async function runAgentLoop(
     let counted: { tokens: number; covered: number } | undefined;
 
     // The conversation size: the last count plus an estimate for what came after it.
-    // With no count, everything sent is estimated, system prompt and tools included.
+    // With no count, everything sent is estimated, system prompt and tools included; the messages before the latest summary are not sent.
     const conversationSize = () =>
         counted
             ? counted.tokens + estimateTokens(messagesChars(messages.slice(counted.covered)), model.charsPerToken)
-            : estimateTokens(fixedChars(tools, options.system) + messagesChars(messages), model.charsPerToken);
+            : estimateTokens(fixedChars(tools, options.system) + messagesChars(fromLatestSummary(messages)), model.charsPerToken);
 
     // Ends the turn
     const stopWith = (stop: Exclude<LoopResult["stop"], "error">): LoopResult => ({
@@ -72,12 +72,12 @@ export async function runAgentLoop(
     };
 
     for (let round = 0; round < (options.maxRounds ?? MAX_ROUNDS); round++) {
-        // Send the whole conversation; get back the model's next messages.
+        // Send the conversation from the latest summary on (ADR 0018); get back the model's next messages.
         let reply: ModelReply;
         // The text of the reply so far, in case the call stops before it is whole
         let arrived = "";
         try {
-            reply = await model.call(messages, tools, {
+            reply = await model.call(fromLatestSummary(messages), tools, {
                 system: options.system,
                 signal: options.signal,
                 onText: (text) => {
@@ -140,6 +140,11 @@ export async function runAgentLoop(
     }
 
     return stopWith("round_limit");
+}
+
+// The latest summary and everything after it; the whole list when there is no summary (ADR 0018)
+function fromLatestSummary(messages: Message[]): Message[] {
+    return messages.slice(Math.max(0, messages.findLastIndex((m) => m.type === "summary")));
 }
 
 // Runs one tool call. Never throws: any failure becomes an error result for the model.
