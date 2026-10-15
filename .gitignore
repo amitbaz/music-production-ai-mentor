@@ -1,3 +1,6 @@
 .env
 node_modules
 .superset
+# Live keeps old versions of a saved Set here
+evals/sets/**/Backup/
+Icon?
