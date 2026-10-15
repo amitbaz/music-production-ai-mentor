@@ -62,6 +62,8 @@ for await (const line of terminal) {
             console.error(`error: ${result.error.message}`);
         } else if (result.stop === "empty") {
             console.error("(no reply)");
+        } else if (result.stop === "cut_off") {
+            console.error("(reply cut off)");
         } else if (result.stop === "cancelled") {
             console.log("cancelled");
         } else if (result.stop === "round_limit") {

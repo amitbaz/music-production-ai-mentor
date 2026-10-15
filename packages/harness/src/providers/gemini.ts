@@ -95,7 +95,11 @@ function signtatureFrom(providerMeta: unknown): GeminiPart {
 }
 
 type GeminiResponse = {
-    candidates?: { content?: { parts: GeminiReplyPart[] } }[];
+    candidates?: {
+        content?: { parts: GeminiReplyPart[] };
+        // Sent on the last piece of a reply; MAX_TOKENS means the output limit cut it off
+        finishReason?: string;
+    }[];
     // Token counts, on the last piece of a streamed reply or on every one, as a running total.
     // The prompt count already holds the cached tokens. Thinking has its own count, left out
     // because Gemini does not send it back on the next call.
@@ -182,6 +186,7 @@ async function readReply(
     let piece: GeminiResponse = {};
     let replied = false;
     let usage: GeminiResponse["usageMetadata"];
+    let cutOff = false;
     // The end of what was read so far, when it stops in the middle of a line
     let rest = "";
 
@@ -196,6 +201,7 @@ async function readReply(
             const candidate = piece.candidates?.[0];
             if (!candidate) continue;
             replied = true;
+            if (candidate.finishReason === "MAX_TOKENS") cutOff = true;
             addParts(messages, candidate.content?.parts ?? [], onText);
         }
     }
@@ -204,12 +210,11 @@ async function readReply(
         // Happens when Gemini refuses the prompt; the reply then says why.
         throw new Error(`Gemini returned no reply: ${JSON.stringify(piece)}`);
     }
-    // The finish reason is not read yet.
     const tokens =
         usage?.promptTokenCount === undefined
             ? {}
             : { tokens: usage.promptTokenCount + (usage.candidatesTokenCount ?? 0) };
-    return { messages, ...tokens, cutOff: false };
+    return { messages, ...tokens, cutOff };
 }
 
 // Every window is at least 1,000,000 tokens (ADR 0019). Add a model after checking its docs page.

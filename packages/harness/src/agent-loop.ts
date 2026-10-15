@@ -9,7 +9,7 @@ const RESULT_LIMIT = 40_000; // Most characters one tool result may hold (ADR 00
 export type LoopResult =
     | {
           messages: Message[];
-          stop: "finished" | "empty" | "round_limit" | "cancelled";
+          stop: "finished" | "empty" | "cut_off" | "round_limit" | "cancelled";
           conversationSize: number;
       }
     | { messages: Message[]; stop: "error"; error: Error; conversationSize: number };
@@ -59,7 +59,7 @@ export async function runAgentLoop(
             : estimateTokens(fixedChars(tools, options.system) + messagesChars(messages), model.charsPerToken);
 
     // Ends the turn
-    const stopWith = (stop: "finished" | "empty" | "round_limit" | "cancelled"): LoopResult => ({
+    const stopWith = (stop: Exclude<LoopResult["stop"], "error">): LoopResult => ({
         messages,
         stop,
         conversationSize: conversationSize(),
@@ -92,6 +92,28 @@ export async function runAgentLoop(
             if (options.signal?.aborted) return stopWith("cancelled");
             const error = e instanceof Error ? e : new Error(String(e));
             return { messages, stop: "error", error, conversationSize: conversationSize() };
+        }
+
+        // Cut off by the output limit (ADR 0018): the text is kept, and no tool call runs
+        // because its arguments may be incomplete. Every call still gets a result.
+        if (reply.cutOff) {
+            const kept = reply.messages.filter(
+                (message) => message.type !== "assistant" || message.text.trim() !== "",
+            );
+            for (const message of kept) add(message);
+            // The count holds the reply; the results added below come after it.
+            if (reply.tokens !== undefined) counted = { tokens: reply.tokens, covered: messages.length };
+            for (const message of kept) {
+                if (message.type !== "tool_call") continue;
+                add({
+                    type: "tool_result",
+                    callId: message.id,
+                    name: message.name,
+                    output: "Not run: the reply was cut off",
+                    isError: true,
+                });
+            }
+            return stopWith("cut_off");
         }
 
         // No tool call and no text: the model chose to say nothing. Nothing is kept.
