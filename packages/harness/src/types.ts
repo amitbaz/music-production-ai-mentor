@@ -1,7 +1,9 @@
-// One entry in the conversation. `type` says which of the four kinds it is.
+// One entry in the conversation. `type` says which of the five kinds it is.
 // providerMeta holds provider-specific extras (e.g. Gemini's thoughtSignature); the loop never reads it.
 export type Message =
     | { type: "user"; text: string }
+    // Stands in for everything before it; the model is sent only the latest one (ADR 0018). It has no providerMeta.
+    | { type: "summary"; text: string }
     | { type: "assistant"; text: string; providerMeta?: unknown }
     | {
           type: "tool_call";

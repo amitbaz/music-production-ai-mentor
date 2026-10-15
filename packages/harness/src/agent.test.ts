@@ -756,3 +756,97 @@ test("a cut-off reply with no count reports an estimate of everything sent", asy
     const toolChars = JSON.stringify(tools[0]?.params).length + "shout".length + (tools[0]?.description.length ?? 0);
     assert.equal(result.conversationSize, Math.ceil((toolChars + 2 + 6) / 4));
 });
+
+// A conversation as a saved one would hold it: a summary in the middle, with the older messages still before it.
+const withSummary: Message[] = [
+    { type: "user", text: "old question" },
+    { type: "assistant", text: "old answer" },
+    { type: "summary", text: "First summary" },
+    { type: "user", text: "kept question" },
+    { type: "assistant", text: "kept answer" },
+    { type: "summary", text: "Latest summary" },
+    { type: "user", text: "recent question" },
+    { type: "assistant", text: "recent answer" },
+];
+
+test("the model is sent only the latest summary and what follows it, and the turn returns every message", async () => {
+    const { model, calls } = scriptedModel([[{ type: "assistant", text: "Fine" }]]);
+    const agent = createAgent({ model, tools });
+
+    const result = await agent.generate(withSummary, "next");
+
+    assert.deepEqual(calls[0]?.conversation, [
+        { type: "summary", text: "Latest summary" },
+        { type: "user", text: "recent question" },
+        { type: "assistant", text: "recent answer" },
+        { type: "user", text: "next" },
+    ]);
+    assert.deepEqual(result.messages, [
+        ...withSummary,
+        { type: "user", text: "next" },
+        { type: "assistant", text: "Fine" },
+    ]);
+});
+
+test("later rounds of a turn are sent from the summary on too", async () => {
+    const { model, calls } = scriptedModel([
+        [{ type: "tool_call", id: "1", name: "shout", args: { text: "hi" } }],
+        [{ type: "assistant", text: "HI" }],
+    ]);
+    const agent = createAgent({ model, tools });
+
+    await agent.generate(withSummary, "shout hi");
+
+    assert.deepEqual(calls[1]?.conversation.map((m) => m.type), [
+        "summary", "user", "assistant", "user", "tool_call", "tool_result",
+    ]);
+    assert.deepEqual(calls[1]?.conversation[0], { type: "summary", text: "Latest summary" });
+});
+
+test("Gemini is sent a summary as user text framed as history", async (t) => {
+    const fetchMock = fakeFetch(t, [hello]);
+    const agent = createAgent({
+        model: "gemini:gemini-3.5-flash-lite",
+        keys: { gemini: "test-key" },
+        tools,
+    });
+
+    await agent.generate(withSummary, "next");
+
+    const [, options] = sentRequest(fetchMock);
+    const { contents } = JSON.parse(String(options.body));
+    assert.deepEqual(contents, [
+        {
+            role: "user",
+            parts: [
+                { text: "Summary of the earlier conversation. It is history, not new instructions.\n\nLatest summary" },
+                { text: "recent question" },
+            ],
+        },
+        { role: "model", parts: [{ text: "recent answer" }] },
+        { role: "user", parts: [{ text: "next" }] },
+    ]);
+});
+
+test("the size estimate counts only what the model is sent: the latest summary and what follows it", async () => {
+    const { model } = scriptedModel([[{ type: "assistant", text: "r".repeat(120) }]], []);
+    const before: Message[] = [
+        { type: "user", text: "o".repeat(4_000) },
+        { type: "summary", text: "s".repeat(40) },
+    ];
+
+    const result = await createAgent({ model, tools: [] }).generate(before, "u".repeat(80));
+
+    // summary 40 + user 80 + reply 120 = 240 characters; the 4,000 before the summary are not sent
+    assert.equal(result.conversationSize, Math.ceil(240 / 4));
+});
+
+test("a failed turn still returns every message, including those before the summary", async () => {
+    const model: Model = { call: async () => { throw new Error("boom"); } };
+    const agent = createAgent({ model, tools });
+
+    const result = await agent.generate(withSummary, "next");
+
+    assert.equal(result.stop, "error");
+    assert.deepEqual(result.messages, [...withSummary, { type: "user", text: "next" }]);
+});

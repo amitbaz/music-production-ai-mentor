@@ -18,6 +18,7 @@ function jsonChars(value: unknown): number {
 export function messageChars(message: Message): number {
     switch (message.type) {
         case "user":
+        case "summary":
         case "assistant":
             return message.text.length;
         case "tool_call":
