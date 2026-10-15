@@ -150,6 +150,18 @@ test("edit_devices moves a device to another track", async (t) => {
     );
 });
 
+test("edit_devices refuses a move past the end of the device's own chain, and asks Live nothing", async (t) => {
+    const { edit, names, track, limiter } = await setup(t);
+    const before = sentNames().length;
+
+    // The chain holds 3 devices, Limiter among them, so its last place is 3.
+    const [refused] = await edit([{ action: "move", device: limiter, to: track, position: 4 }]);
+
+    assert.match(refused.error, /position.*1 to 3/i);
+    assert.equal(sentNames().slice(before).includes("move_device"), false);
+    assert.deepEqual(await names(track), ["EQ Eight", "Limiter", "Drum Rack"]);
+});
+
 test("edit_devices needs a position to move a device", async (t) => {
     const { edit, track, limiter } = await setup(t);
 

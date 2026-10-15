@@ -79,7 +79,7 @@ function position(value: unknown, last: number, required: boolean) {
     if (value === undefined && !required) return undefined;
     if (value === undefined) throw new Error(`position is needed, from 1 to ${last}`);
     if (typeof value !== "number" || !Number.isInteger(value) || value < 1) throw new Error("position must be a whole number from 1");
-    if (value > last) throw new Error(`position must be from 1 to ${last}, as the chain has ${last - 1} devices`);
+    if (value > last) throw new Error(`position must be from 1 to ${last}`);
     return value;
 }
 
@@ -116,7 +116,10 @@ async function move(client: Client, edit: Edit) {
     const device = deviceId(edit);
     const into = target(client, edit);
     const scriptId = client.scriptId(device);
-    const place = position(edit.position, (await devicesOf(client, into)).length + 1, true) as number;
+    // A device moved within its own chain is already one of its devices, so the chain has no extra place for it.
+    const devices = await devicesOf(client, into);
+    const last = devices.length + (devices.some((candidate) => candidate.id === scriptId) ? 0 : 1);
+    const place = position(edit.position, last, true) as number;
 
     await client.send([{ ns: "mentor", name: "move_device", args: { device_id: scriptId, target_id: into.scriptId, position: place - 1 } }]);
 
