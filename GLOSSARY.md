@@ -5,14 +5,18 @@
 - **Agent** — a model, a system prompt and a set of tools, joined by the harness. Given a conversation and the user's text it runs one turn. It keeps nothing between turns. The mentor is an agent with those three chosen.
 - **Agent loop** — the cycle at the centre of the harness: send the conversation to the model; if the reply asks for tool calls, run them, append the results, and send again; stop when the model replies with text only (or the round limit is hit).
 - **Harness** — everything around the model that makes it an agent: the agent loop, the tools, the conversation, and the provider adapters.
-- **Conversation** — the ordered list of messages the harness keeps and re-sends in full on every model call. The model has no memory; the conversation is the memory.
-- **Message** — one entry in the conversation, in our own neutral format. Four kinds: user text, assistant text, tool call, tool result.
+- **Conversation** — the ordered list of messages the harness keeps and re-sends on every model call, from the latest summary on. The model has no memory; the conversation is the memory. Messages before the latest summary stay in the conversation for the app, but the model no longer sees them.
+- **Message** — one entry in the conversation, in our own neutral format. Five kinds: user text, assistant text, tool call, tool result, summary.
+- **Summary** — a message that stands in for the older part of the conversation, written by the model when the conversation grows past the summary threshold. It is history, not something the user said.
+- **Summary threshold** — the conversation size at which the harness summarises, the same for every model. It is set for cost and answer quality, far below any supported model's context window.
 - **System prompt** — standing instructions for the model: who it is and how to behave. It is sent with every model call, next to the conversation and the tools, and is never a message in the conversation.
 - **Provider meta** — an optional slot on a model-produced message where a provider adapter stores provider-specific values (e.g. Gemini's `thoughtSignature`). The agent loop carries it without reading it.
 - **Provider** — a company's model API (Gemini, Anthropic, …).
 - **Model** — one model at one provider, as the agent loop sees it: the thing a model call is made on.
 - **Provider adapter** — the one module that knows a provider's HTTP API. It translates the conversation into that provider's request and the reply back, and gives the harness its models. The agent loop never sees provider-specific shapes.
 - **Model id** — the string that names a model and the provider that serves it, written `provider:model`, such as `gemini:gemini-3.5-flash-lite`. The part after the first colon is the name the provider itself uses.
+- **Context window** — the most tokens a model can take in one model call: the conversation, the system prompt and the tools together.
+- **Supported model** — a model on the harness's fixed list, each shown by its provider's documentation to have a context window of at least 1,000,000 tokens. A model id not on the list is refused.
 - **Provider lookup** — the part of the harness that gives the model for a model id, by finding the provider adapter the id names.
 - **Scripted model** — a fake model that returns canned replies, used to test the agent loop without a network.
 - **Tool** — a named function the model can ask the harness to run, described to the model by a name, a description and an argument schema.
@@ -20,6 +24,8 @@
 - **DAW** — a digital audio workstation, the application music is produced in. Ableton Live is the first one supported.
 - **Tool call** — the model's request to run a tool with given arguments.
 - **Tool result** — what the harness sends back after running a tool call, including errors.
+- **Result limit** — the most characters one tool result may hold. Past it, the harness keeps the start and adds a note saying how much was cut. A tool whose answer grows with the Live Set keeps itself under the limit, so the cut is only a safety net.
+- **Conversation size** — how many tokens the conversation takes when sent to the model, as best the harness knows: the count the provider gave on the last model call, plus an estimate for what was added since. Reported with each turn's result.
 - **Live Set** — the project open in Ableton Live: its tracks, devices, clips and settings, whether saved to a file or not.
 - **Remote Script** — code that runs inside Ableton Live and lets an outside program read and change the Live Set. The Ableton tools reach Live through one.
 - **Client** — the part of a tool set that talks to an outside program for its tools, such as the one that connects to the Remote Script in Live. It connects when a tool first needs it and gives out the object ids.
@@ -33,8 +39,8 @@
 - **Retry** — a further attempt after a retryable failure, made after a wait that grows each time. An attempt whose reply has started to arrive is never retried. A model call fails when a failure is not retryable or the retries run out.
 - **Timeout** — an attempt stopped because no text arrived from the model for the length of its time limit. It is a retryable failure, and is not a cancel.
 - **Turn** — everything the agent loop does in answer to one user message: one or more rounds, ending with a stop reason.
-- **Update** — something the agent reports to the app while a turn runs: a piece of assistant text that has just arrived, or a whole message. Every message added to the conversation is reported as one update.
+- **Update** — something the agent reports to the app while a turn runs: a piece of assistant text that has just arrived, a whole message, or a notice that summarising has started. Every message added to the conversation is reported as one update.
 - **Streaming** — the app receiving assistant text in pieces while the model is still writing it, each piece as an update, before the whole message. The app turns it on or off for each turn; off, it receives whole messages only. Tool calls are never streamed.
-- **Stop reason** — why a turn ended: the model finished, the model replied with nothing, the round limit was hit, a model call failed, or the user cancelled. It is reported next to the conversation, never as a message inside it.
+- **Stop reason** — why a turn ended: the model finished, the model replied with nothing, the model's reply was cut off by its output limit, the round limit was hit, a model call failed, or the user cancelled. It is reported next to the conversation, never as a message inside it.
 - **Cancel** — the user stopping a turn before it ends. What already happened stays in the conversation, including the text of a reply the model was still writing; a tool that is running finishes, and tool calls that had not started get a tool result saying so.
 - **Approval** — the user's yes or no to one tool call, asked before it runs. Only tools marked as needing approval are asked about. A refusal becomes the tool result, and the turn continues.

@@ -34,6 +34,8 @@ A package can import another only by name, and only when it lists it as a depend
 
 A tool set is a group of tools for one outside source. Each kind of source has a folder under `packages/tools/src/` and a heading below.
 
+A tool whose answer grows with its source, such as one that reads the whole Live Set, keeps that answer under the result limit of 40,000 characters itself (ADR 0018). It answers short by default and takes arguments for more. The harness cuts anything past the limit, but only as a safety net.
+
 ### Supported DAWs (`packages/tools/src/daws/`)
 
 - **Ableton Live**, in `ableton/`. Its tools reach the Live Set open in Live through the ableton-js Remote Script.
