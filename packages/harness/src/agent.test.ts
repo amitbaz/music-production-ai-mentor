@@ -248,13 +248,13 @@ test("a tool result past 40,000 characters keeps its first 40,000, then a note w
     assert.equal(result.isError, false);
 });
 
-test("an error past 40,000 characters is cut the same way and stays an error", async () => {
+test("an error past 40,000 characters is cut, with a note that gives no advice, and stays an error", async () => {
     const result = await toolResultFor(() => {
         throw new Error("e".repeat(50_000));
     });
     assert.equal(
         result.output,
-        `${"e".repeat(40_000)}\n\n[Cut: showing the first 40000 of 50000 characters. Ask the tool for less.]`,
+        `${"e".repeat(40_000)}\n\n[Cut: showing the first 40000 of 50000 characters.]`,
     );
     assert.equal(result.isError, true);
 });

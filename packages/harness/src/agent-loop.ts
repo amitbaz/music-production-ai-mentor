@@ -145,16 +145,17 @@ async function runToolCall(
     }
 
     try {
-        return { ...result, output: limit(await tool.run(call.args), options), isError: false };
+        return { ...result, output: limit(await tool.run(call.args), options, false), isError: false };
     } catch (e) {
         const output = e instanceof Error ? e.message : String(e);
-        return { ...result, output: limit(output, options), isError: true };
+        return { ...result, output: limit(output, options, true), isError: true };
     }
 }
 
-// Keeps the start of an output past the result limit and says how much was cut
-function limit(output: string, options: LoopOptions): string {
+// Keeps the start of an output past the result limit and says how much was cut.
+// An error gets no advice to ask for less: the tool cannot make its error shorter.
+function limit(output: string, options: LoopOptions, isError: boolean): string {
     const max = options.resultLimit ?? RESULT_LIMIT;
     if (output.length <= max) return output;
-    return `${output.slice(0, max)}\n\n[Cut: showing the first ${max} of ${output.length} characters. Ask the tool for less.]`;
+    return `${output.slice(0, max)}\n\n[Cut: showing the first ${max} of ${output.length} characters.${isError ? "" : " Ask the tool for less."}]`;
 }
