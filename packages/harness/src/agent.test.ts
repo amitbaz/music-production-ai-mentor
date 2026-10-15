@@ -387,3 +387,54 @@ test("a number option that makes no sense ends the first turn with an error, wit
         assert.equal(calls.length, 0);
     }
 });
+
+test("a Gemini reply cut off by MAX_TOKENS keeps its text, runs no tool and stops as cut_off", async (t) => {
+    let ran = 0;
+    const counting: Tool[] = [
+        { ...tools[0] as Tool, run: () => String(++ran) },
+    ];
+    // Gemini ends a stream with a piece that holds the finish reason and no parts.
+    const pieces = [
+        { candidates: [{ content: { role: "model", parts: [{ text: "Let me shout" }] } }] },
+        {
+            candidates: [
+                {
+                    content: {
+                        role: "model",
+                        parts: [{ functionCall: { id: "call_1", name: "shout", args: { text: "hi" } } }],
+                    },
+                },
+            ],
+        },
+        { candidates: [{ finishReason: "MAX_TOKENS" }] },
+    ];
+    const fetchMock = t.mock.method(
+        globalThis,
+        "fetch",
+        async () => new Response(pieces.map((p) => `data: ${JSON.stringify(p)}\n\n`).join("")),
+    );
+    const agent = createAgent({
+        model: "gemini:gemini-3.5-flash-lite",
+        keys: { gemini: "test-key" },
+        tools: counting,
+    });
+
+    const result = await agent.generate([], "Shout hi");
+
+    assert.equal(result.stop, "cut_off");
+    assert.equal(ran, 0);
+    assert.deepEqual(result.messages, [
+        { type: "user", text: "Shout hi" },
+        { type: "assistant", text: "Let me shout" },
+        { type: "tool_call", id: "call_1", name: "shout", args: { text: "hi" } },
+        {
+            type: "tool_result",
+            callId: "call_1",
+            name: "shout",
+            output: "Not run: the reply was cut off",
+            isError: true,
+        },
+    ]);
+    // A cut-off reply is not a failure, so it is not tried again.
+    assert.equal(fetchMock.mock.calls.length, 1);
+});

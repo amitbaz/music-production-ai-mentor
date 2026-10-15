@@ -7,7 +7,7 @@ const RESULT_LIMIT = 40_000; // Most characters one tool result may hold (ADR 00
 export type LoopResult =
     | {
           messages: Message[];
-          stop: "finished" | "empty" | "round_limit" | "cancelled";
+          stop: "finished" | "empty" | "cut_off" | "round_limit" | "cancelled";
       }
     | { messages: Message[]; stop: "error"; error: Error };
 
@@ -72,6 +72,26 @@ export async function runAgentLoop(
             if (options.signal?.aborted) return { messages, stop: "cancelled" };
             const error = e instanceof Error ? e : new Error(String(e));
             return { messages, stop: "error", error };
+        }
+
+        // Cut off by the output limit (ADR 0018): the text is kept, and no tool call runs
+        // because its arguments may be incomplete. Every call still gets a result.
+        if (reply.cutOff) {
+            const kept = reply.messages.filter(
+                (message) => message.type !== "assistant" || message.text.trim() !== "",
+            );
+            for (const message of kept) add(message);
+            for (const message of kept) {
+                if (message.type !== "tool_call") continue;
+                add({
+                    type: "tool_result",
+                    callId: message.id,
+                    name: message.name,
+                    output: "Not run: the reply was cut off",
+                    isError: true,
+                });
+            }
+            return { messages, stop: "cut_off" };
         }
 
         // No tool call and no text: the model chose to say nothing. Nothing is kept.

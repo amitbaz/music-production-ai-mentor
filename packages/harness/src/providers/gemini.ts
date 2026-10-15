@@ -95,7 +95,11 @@ function signtatureFrom(providerMeta: unknown): GeminiPart {
 }
 
 type GeminiResponse = {
-    candidates?: { content?: { parts: GeminiReplyPart[] } }[];
+    candidates?: {
+        content?: { parts: GeminiReplyPart[] };
+        // Sent on the last piece of a reply; MAX_TOKENS means the output limit cut it off
+        finishReason?: string;
+    }[];
     // Present instead of candidates when Gemini refuses the prompt
     promptFeedback?: { blockReason?: string };
     // Present instead of candidates when the request itself was rejected
@@ -177,6 +181,7 @@ async function readReply(
     const messages: Message[] = [];
     let piece: GeminiResponse = {};
     let replied = false;
+    let cutOff = false;
     // The end of what was read so far, when it stops in the middle of a line
     let rest = "";
 
@@ -190,6 +195,7 @@ async function readReply(
             const candidate = piece.candidates?.[0];
             if (!candidate) continue;
             replied = true;
+            if (candidate.finishReason === "MAX_TOKENS") cutOff = true;
             addParts(messages, candidate.content?.parts ?? [], onText);
         }
     }
@@ -198,8 +204,8 @@ async function readReply(
         // Happens when Gemini refuses the prompt; the reply then says why.
         throw new Error(`Gemini returned no reply: ${JSON.stringify(piece)}`);
     }
-    // Token counts and the finish reason are not read yet.
-    return { messages, cutOff: false };
+    // Token counts are not read yet.
+    return { messages, cutOff };
 }
 
 // Every window is at least 1,000,000 tokens (ADR 0019). Add a model after checking its docs page.
