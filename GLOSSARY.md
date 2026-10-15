@@ -29,6 +29,7 @@
 - **Characters per token** — how many characters of text one token takes for a supported model, used to estimate the size of text no provider has counted yet. Each supported model has its own number. Today each is an estimate, not a measurement, and a model that gives none is taken as four.
 - **Live Set** — the project open in Ableton Live: its tracks, devices, clips and settings, whether saved to a file or not.
 - **Remote Script** — code that runs inside Ableton Live and lets an outside program read and change the Live Set. The Ableton tools reach Live through one.
+- **Connecting a DAW** — the one-time step on a computer that lets the mentor reach a DAW: for Ableton Live, installing the mentor's Remote Script and creating the password it is reached with. Disconnecting undoes it. Not the client's connection, which opens each time a tool first needs it, and not Ableton Link, Live's tempo sync.
 - **Client** — the part of a tool set that talks to an outside program for its tools, such as the one that connects to the Remote Script in Live. It connects when a tool first needs it and gives out the object ids.
 - **Arrangement View** — the timeline of a Live Set, where clips are laid out from left to right to form the finished piece. The other view, Session View, is a grid of clips launched by hand.
 - **Native device** — an instrument or effect that is part of Ableton Live, such as EQ Eight or Compressor. A third-party plug-in is not one.

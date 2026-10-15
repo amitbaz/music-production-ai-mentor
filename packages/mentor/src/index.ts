@@ -7,3 +7,5 @@ export type {
     Update,
 } from "@mentor/harness";
 export { createMentor, type MentorOptions } from "./mentor.ts";
+// Connecting Ableton Live: installing and removing the Remote Script the mentor reaches Live through.
+export { installRemoteScript, REMOTE_SCRIPT_NAME, removeRemoteScript, remoteScriptsFolder } from "@mentor/tools/daws/ableton";

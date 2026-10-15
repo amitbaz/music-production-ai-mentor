@@ -12,13 +12,22 @@ type Request = { uuid: string; commands: Command[] };
 // what str_for_value answers.
 type LiveSet = Map<string, Record<string, unknown>>;
 
+// The password a stand-in Live can ask for, the salt it sends, and the hash the script would
+// accept: HMAC-SHA256 of the salt keyed with the password, worked out apart from our code.
+export const PASSWORD = "the-right-password";
+const SALT = "a1b2c3d4";
+const HASH = "4c780e169dbefc73d44e402a05c72ee2bcde8596208b31b37e317902a5baa169";
+
 // A stand-in for the global WebSocket that answers like the ableton-js Remote Script.
 export class StandInSocket extends EventTarget {
     static opened: StandInSocket[] = [];
     static live: LiveSet = new Map();
+    // Whether Live asks for PASSWORD before it takes commands.
+    static locked = false;
 
     url: string;
     sent: Request[] = [];
+    authenticated = false;
 
     constructor(url: string) {
         super();
@@ -26,15 +35,33 @@ export class StandInSocket extends EventTarget {
         StandInSocket.opened.push(this);
         setTimeout(() => {
             this.dispatchEvent(new Event("open"));
-            this.reply({ event: "connect", data: { port: 39031, requiresAuth: false }, uuid: null });
+            const auth = StandInSocket.locked ? { requiresAuth: true, salt: SALT } : {};
+            this.reply({ event: "connect", data: { port: 39031, ...auth }, uuid: null });
         });
     }
 
     send(text: string) {
         const request = JSON.parse(text) as Request;
         this.sent.push(request);
-        const data = request.commands.map((command) => answer(StandInSocket.live, command));
-        setTimeout(() => this.reply({ event: "result", data, uuid: request.uuid }));
+        const [first] = request.commands;
+        const authenticating = first?.ns === "internal" && first.name === "authenticate";
+        if (StandInSocket.locked && !this.authenticated) {
+            // As the script does: a wrong hash closes the connection, no hash refuses the command.
+            if (!authenticating) return this.later({ event: "error", data: "Unauthorized", uuid: request.uuid });
+            if ((first.args as { hash?: string }).hash !== HASH) {
+                this.later({ event: "error", data: "Invalid password", uuid: request.uuid });
+                return this.close();
+            }
+            this.authenticated = true;
+        }
+        const data = request.commands.map((command) =>
+            command === first && authenticating ? { ok: true, data: true } : answer(StandInSocket.live, command),
+        );
+        this.later({ event: "result", data, uuid: request.uuid });
+    }
+
+    later(message: unknown) {
+        setTimeout(() => this.reply(message));
     }
 
     close() {
@@ -63,10 +90,12 @@ const realWebSocket = globalThis.WebSocket;
 // Not the script's default port, so a test can tell the address given was used.
 export const ADDRESS = "ws://127.0.0.1:40123";
 
-// Puts the stand-in in place of the global WebSocket for one test.
-export function useStandIn(t: TestContext, live: LiveSet) {
+// Puts the stand-in in place of the global WebSocket for one test. `locked` makes Live ask
+// for PASSWORD, as the installed script does.
+export function useStandIn(t: TestContext, live: LiveSet, { locked = false } = {}) {
     StandInSocket.opened = [];
     StandInSocket.live = live;
+    StandInSocket.locked = locked;
     globalThis.WebSocket = StandInSocket as unknown as typeof WebSocket;
     t.after(() => {
         globalThis.WebSocket = realWebSocket;

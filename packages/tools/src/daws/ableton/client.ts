@@ -1,4 +1,5 @@
 // Our client for the ableton-js Remote Script, which listens inside Live on a local WebSocket.
+import { createHmac } from "node:crypto";
 
 // One call on a Live object: `ns` is the kind of object, `nsid` the script's id for it.
 export type Command = { ns: string; nsid?: string; name: string; args?: unknown };
@@ -9,8 +10,13 @@ type Waiting = { resolve: (results: Result[]) => void; reject: (error: Error) =>
 
 export type Client = ReturnType<typeof createClient>;
 
-// The address is the script's WebSocket, such as ws://127.0.0.1:39031. The app gives it.
-export function createClient(address: string | undefined) {
+// What the user is told when the password does not open Live: connecting again writes a new one
+// into both places, and Live reads its copy when it starts.
+const FIX = "Connect Ableton again (connect-ableton), then restart Live.";
+
+// The address is the script's WebSocket, such as ws://127.0.0.1:39031, and the password the one
+// connecting Ableton wrote into the installed script. The app gives both.
+export function createClient(address: string | undefined, password?: string) {
     // Opened on the first send, not before.
     let connection: Promise<WebSocket> | undefined;
     const waiting = new Map<string, Waiting>();
@@ -22,10 +28,27 @@ export function createClient(address: string | undefined) {
     function connect(address: string) {
         return new Promise<WebSocket>((resolve, reject) => {
             const socket = new WebSocket(address);
+            const fail = (message: string) => {
+                reject(new Error(message));
+                socket.close();
+            };
             socket.addEventListener("message", (event) => {
                 const reply = JSON.parse(String(event.data)) as Reply;
-                // The script greets each new connection before it takes commands.
-                if (reply.event === "connect") resolve(socket);
+                // The script greets each new connection before it takes commands. With its password
+                // on, the greeting carries a salt, and the first command must prove the password.
+                if (reply.event === "connect") {
+                    const { requiresAuth, salt } = (reply.data ?? {}) as { requiresAuth?: boolean; salt?: string };
+                    if (!requiresAuth) return resolve(socket);
+                    if (!password) return fail(`Ableton Live asks for a password, and none is set. ${FIX}`);
+                    const uuid = String(nextUuid++);
+                    waiting.set(uuid, {
+                        resolve: () => resolve(socket),
+                        reject: () => fail(`Ableton Live refused the password. ${FIX}`),
+                    });
+                    const hash = createHmac("sha256", password).update(salt ?? "").digest("hex");
+                    socket.send(JSON.stringify({ uuid, commands: [{ ns: "internal", name: "authenticate", args: { hash } }] }));
+                    return;
+                }
                 const wait = reply.uuid === null ? undefined : waiting.get(reply.uuid);
                 if (!wait || reply.uuid === null) return;
                 waiting.delete(reply.uuid);
