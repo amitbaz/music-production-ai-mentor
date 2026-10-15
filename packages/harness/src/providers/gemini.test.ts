@@ -75,6 +75,15 @@ test("translates a conversation and its tools into a Gemini request", () => {
     });
 });
 
+test("a request with no tools leaves tools out, as the summary request has none", () => {
+    const request = toGeminiRequest([{ type: "user", text: "Summarise" }], [], "Be brief");
+
+    assert.deepEqual(request, {
+        systemInstruction: { parts: [{ text: "Be brief" }] },
+        contents: [{ role: "user", parts: [{ text: "Summarise" }] }],
+    });
+});
+
 test("groups consecutive messages from the same side into one Gemini turn", () => {
     const conversation: Message[] = [
         { type: "user", text: "Set the tempo and add a track" },

@@ -40,15 +40,20 @@ export function toGeminiRequest(
     return {
         ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
         contents,
-        tools: [
-            {
-                functionDeclarations: tools.map((tool) => ({
-                    name: tool.name,
-                    description: tool.description,
-                    parameters: tool.params,
-                })),
-            },
-        ],
+        // No tools, as in a summary request, leaves the field out.
+        ...(tools.length === 0
+            ? {}
+            : {
+                  tools: [
+                      {
+                          functionDeclarations: tools.map((tool) => ({
+                              name: tool.name,
+                              description: tool.description,
+                              parameters: tool.params,
+                          })),
+                      },
+                  ],
+              }),
     };
 }
 
