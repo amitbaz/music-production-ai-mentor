@@ -3,7 +3,9 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "start": "node --env-file=.env src/cli.ts",
+        "start": "node --env-file-if-exists=.env src/cli.ts",
+        "pair": "node src/pair.ts pair",
+        "unpair": "node src/pair.ts unpair",
         "test": "node --test \"src/**/*.test.ts\"",
         "typecheck": "tsc",
         "lint": "biome lint --error-on-warnings src",

@@ -5,6 +5,8 @@
     "packageManager": "pnpm@12.11.2",
     "scripts": {
         "start": "pnpm --filter @mentor/cli start",
+        "pair": "pnpm --filter @mentor/cli pair",
+        "unpair": "pnpm --filter @mentor/cli unpair",
         "test": "pnpm -r test",
         "typecheck": "pnpm -r typecheck",
         "lint": "pnpm -r lint",
