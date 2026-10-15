@@ -288,7 +288,8 @@ for (const [name, step] of failures) {
             { type: "assistant", text: "answer" },
         ]);
         assert.deepEqual(calls[1]?.conversation, [...old, { type: "user", text: "next" }]);
-        assert.deepEqual(kinds(updates), ["summarising", "assistant"]);
+        // The app is told the attempt ended without a summary
+        assert.deepEqual(kinds(updates), ["summarising", "summary_failed", "assistant"]);
     });
 }
 

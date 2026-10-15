@@ -28,7 +28,9 @@ export type Update =
     // A whole message, as it was added to the conversation
     | { type: "message"; message: Message }
     // The harness has started to summarise the older part of the conversation (ADR 0018)
-    | { type: "summarising" };
+    | { type: "summarising" }
+    // The summary could not be made and was not added; the turn carries on
+    | { type: "summary_failed" };
 
 export type LoopOptions = {
     // Called with each update as soon as it exists
@@ -103,6 +105,7 @@ export async function runAgentLoop(
         if (options.signal?.aborted) return true;
         if (text === undefined) {
             summaryFailed = true;
+            options.onUpdate?.({ type: "summary_failed" });
             return false;
         }
 
