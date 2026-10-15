@@ -198,6 +198,10 @@ export function getProp(ns: string, prop: string, nsid?: string): Command {
     return { ns, nsid, name: "get_prop", args: { prop } };
 }
 
+export function setProp(ns: string, prop: string, value: unknown, nsid?: string): Command {
+    return { ns, nsid, name: "set_prop", args: { prop, value } };
+}
+
 // Asks Live for the text it shows for a value of a parameter, such as "-3.0 dB" or "12L".
 export function strForValue(parameterId: string, value: unknown): Command {
     return { ns: "device-parameter", nsid: parameterId, name: "str_for_value", args: [value] };
