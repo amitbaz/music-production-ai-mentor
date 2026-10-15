@@ -4,6 +4,7 @@ import {
     ModelCallError,
     type Model,
     type ModelReply,
+    type SupportedModel,
     type Tool,
 } from "../types.ts";
 
@@ -200,6 +201,15 @@ async function readReply(
     // Token counts and the finish reason are not read yet.
     return { messages, cutOff: false };
 }
+
+// Every window is at least 1,000,000 tokens (ADR 0019). Add a model after checking its docs page.
+export const geminiModels: SupportedModel[] = [
+    {
+        name: "gemini-3.5-flash-lite",
+        contextWindow: 1_048_576,
+        docs: "https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite",
+    },
+];
 
 // A Model backed by the real Gemini API: translate, send, translate back.
 export function createGeminiModel(apiKey: string, model: string): Model {
