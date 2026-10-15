@@ -114,7 +114,14 @@ function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
         if (object.group && prop === "arrangement_clips") {
             return { ok: false, error: "Main, Group and Return Tracks have no arrangement clips", errorType: "Exception" };
         }
+        // The shown number of a parameter: its value times the shown units per internal unit.
+        if (object.ns === "device-parameter" && prop === "display_value") return { ok: true, data: (object.value as number) * ((object.scale as number) ?? 1) };
         return { ok: true, data: object[prop] ?? null };
+    }
+    if (name === "set_prop") {
+        const { prop, value } = args as { prop: string; value: unknown };
+        if (object.ns !== "device-parameter") return { ok: false, error: `${prop} cannot be set here`, errorType: "Exception" };
+        return setParameter(object, prop, value);
     }
     if (name === "str_for_value") {
         const [value] = args as number[];
@@ -129,6 +136,27 @@ function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
         return { ok: true, data: notes };
     }
     return { ok: false, error: `Function call failed: ${name} doesn't exist`, errorType: "Exception" };
+}
+
+// Writes a parameter as Live does (seen in Live 12.4.6): display_value takes the shown number and
+// clamps it into the range without an error, a list takes the index of the choice, and value
+// refuses what is outside min and max.
+function setParameter(parameter: Record<string, unknown>, prop: string, value: unknown) {
+    const items = parameter.value_items as string[] | undefined;
+    const refuse = (error: string) => ({ ok: false, error, errorType: "Exception" });
+    // As a parameter Live holds still does: the write is taken without an error and changes nothing.
+    if (parameter.ignoresWrites) return { ok: true, data: null };
+    if (typeof value !== "number") return refuse("Python argument types in DeviceParameter.value: the value must be a float");
+    const min = items ? 0 : (parameter.min as number);
+    const max = items ? items.length - 1 : (parameter.max as number);
+    if (prop === "display_value") {
+        parameter.value = Math.min(max, Math.max(min, value / ((parameter.scale as number) ?? 1)));
+        return { ok: true, data: null };
+    }
+    if (prop !== "value") return refuse(`${prop} cannot be set on a parameter`);
+    if (value < min || value > max) return refuse("Invalid value. Check the parameters range with min/max");
+    parameter.value = value;
+    return { ok: true, data: null };
 }
 
 const realWebSocket = globalThis.WebSocket;
@@ -164,10 +192,16 @@ export function useStandIn(
 }
 
 // A device parameter as Live would describe it: a number with a range and the text Live shows for
-// a value, or a list of choices, where the value is the index of the current choice.
+// a value, or a list of choices, where the value is the index of the current choice. A number is in
+// Live's own units; `scale` is the shown units per own unit, 1 unless given, as Utility's Output
+// runs from -1 to 1 and shows -35 to 35 dB.
 export type ParameterSpec =
-    | { name: string; value: number; min: number; max: number; shown: (value: number) => string }
-    | { name: string; items: string[]; value: number };
+    | { name: string; value: number; min: number; max: number; shown: (value: number) => string; scale?: number; ignoresWrites?: true }
+    | { name: string; items: string[]; value: number; ignoresWrites?: true };
+
+// A number of a track's mixer, as a device parameter without a name; a text stands for one that
+// is only read, with the text Live shows.
+export type MixerSpec = string | Omit<Extract<ParameterSpec, { min: number }>, "name">;
 
 export type DeviceSpec = {
     name: string;
@@ -203,9 +237,9 @@ export type ClipSpec = {
 type TrackSpec = {
     name: string;
     type: "audio" | "midi" | "group" | "return" | "main";
-    volume: string;
-    pan: string;
-    sends?: string[];
+    volume: MixerSpec;
+    pan: MixerSpec;
+    sends?: MixerSpec[];
     mute?: boolean;
     solo?: boolean;
     group?: { id: string };
@@ -221,10 +255,23 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
     let next = 1;
     const id = () => `live_${next++}`;
 
-    function parameter(shown: string) {
+    // What the script says of a parameter: its value is read from the parameter, so a write shows.
+    function serialized(paramId: string, name: string, isQuantized: boolean) {
+        const state = live.get(paramId) as { value: number };
+        return {
+            id: paramId,
+            name,
+            get value() {
+                return state.value;
+            },
+            is_quantized: isQuantized,
+        };
+    }
+
+    function parameter(spec: MixerSpec) {
         const paramId = id();
-        live.set(paramId, { ns: "device-parameter", shown });
-        return { id: paramId, name: "", value: 0, is_quantized: false };
+        live.set(paramId, typeof spec === "string" ? { ns: "device-parameter", shown: spec, value: 0 } : { ns: "device-parameter", ...spec });
+        return serialized(paramId, "", false);
     }
 
     // A clip as the script serializes it; the object behind it holds what a read of the clip asks for.
@@ -256,16 +303,18 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
 
     function deviceParameter(spec: ParameterSpec) {
         const paramId = id();
-        const common = { ns: "device-parameter" };
+        const common = { ns: "device-parameter", value: spec.value, ignoresWrites: spec.ignoresWrites };
         if ("items" in spec) live.set(paramId, { ...common, value_items: spec.items, shown: (value: number) => spec.items[value] });
-        else live.set(paramId, { ...common, min: spec.min, max: spec.max, shown: spec.shown });
-        return { id: paramId, name: spec.name, value: spec.value, is_quantized: "items" in spec };
+        else live.set(paramId, { ...common, min: spec.min, max: spec.max, shown: spec.shown, scale: spec.scale });
+        return serialized(paramId, spec.name, "items" in spec);
     }
 
     function device(spec: DeviceSpec): { id: string; name: string; type: string; class_name: string } {
         const deviceId = id();
         live.set(deviceId, {
             ns: "device",
+            name: spec.name,
+            class_name: spec.class_name,
             parameters: (spec.parameters ?? []).map(deviceParameter),
             can_have_chains: spec.chains !== undefined,
             chains: (spec.chains ?? []).map((chain) => {
