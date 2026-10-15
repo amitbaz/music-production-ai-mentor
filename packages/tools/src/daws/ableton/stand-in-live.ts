@@ -35,8 +35,9 @@ export class StandInSocket extends EventTarget {
         super();
         this.url = url;
         StandInSocket.opened.push(this);
+        // As Node's WebSocket does when nothing listens: one error event, and no close event.
         if (StandInSocket.closed) {
-            this.close();
+            setTimeout(() => this.dispatchEvent(new Event("error")));
             return;
         }
         setTimeout(() => {

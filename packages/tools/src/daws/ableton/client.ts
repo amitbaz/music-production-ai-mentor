@@ -15,7 +15,7 @@ export type Client = ReturnType<typeof createClient>;
 const CONTROL_SURFACE = "MusicMentor as a Control Surface in Settings → Link, Tempo & MIDI";
 const NOT_PAIRED = `Ableton Live is not paired with the mentor yet. Run pnpm pair ableton, restart Live, and choose ${CONTROL_SURFACE}.`;
 const REFUSED = "Ableton Live refused the password. Pair Ableton again with pnpm pair ableton, then restart Live.";
-const UNREACHABLE = `Could not reach Ableton Live. Is it open, with ${CONTROL_SURFACE}?`;
+const UNREACHABLE = "Could not reach Ableton Live. Is it open, with MusicMentor chosen as a Control Surface in Settings → Link, Tempo & MIDI?";
 
 // The address is the script's WebSocket, such as ws://127.0.0.1:39031, and the password the one
 // pairing Ableton wrote into the installed script. The app gives both.
@@ -58,7 +58,8 @@ export function createClient(address: string | undefined, password?: string) {
                 if (reply.event === "result") wait.resolve(reply.data as Result[]);
                 else wait.reject(new Error(String(reply.data)));
             });
-            socket.addEventListener("close", () => {
+            // When nothing listens, Node's WebSocket sends only an error, with no close after it.
+            const lost = () => {
                 connection = undefined;
                 objectIds.clear();
                 counts.clear();
@@ -66,7 +67,9 @@ export function createClient(address: string | undefined, password?: string) {
                 for (const wait of waiting.values()) wait.reject(error);
                 waiting.clear();
                 reject(new Error(password ? UNREACHABLE : NOT_PAIRED));
-            });
+            };
+            socket.addEventListener("error", lost);
+            socket.addEventListener("close", lost);
         });
     }
 
