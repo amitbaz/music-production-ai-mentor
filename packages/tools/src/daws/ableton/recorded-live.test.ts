@@ -1,6 +1,7 @@
 // The reads against replies a real Live 12.4.6 sent, recorded with the ableton-js script 5.0.4 and
 // our file at version 3. Track, clip, chain, locator and rack names were replaced before saving.
-// A change to which commands a read sends breaks the replay: record the reads again.
+// Each message must send the commands that were recorded, so a change to what a read sends fails
+// here until the reads are recorded again.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createAbleton } from "./ableton.ts";
@@ -11,7 +12,7 @@ function tools() {
 }
 
 test("read_set, read_tracks, read_arrangement and read_clip read what a real Live sent", async (t) => {
-    useRecording(t, "recorded-reads.json");
+    const allAnswered = useRecording(t, "recorded-reads.json");
     const { read_set, read_tracks, read_arrangement, read_clip } = tools();
 
     const set = JSON.parse(await read_set.run({}));
@@ -72,4 +73,6 @@ test("read_set, read_tracks, read_arrangement and read_clip read what a real Liv
             ["n4", 60, 3, 1, 100, 1],
         ],
     });
+
+    allAnswered();
 });
