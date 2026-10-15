@@ -6,7 +6,7 @@ import { runCli } from "./run.ts";
 
 type Generate = (conversation: Message[], text: string, turn: TurnOptions) => Promise<LoopResult>;
 
-const finished = (messages: Message[]): LoopResult => ({ messages, stop: "finished" });
+const finished = (messages: Message[]): LoopResult => ({ messages, stop: "finished", conversationSize: 0 });
 
 // A CLI wired to fake streams and a scripted mentor. `type` is what the user types;
 // `terminal` makes the input behave as a real keyboard, which Ctrl+C needs.
@@ -96,11 +96,11 @@ test("a conversation that holds a summary is kept whole and shown as the summary
 test("a turn that did not finish is kept, and says why", async () => {
     const kept: Message = { type: "user", text: "kept" };
     const cases: [LoopResult, "out" | "err", string][] = [
-        [{ messages: [kept], stop: "error", error: new Error("boom") }, "err", "error: boom"],
-        [{ messages: [kept], stop: "empty" }, "err", "(no reply)"],
-        [{ messages: [kept], stop: "cut_off" }, "err", "(reply cut off)"],
-        [{ messages: [kept], stop: "round_limit" }, "err", "stopped: too many rounds without finishing"],
-        [{ messages: [kept], stop: "cancelled" }, "out", "cancelled"],
+        [{ messages: [kept], stop: "error", error: new Error("boom"), conversationSize: 0 }, "err", "error: boom"],
+        [{ messages: [kept], stop: "empty", conversationSize: 0 }, "err", "(no reply)"],
+        [{ messages: [kept], stop: "cut_off", conversationSize: 0 }, "err", "(reply cut off)"],
+        [{ messages: [kept], stop: "round_limit", conversationSize: 0 }, "err", "stopped: too many rounds without finishing"],
+        [{ messages: [kept], stop: "cancelled", conversationSize: 0 }, "out", "cancelled"],
     ];
 
     for (const [result, where, line] of cases) {
@@ -161,7 +161,7 @@ test("Ctrl+C during a turn cancels it and the CLI carries on", async () => {
             signal = turn.signal;
             if (text === "slow") {
                 await new Promise((resolve) => turn.signal?.addEventListener("abort", resolve, { once: true }));
-                return { messages: [], stop: "cancelled" };
+                return { messages: [], stop: "cancelled", conversationSize: 0 };
             }
             return finished([]);
         },
@@ -186,7 +186,7 @@ test("Ctrl+C while a tool asks for approval answers no and cancels", async () =>
     const cli = start(
         async (_conversation, _text, turn) => {
             approved = await turn.approve?.(call);
-            return { messages: [], stop: "cancelled" };
+            return { messages: [], stop: "cancelled", conversationSize: 0 };
         },
         { terminal: true },
     );
@@ -215,7 +215,7 @@ test("a reply of only whitespace does not leave its line open for the next turn"
         turns++;
         if (turns === 1) {
             turn.onUpdate?.({ type: "text", text: "\n" });
-            return { messages: [], stop: "empty" };
+            return { messages: [], stop: "empty", conversationSize: 0 };
         }
         turn.onUpdate?.({ type: "text", text: "Hi" });
         turn.onUpdate?.({ type: "message", message: { type: "assistant", text: "Hi" } });
