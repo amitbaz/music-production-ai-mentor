@@ -3,6 +3,7 @@ import {
     type Message,
     ModelCallError,
     type Model,
+    type ModelReply,
     type Tool,
 } from "../types.ts";
 
@@ -171,7 +172,7 @@ function addParts(
 async function readReply(
     body: ReadableStream<Uint8Array>,
     onText?: (text: string) => void,
-): Promise<Message[]> {
+): Promise<ModelReply> {
     const messages: Message[] = [];
     let piece: GeminiResponse = {};
     let replied = false;
@@ -196,7 +197,8 @@ async function readReply(
         // Happens when Gemini refuses the prompt; the reply then says why.
         throw new Error(`Gemini returned no reply: ${JSON.stringify(piece)}`);
     }
-    return messages;
+    // Token counts and the finish reason are not read yet.
+    return { messages, cutOff: false };
 }
 
 // A Model backed by the real Gemini API: translate, send, translate back.

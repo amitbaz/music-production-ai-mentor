@@ -17,7 +17,7 @@ function scriptedModel(replies: Message[][]) {
     const model: Model = {
         call: async (conversation, tools, options) => {
             calls.push({ conversation: [...conversation], tools, options });
-            return replies.shift() ?? [];
+            return { messages: replies.shift() ?? [], cutOff: false };
         },
     };
     return { model, calls };

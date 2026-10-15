@@ -30,7 +30,7 @@ function scriptedModel(replies: Message[][]) {
             calls.push([...conversation]);
             const reply = replies.shift();
             if (!reply) throw new Error("The script ran out of replies");
-            return reply;
+            return { messages: reply, cutOff: false };
         },
     };
     return { model, calls };
@@ -200,7 +200,7 @@ test("gives the model the caller's cancel signal", async () => {
     const model: Model = {
         call: async (_conversation, _tools, options) => {
             received = options?.signal;
-            return [{ type: "assistant", text: "Hi" }];
+            return { messages: [{ type: "assistant", text: "Hi" }], cutOff: false };
         },
     };
 
@@ -460,7 +460,7 @@ test("gives the model the system prompt on every model call", async () => {
     const model: Model = {
         call: async (_conversation, _tools, options) => {
             received.push(options?.system);
-            return replies.shift() ?? [];
+            return { messages: replies.shift() ?? [], cutOff: false };
         },
     };
 
@@ -481,7 +481,7 @@ function streamingModel(pieces: string[], end: () => Message[]): Model {
     return {
         call: async (_conversation, _tools, options) => {
             for (const piece of pieces) options?.onText?.(piece);
-            return end();
+            return { messages: end(), cutOff: false };
         },
     };
 }

@@ -2,16 +2,25 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runAgentLoop } from "./agent-loop.ts";
 import { withRetry } from "./retry.ts";
-import { type CallOptions, type Message, ModelCallError, type Model } from "./types.ts";
+import {
+    type CallOptions,
+    type Message,
+    ModelCallError,
+    type Model,
+    type ModelReply,
+} from "./types.ts";
 
 const hello: Message[] = [{ type: "user", text: "Hello" }];
-const reply: Message[] = [{ type: "assistant", text: "Hi there" }];
+const reply: ModelReply = {
+    messages: [{ type: "assistant", text: "Hi there" }],
+    cutOff: false,
+};
 
 const busy = () => new ModelCallError("Model is overloaded", { retryable: true });
 
-// A scripted model whose attempts follow a script: an Error is thrown, messages are returned.
+// A scripted model whose attempts follow a script: an Error is thrown, a reply is returned.
 // It records the options of each attempt.
-function scriptedModel(script: (Error | Message[])[]) {
+function scriptedModel(script: (Error | ModelReply)[]) {
     const attempts: (CallOptions | undefined)[] = [];
     const model: Model = {
         call: async (_conversation, _tools, options) => {
@@ -122,7 +131,7 @@ test("fails without waiting when the provider asks for more than a minute", asyn
 
 // Never replies; fails only when its signal fires, as fetch does.
 function hangingAttempt(options?: CallOptions) {
-    return new Promise<Message[]>((_resolve, reject) => {
+    return new Promise<ModelReply>((_resolve, reject) => {
         options?.signal?.addEventListener("abort", () => reject(options.signal?.reason));
     });
 }
