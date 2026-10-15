@@ -6,13 +6,13 @@ import { barOf, beatsPerBar, numberArg } from "../../reading.ts";
 const MIN_TEMPO = 20;
 const MAX_TEMPO = 999;
 
-const NOTHING = "Nothing to do. Give at least one of action, jump_to_bar, loop_from_bar and loop_to_bar, loop, tempo.";
+const NOTHING = "Nothing to do. Give at least one of action, jump_to_bar, loop_from_bar and loop_to_bar, loop, tempo, metronome.";
 
-// Play, stop, the position, the loop region and the tempo of the Live Set.
+// Play, stop, the position, the loop region, the tempo and the metronome of the Live Set.
 export function transport(client: Client): Tool {
     return {
         name: "transport",
-        description: `Controls playback of the Live Set open in Ableton Live. Give any of the arguments; they are done in this order: tempo, loop, jump_to_bar, then action. Bars are numbered as Live's ruler shows them, from 1, by the Live Set's time signature; 17.5 is halfway through bar 17. The loop region runs from loop_from_bar to where loop_to_bar begins, so 17 to 25 is eight bars in 4/4. Giving a region switches the loop on, unless loop is false. play carries on from where the Live Set is, from the bar jumped to if there is one, and does nothing while it already plays; stop does nothing while it is stopped. The result gives before and after for what was asked.`,
+        description: `Controls playback of the Live Set open in Ableton Live. Give any of the arguments; they are done in this order: tempo, metronome, loop, jump_to_bar, then action. Bars are numbered as Live's ruler shows them, from 1, by the Live Set's time signature; 17.5 is halfway through bar 17. The loop region runs from loop_from_bar to where loop_to_bar begins, so 17 to 25 is eight bars in 4/4. Giving a region switches the loop on, unless loop is false. play carries on from where the Live Set is, from the bar jumped to if there is one, and does nothing while it already plays; stop does nothing while it is stopped. The result gives before and after for what was asked.`,
         params: {
             type: "object",
             properties: {
@@ -22,6 +22,7 @@ export function transport(client: Client): Tool {
                 loop_to_bar: { type: "number", description: "End of the loop region: the bar where it stops, not played itself. After loop_from_bar." },
                 loop: { type: "boolean", description: "Switch the loop on or off." },
                 tempo: { type: "number", description: `Beats per minute, ${MIN_TEMPO} to ${MAX_TEMPO}.` },
+                metronome: { type: "boolean", description: "Switch the metronome on or off." },
             },
         },
         run: (args) => run(client, args),
@@ -30,7 +31,7 @@ export function transport(client: Client): Tool {
 
 async function run(client: Client, args: Record<string, unknown>) {
     // All checked before anything is changed.
-    const { action, loop } = args;
+    const { action, loop, metronome } = args;
     if (action !== undefined && action !== "play" && action !== "stop") throw new Error(`action must be play or stop, not ${String(action)}`);
     const tempo = numberArg(args, "tempo");
     if (tempo !== undefined && !(tempo >= MIN_TEMPO && tempo <= MAX_TEMPO)) {
@@ -46,7 +47,8 @@ async function run(client: Client, args: Record<string, unknown>) {
         if (to <= from) throw new Error("loop_to_bar must be after loop_from_bar");
     }
     if (loop !== undefined && typeof loop !== "boolean") throw new Error("loop must be true or false");
-    if ([action, jump, from, loop, tempo].every((value) => value === undefined)) throw new Error(NOTHING);
+    if (metronome !== undefined && typeof metronome !== "boolean") throw new Error("metronome must be true or false");
+    if ([action, jump, from, loop, tempo, metronome].every((value) => value === undefined)) throw new Error(NOTHING);
 
     const before = await readState(client);
     const perBar = beatsPerBar(before.numerator, before.denominator);
@@ -57,6 +59,7 @@ async function run(client: Client, args: Record<string, unknown>) {
     const toggle = playing !== undefined && playing !== before.playing;
     await client.send([
         ...(tempo === undefined ? [] : [setProp("song", "tempo", tempo)]),
+        ...(metronome === undefined ? [] : [setProp("song", "metronome", metronome)]),
         ...(from === undefined || to === undefined
             ? []
             : [setProp("song", "loop_start", (from - 1) * perBar), setProp("song", "loop_length", (to - from) * perBar)]),
@@ -69,6 +72,7 @@ async function run(client: Client, args: Record<string, unknown>) {
     const region = (state: State) => ({ on: state.loop, from_bar: barOf(state.loopStart, perBar), to_bar: barOf(state.loopStart + state.loopLength, perBar) });
     return JSON.stringify({
         ...(tempo !== undefined && { tempo: { before: before.tempo, after: after.tempo } }),
+        ...(metronome !== undefined && { metronome: { before: before.metronome, after: after.metronome } }),
         ...((from !== undefined || loop !== undefined) && { loop: { before: region(before), after: region(after) } }),
         // The position is not read again: while it plays it has already moved on.
         ...(jump !== undefined && { position: { before: barOf(before.position, perBar), after: jump } }),
@@ -79,10 +83,10 @@ async function run(client: Client, args: Record<string, unknown>) {
 type State = Awaited<ReturnType<typeof readState>>;
 
 async function readState(client: Client) {
-    const [tempo, loop, loopStart, loopLength, position, playing, numerator, denominator] = (await client.send(
-        ["tempo", "loop", "loop_start", "loop_length", "current_song_time", "is_playing", "signature_numerator", "signature_denominator"].map((prop) =>
+    const [tempo, metronome, loop, loopStart, loopLength, position, playing, numerator, denominator] = (await client.send(
+        ["tempo", "metronome", "loop", "loop_start", "loop_length", "current_song_time", "is_playing", "signature_numerator", "signature_denominator"].map((prop) =>
             getProp("song", prop),
         ),
-    )) as [number, boolean, number, number, number, boolean, number, number];
-    return { tempo, loop, loopStart, loopLength, position, playing, numerator, denominator };
+    )) as [number, boolean, boolean, number, number, number, boolean, number, number];
+    return { tempo, metronome, loop, loopStart, loopLength, position, playing, numerator, denominator };
 }

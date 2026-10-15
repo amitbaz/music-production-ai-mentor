@@ -687,6 +687,7 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
         loop_start: 0,
         loop_length: 4,
         current_song_time: 0,
+        metronome: false,
         song_length: 1024,
         // As Live does: the playback position cannot go past the end of the arrangement.
         set_current_song_time: (beats: unknown) => {
