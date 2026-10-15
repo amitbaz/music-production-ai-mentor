@@ -31,7 +31,8 @@ function start(generate: Generate, { terminal = false } = {}) {
 
 // Waits until what the user sees contains the text, for steps that happen in the middle of a turn
 async function until(seen: () => string, text: string) {
-    for (let i = 0; i < 100 && !seen().includes(text); i++) {
+    const giveUp = Date.now() + 2000;
+    while (!seen().includes(text) && Date.now() < giveUp) {
         await new Promise((resolve) => setImmediate(resolve));
     }
     assert.ok(seen().includes(text), `never saw ${JSON.stringify(text)} in ${JSON.stringify(seen())}`);

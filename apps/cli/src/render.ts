@@ -1,7 +1,7 @@
 import { styleText } from "node:util";
 import type { Message, Update } from "@mentor/mentor";
 
-type Output = { write: (text: string) => unknown };
+export type Output = { write: (text: string) => unknown };
 
 type ScreenOptions = {
     // The width of the screen, asked each time a line is cut, as the user can resize it
@@ -35,7 +35,7 @@ export function createScreen(output: Output, options: ScreenOptions = {}) {
     // The first line of a tool's output, cut to fit the screen. The model still sees all of it.
     function firstLine(text: string): string {
         const [first = "", ...rest] = text.split("\n");
-        const width = (options.width?.() ?? 80) - 6;
+        const width = Math.max(1, (options.width?.() ?? 80) - 6);
         const cut = first.length > width ? `${first.slice(0, width - 1)}…` : first;
         return rest.length > 0 ? `${cut} (+${rest.length} lines)` : cut;
     }

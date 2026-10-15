@@ -1,9 +1,7 @@
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
 import type { LoopResult, Message, ToolCall, TurnOptions } from "@mentor/mentor";
-import { createScreen } from "./render.ts";
-
-type Output = { write: (text: string) => unknown };
+import { createScreen, type Output } from "./render.ts";
 
 export type CliOptions = {
     // What the CLI needs of the mentor: run one turn
