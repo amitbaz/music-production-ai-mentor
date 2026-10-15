@@ -208,3 +208,24 @@ test("Ctrl+C when no turn is running ends the CLI", async () => {
     cli.type("\x03");
     await cli.done;
 });
+
+test("a reply of only whitespace does not leave its line open for the next turn", async () => {
+    let turns = 0;
+    const cli = start(async (_conversation, _text, turn) => {
+        turns++;
+        if (turns === 1) {
+            turn.onUpdate?.({ type: "text", text: "\n" });
+            return { messages: [], stop: "empty" };
+        }
+        turn.onUpdate?.({ type: "text", text: "Hi" });
+        turn.onUpdate?.({ type: "message", message: { type: "assistant", text: "Hi" } });
+        return finished([]);
+    });
+
+    cli.type("one\ntwo\nexit\n");
+    await cli.done;
+
+    // Each turn's text opens its own line.
+    assert.equal(cli.out().split("mentor> ").length - 1, 2);
+    assert.ok(cli.err().includes("(no reply)"));
+});

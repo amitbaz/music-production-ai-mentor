@@ -55,5 +55,11 @@ export function createScreen(output: Output, options: ScreenOptions = {}) {
                 print(update.message);
             }
         },
+
+        // Closes a line left open by text whose message the loop dropped, such as a reply of only whitespace
+        endTurn() {
+            if (writing) output.write("\n");
+            writing = false;
+        },
     };
 }

@@ -6,12 +6,12 @@ import { createScreen } from "./render.ts";
 // A screen that writes into a string, so a test can read what the user would see.
 function screen(options: { width?: number; color?: boolean } = {}) {
     let text = "";
-    const { show } = createScreen(
+    const { show, endTurn } = createScreen(
         { write: (piece: string) => (text += piece) },
         { width: () => options.width, color: options.color },
     );
     const showAll = (...updates: Update[]) => updates.forEach(show);
-    return { show, showAll, text: () => text };
+    return { show, showAll, endTurn, text: () => text };
 }
 
 const message = (message: Message): Update => ({ type: "message", message });
@@ -107,4 +107,24 @@ test("the user's own message is not echoed", () => {
     s.show(message({ type: "user", text: "hello" }));
 
     assert.equal(s.text(), "");
+});
+
+test("the end of a turn closes a line left open by text whose message was dropped", () => {
+    const s = screen();
+
+    // A reply of only whitespace is dropped by the loop, so no message follows its text.
+    s.showAll(piece("\n"));
+    s.endTurn();
+    s.showAll(piece("Hi"), message({ type: "assistant", text: "Hi" }));
+
+    assert.equal(s.text(), "\nmentor> \n\n\nmentor> Hi\n");
+});
+
+test("the end of a turn writes nothing when no line is open", () => {
+    const s = screen();
+
+    s.showAll(piece("Hi"), message({ type: "assistant", text: "Hi" }));
+    s.endTurn();
+
+    assert.equal(s.text(), "\nmentor> Hi\n");
 });

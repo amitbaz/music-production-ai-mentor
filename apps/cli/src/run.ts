@@ -49,6 +49,7 @@ export async function runCli({ mentor, input, output, errors, terminal, color, w
                 approve,
             });
             turn = undefined;
+            screen.endTurn();
 
             // Keep everything that happened, even when the turn did not finish
             conversation = result.messages;
