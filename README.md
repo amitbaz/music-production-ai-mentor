@@ -4,12 +4,13 @@ An AI mentor for music producers. You talk to it in plain language: it explains 
 
 ## Status
 
-Early. The mentor runs in the terminal on Gemini and reads the Live Set open in Ableton Live: an overview, the detail of the tracks it chooses, the arrangement and the inside of a clip. `pnpm pair ableton` installs the Remote Script it reaches Live through. It changes device parameters and the mixer, tracks, effect chains, arrangement clips and locators, the notes of MIDI clips, the transport and what is selected in Live, finds devices, presets and samples by name, deletes tracks, devices, clips and notes after asking, and reaches anything else Live offers to scripts through two general tools; the system prompt's rules for Live are next ([#14](https://github.com/amitbaz/music-production-ai-mentor/issues/14)).
+Early. The mentor runs in the terminal on Gemini and reads the Live Set open in Ableton Live: an overview, the detail of the tracks it chooses, the arrangement and the inside of a clip. `pnpm pair ableton` installs the Remote Script it reaches Live through. It changes device parameters and the mixer, tracks, effect chains, arrangement clips and locators, the notes of MIDI clips, the transport and what is selected in Live, finds devices, presets and samples by name, deletes tracks, devices, clips and notes after asking, and reaches anything else Live offers to scripts through two general tools. Its system prompt tells the model how to work in Live: read first, give each change before → after, and say it cannot hear the audio.
 
 ## What it does today
 
 - Talk to the mentor in the terminal, with its reply shown as it is written.
 - It tells explaining from acting by how you ask, and looks at the current state before changing anything.
+- Its system prompt tells it how to work in Live: read before acting and name tracks, devices and clips by the object ids of the latest read; after a change, give each one as track / device / parameter: before → after, such as `Kick / Volume: 0.0 dB → -3.0 dB`; for what the tools cannot do, such as a plug-in's settings, automation or freezing, give the exact steps; and say it cannot hear the audio rather than claim to.
 - `pnpm pair ableton` pairs the mentor with Ableton Live on macOS: it installs the Remote Script with a new random password that only the mentor knows, and says which Control Surface to choose in Live. Running it again replaces both. `pnpm unpair ableton` removes them again. The mentor can be talked to whether Live is paired or not, and when it cannot reach Live it says whether Live is not paired or not answering.
 - `read_set` gives the mentor an overview of the Live Set open in Ableton Live, saved or not: tempo, time signature, and each track with its kind, group, volume, pan, sends, mute and solo, and its devices. It connects to Live the first time it is used.
 - When Live cannot be used, the mentor is told what is wrong and what to do, and can pass it on: Live not answering or MusicMentor not chosen, the wrong password, an installed script of another version (pair again and restart Live), a Live older than 12.4 (update it), or a command Live did not answer within 10 seconds. After Live is restarted, the next tool call connects again without restarting the mentor; object ids from before are refused with a message to read again, and never given out again.
@@ -35,7 +36,7 @@ Early. The mentor runs in the terminal on Gemini and reads the Live Set open in 
 
 ## Planned
 
-- **The real Ableton Live** ([#2](https://github.com/amitbaz/music-production-ai-mentor/issues/2)): the system prompt's rules for Live and checks of its behaviour ([#14](https://github.com/amitbaz/music-production-ai-mentor/issues/14)); reading and changing the Live Set, `delete` and the general tools are in.
+- **The real Ableton Live** ([#2](https://github.com/amitbaz/music-production-ai-mentor/issues/2)): `read_set` staying under the result limit on a big Live Set ([#19](https://github.com/amitbaz/music-production-ai-mentor/issues/19)); reading and changing the Live Set, `delete`, the general tools and the system prompt's rules for Live are in.
 - **A `mentor` command** ([#37](https://github.com/amitbaz/music-production-ai-mentor/issues/37)): type `mentor`, `mentor auth gemini` or `mentor pair ableton` from any folder.
 - **Load a tool set only when the mentor needs it** ([#1](https://github.com/amitbaz/music-production-ai-mentor/issues/1)).
 - **Evals** for what the model decides: which tool it picks, whether it follows the system prompt, which format tool results should use ([#16](https://github.com/amitbaz/music-production-ai-mentor/issues/16)), and what a summary of a long conversation keeps ([#18](https://github.com/amitbaz/music-production-ai-mentor/issues/18)).

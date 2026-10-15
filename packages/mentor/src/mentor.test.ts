@@ -134,6 +134,23 @@ test("a turn sends the user text after the conversation, with the system prompt 
     ]);
 });
 
+test("the system prompt sent with a turn states the rules for Ableton Live", async () => {
+    const { model, calls } = scriptedModel([[{ type: "assistant", text: "Hi" }]]);
+
+    await createMentor({ model }).generate([], "hi");
+
+    const system = calls[0]?.options?.system ?? "";
+    // Read before acting, with the object ids of the latest read.
+    assert.match(system, /read_set/);
+    assert.match(system, /object ids? .*latest read/i);
+    // Say what was changed, before and after.
+    assert.match(system, /before → after/);
+    // Exact steps for what the tools cannot do.
+    assert.match(system, /exact steps/i);
+    // Never claim to have heard the audio.
+    assert.match(system, /cannot hear/i);
+});
+
 test("a turn's tool calls reach Live at the app's address, over the connection opened in the turn before", async (t: TestContext) => {
     useStandIn(t);
     const { model } = scriptedModel([

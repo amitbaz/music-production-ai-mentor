@@ -47,6 +47,9 @@ export class StandInSocket extends EventTarget {
     // The version our own file reports, or null for a copy of the script that does not have it.
     static mentorVersion = MENTOR_VERSION as string | null;
     static liveVersion: readonly [number, number] = [12, 4];
+    // Replies recorded from a real Live, one list of results per message, in the order they were
+    // sent; while set, they answer in place of the stand-in Live Set.
+    static recorded: unknown[][] | null = null;
 
     url: string;
     sent: Request[] = [];
@@ -73,6 +76,15 @@ export class StandInSocket extends EventTarget {
         const request = JSON.parse(text) as Request;
         this.sent.push(request);
         if (StandInSocket.stalled) return;
+        if (StandInSocket.recorded) {
+            const results = StandInSocket.recorded.shift();
+            // Another number of commands means the reads now send something else.
+            if (results?.length !== request.commands.length) {
+                const error = "The recording has no reply for this message. Record the reads again.";
+                return this.later({ event: "result", data: request.commands.map(() => ({ ok: false, error, errorType: "Exception" })), uuid: request.uuid });
+            }
+            return this.later({ event: "result", data: results, uuid: request.uuid });
+        }
         const [first] = request.commands;
         const authenticating = first?.ns === "internal" && first.name === "authenticate";
         if (StandInSocket.locked && !this.authenticated) {
@@ -312,9 +324,23 @@ export function useStandIn(
     StandInSocket.scriptVersion = scriptVersion;
     StandInSocket.mentorVersion = mentorVersion;
     StandInSocket.liveVersion = liveVersion;
+    StandInSocket.recorded = null;
     globalThis.WebSocket = StandInSocket as unknown as typeof WebSocket;
     t.after(() => {
         globalThis.WebSocket = realWebSocket;
+    });
+}
+
+// Puts the stand-in in place of the global WebSocket for one test, answering with the replies
+// recorded from a real Live in a JSON file next to this one. The stand-in Live Set stays empty, unused.
+// The test fails if a recorded reply is left over, as when the reads now send fewer messages.
+export function useRecording(t: TestContext, file: string) {
+    useStandIn(t, new Map());
+    StandInSocket.recorded = JSON.parse(readFileSync(new URL(file, import.meta.url), "utf8")) as unknown[][];
+    t.after(() => {
+        const left = StandInSocket.recorded?.length ?? 0;
+        StandInSocket.recorded = null;
+        if (left > 0) throw new Error(`${left} recorded replies were not asked for. Record the reads again.`);
     });
 }
 
