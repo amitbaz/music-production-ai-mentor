@@ -4,9 +4,10 @@
     "type": "module",
     "scripts": {
         "start": "node --env-file=.env src/cli.ts",
+        "test": "node --test \"src/**/*.test.ts\"",
         "typecheck": "tsc",
         "lint": "biome lint --error-on-warnings src",
-        "check": "pnpm typecheck && pnpm lint"
+        "check": "pnpm typecheck && pnpm lint && pnpm test"
     },
     "dependencies": {
         "@mentor/mentor": "workspace:*"
