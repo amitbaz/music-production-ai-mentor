@@ -306,7 +306,7 @@ async function withFoldedGroups(t: Parameters<typeof useStandIn>[0]) {
     const { live, track, set } = liveSet({ tempo: 120, numerator: 4, denominator: 4 });
     const drums = track({ name: "Drums", type: "group", ...mixer, folded: true });
     const kicks = track({ name: "Kicks", type: "group", ...mixer, folded: true, group: drums });
-    const kick = track({ name: "Kick", type: "audio", ...mixer, group: kicks });
+    const kick = track({ name: "Kick", type: "audio", ...mixer, group: kicks, collapsed: true });
     const open = track({ name: "Open", type: "group", ...mixer });
     const snare = track({ name: "Snare", type: "audio", ...mixer, group: open });
     set({ tracks: [drums, kicks, kick, open, snare], return_tracks: [], master_track: track({ name: "Main", type: "main", ...mixer }) });
@@ -415,4 +415,18 @@ test("edit_tracks makes the change and says so when Live could not be scrolled",
     assert.equal(live.get(kick.id)?.mute, true);
     assert.equal(output.changes[0].error, undefined);
     assert.match(output.view_problems[0], /Live could not be scrolled to t3: scroll_view failed/);
+});
+
+test("edit_tracks expands a track shown as a thin strip, before it selects it", async (t) => {
+    const { live, kick, snare, editTracks } = await withFoldedGroups(t);
+    const collapsed = (id: string) => (live.get(id) as { view: { is_collapsed: boolean } }).view.is_collapsed;
+
+    await edit(editTracks, { action: "edit", track: "t3", mute: true });
+    assert.equal(collapsed(kick.id), false);
+    assert.deepEqual(written("is_collapsed", "selected_track"), ["is_collapsed", "selected_track", "selected_track"]);
+
+    // A track that is not collapsed is left as it is.
+    await edit(editTracks, { action: "edit", track: "t5", mute: true });
+    assert.equal(written("is_collapsed").length, 1);
+    assert.equal(collapsed(snare.id), false);
 });

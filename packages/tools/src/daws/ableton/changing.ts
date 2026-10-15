@@ -51,6 +51,17 @@ async function unfoldGroups(client: Client, trackId: string) {
     }
 }
 
+// Opens a track that the Arrangement View shows as a thin strip. A track that has no such state,
+// as Main may not, is shown anyway.
+async function expand(client: Client, trackId: string) {
+    try {
+        const [collapsed] = await client.send([getProp("track-view", "is_collapsed", trackId)]);
+        if (collapsed) await client.send([setProp("track-view", "is_collapsed", false, trackId)]);
+    } catch {
+        // Nothing to open.
+    }
+}
+
 const scroll = (view: string, direction: string) => ({
     ns: "application-view",
     name: "scroll_view",
@@ -66,10 +77,11 @@ async function scrollTo(client: Client, view: string, [before, after]: [string, 
     await client.send([...steps.map((direction) => scroll(view, direction)), select]);
 }
 
-// Brings a track into view for the user: its groups are opened, it is selected, and Live is made
+// Brings a track into view for the user: its groups and the track are opened, it is selected, and Live is made
 // to scroll to it.
 export async function revealTrack(client: Client, trackId: string) {
     await unfoldGroups(client, trackId);
+    await expand(client, trackId);
     const select = setProp("song-view", "selected_track", trackId);
     await client.send([select]);
     // The tracks are one under another in the Arrangement View, and side by side in the Session View.

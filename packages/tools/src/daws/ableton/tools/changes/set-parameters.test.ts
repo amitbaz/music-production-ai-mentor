@@ -334,6 +334,7 @@ async function openInFoldedGroup(t: TestContext) {
             pan: pan(0),
             sends: [db(-12)],
             group,
+            collapsed: true,
             devices: [
                 { name: "EQ Eight", class_name: "Eq8", parameters: [gain(0), { name: "Other", value: 1, min: 0, max: 2, shown: (v) => `${v}` }] },
                 { name: "Utility", class_name: "StereoGain", parameters: [gain(0)] },
@@ -353,6 +354,8 @@ test("set_parameters shows the track of a device first: the group is opened, the
     await run(setParameters, change("d1", "Gain", 2));
 
     assert.equal(live.get(group.id)?.fold_state, false);
+    // The track of the device is shown as a thin strip until it is expanded.
+    assert.equal((live.get(bassTrack.id) as { view: { is_collapsed: boolean } }).view.is_collapsed, false);
     assert.equal(view.selected_track, bassTrack.id);
     assert.equal(view.selected_device, deviceId);
     assert.deepEqual(views, ["Detail/DeviceChain"]);

@@ -133,7 +133,8 @@ function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
     if (ns === "internal" && name === "get_version") return { ok: true, data: StandInSocket.scriptVersion };
     if (ns === "application" && name === "get_major_version") return { ok: true, data: StandInSocket.liveVersion[0] };
     if (ns === "application" && name === "get_minor_version") return { ok: true, data: StandInSocket.liveVersion[1] };
-    const object = live.get(SINGLETONS.has(ns) ? ns : (nsid ?? ""));
+    // A track's view is a part of the track, which the script reaches by the track's own id.
+    const object = ns === "track-view" ? (live.get(nsid ?? "")?.view as Record<string, unknown> | undefined) : live.get(SINGLETONS.has(ns) ? ns : (nsid ?? ""));
     if (!object) return { ok: false, error: `Unknown object id: ${nsid}`, errorType: "Exception" };
     // The script would look the name up on the wrong kind of object and fail.
     if (object.ns !== ns) return { ok: false, error: `${nsid} is not a ${ns}`, errorType: "Exception" };
@@ -308,6 +309,8 @@ type TrackSpec = {
     routing?: { input: RoutingSpec; output: RoutingSpec };
     // For a group track: whether its tracks are hidden. For another, the group it is in.
     folded?: boolean;
+    // Whether the track is shown as a thin strip in the Arrangement View.
+    collapsed?: boolean;
     group?: { id: string };
     devices?: DeviceSpec[];
     // The Session slots from the top, null for an empty one.
@@ -414,6 +417,7 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
             solo: spec.solo ?? false,
             arm: spec.arm ?? false,
             fold_state: spec.folded ?? false,
+            view: { ns: "track-view", is_collapsed: spec.collapsed ?? false },
             routing: spec.routing,
             clipless: spec.type === "return" || spec.type === "main",
             group: spec.type === "group",
