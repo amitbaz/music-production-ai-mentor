@@ -1,6 +1,7 @@
 import type { Message, Model, ModelReply, Tool, ToolCall } from "./types.ts";
 
 const MAX_ROUNDS = 10; // Prevent infinite loops if the model keeps calling tools.
+const RESULT_LIMIT = 40_000; // Most characters one tool result may hold (ADR 0018).
 
 export type LoopResult =
     | {
@@ -139,9 +140,15 @@ async function runToolCall(
     }
 
     try {
-        return { ...result, output: await tool.run(call.args), isError: false };
+        return { ...result, output: limit(await tool.run(call.args)), isError: false };
     } catch (e) {
         const output = e instanceof Error ? e.message : String(e);
-        return { ...result, output, isError: true };
+        return { ...result, output: limit(output), isError: true };
     }
+}
+
+// Keeps the start of an output past the result limit and says how much was cut
+function limit(output: string): string {
+    if (output.length <= RESULT_LIMIT) return output;
+    return `${output.slice(0, RESULT_LIMIT)}\n\n[Cut: showing the first ${RESULT_LIMIT} of ${output.length} characters. Ask the tool for less.]`;
 }
