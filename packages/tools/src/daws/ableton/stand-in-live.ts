@@ -22,6 +22,11 @@ const PINNED_VERSION = readFileSync(new URL("../../../remote-scripts/ableton-js/
     /"(.+)"/,
 )?.[1];
 if (!PINNED_VERSION) throw new Error("No version found in the pinned script's version.py");
+// The version of our own file in the script, read from its own file.
+const MENTOR_VERSION = readFileSync(new URL("../../../remote-scripts/ableton-js/Mentor.py", import.meta.url), "utf8").match(
+    /^VERSION = "(.+)"$/m,
+)?.[1];
+if (!MENTOR_VERSION) throw new Error("No VERSION found in the script's Mentor.py");
 const SALT = "a1b2c3d4";
 const HASH = "4c780e169dbefc73d44e402a05c72ee2bcde8596208b31b37e317902a5baa169";
 
@@ -39,6 +44,8 @@ export class StandInSocket extends EventTarget {
     static stalled = false;
     // The script version it reports, and Live's major and minor version.
     static scriptVersion = PINNED_VERSION;
+    // The version our own file reports, or null for a copy of the script that does not have it.
+    static mentorVersion = MENTOR_VERSION as string | null;
     static liveVersion: readonly [number, number] = [12, 4];
 
     url: string;
@@ -97,7 +104,7 @@ export class StandInSocket extends EventTarget {
 }
 
 // Namespaces the script answers for with no object id: there is one of each.
-const SINGLETONS = new Set(["song", "song-view", "application-view"]);
+const SINGLETONS = new Set(["song", "song-view", "application-view", "mentor", "browser"]);
 
 // A track's routing as the script describes it: each type of routing with the channels it offers.
 export type RoutingSpec = { types: Record<string, string[]>; type: string; channel: string };
@@ -129,8 +136,26 @@ function routingProp(routing: Record<"input" | "output", RoutingSpec>, prop: str
     return null;
 }
 
+// A script function that raises is a failed command, not a failed message.
+function attempt(run: () => unknown) {
+    try {
+        return { ok: true, data: run() };
+    } catch (error) {
+        return { ok: false, error: (error as Error).message, errorType: "Exception" };
+    }
+}
+
+// What Live accepts to insert by name: only native devices.
+const NATIVE_DEVICES = ["Auto Filter", "Compressor", "EQ Eight", "Limiter", "Reverb", "Saturator", "Utility"];
+
 function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
     if (ns === "internal" && name === "get_version") return { ok: true, data: StandInSocket.scriptVersion };
+    // A copy of the script without our file has no handler for its namespace.
+    if (ns === "mentor" && name === "get_version") {
+        return StandInSocket.mentorVersion === null
+            ? { ok: false, error: "No handler for namespace mentor", errorType: "Exception" }
+            : { ok: true, data: StandInSocket.mentorVersion };
+    }
     if (ns === "application" && name === "get_major_version") return { ok: true, data: StandInSocket.liveVersion[0] };
     if (ns === "application" && name === "get_minor_version") return { ok: true, data: StandInSocket.liveVersion[1] };
     // A track's view is a part of the track, which the script reaches by the track's own id.
@@ -174,6 +199,16 @@ function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
         const entry = object.serialized as Record<string, unknown> | undefined;
         if (entry && prop in entry) entry[prop] = value;
         return { ok: true, data: null };
+    }
+    if (name === "insert_device" && typeof object.insertDevice === "function") {
+        // A track takes target_index, a chain device_index.
+        const { device_name, target_index, device_index } = args as { device_name: string; target_index?: number; device_index?: number };
+        if (!NATIVE_DEVICES.includes(device_name)) return { ok: false, error: `Device "${device_name}" not found`, errorType: "Exception" };
+        return attempt(() => (object.insertDevice as (name: string, index: number) => unknown)(device_name, target_index ?? device_index ?? -1));
+    }
+    if (name === "move_device" && typeof object.moveDevice === "function") {
+        const { device_id, target_id, position } = args as { device_id: string; target_id: string; position: number };
+        return attempt(() => (object.moveDevice as (...args: unknown[]) => unknown)(device_id, target_id, position));
     }
     if (name === "str_for_value") {
         const [value] = args as number[];
@@ -227,7 +262,8 @@ export const ADDRESS = "ws://127.0.0.1:40123";
 
 // Puts the stand-in in place of the global WebSocket for one test. `locked` makes Live ask
 // for PASSWORD, as the installed script does; `closed` makes nothing listen at all, and `silent`
-// accepts the connection but never answers. `scriptVersion` and `liveVersion` are what it reports.
+// accepts the connection but never answers. `scriptVersion`, `mentorVersion` (null for a copy without
+// our own file) and `liveVersion` are what it reports.
 export function useStandIn(
     t: TestContext,
     live: LiveSet,
@@ -236,6 +272,7 @@ export function useStandIn(
         closed = false,
         silent = false,
         scriptVersion = PINNED_VERSION,
+        mentorVersion = MENTOR_VERSION as string | null,
         liveVersion = [12, 4] as readonly [number, number],
     } = {},
 ) {
@@ -246,6 +283,7 @@ export function useStandIn(
     StandInSocket.silent = silent;
     StandInSocket.stalled = false;
     StandInSocket.scriptVersion = scriptVersion;
+    StandInSocket.mentorVersion = mentorVersion;
     StandInSocket.liveVersion = liveVersion;
     globalThis.WebSocket = StandInSocket as unknown as typeof WebSocket;
     t.after(() => {
@@ -388,11 +426,45 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
             can_have_chains: spec.chains !== undefined,
             chains: (spec.chains ?? []).map((chain) => {
                 const chainId = id();
-                live.set(chainId, { ns: "chain", devices: (chain.devices ?? []).map(device) });
+                live.set(chainId, { ns: "chain", devices: (chain.devices ?? []).map(device), insertDevice: inserter(chainId) });
                 return { id: chainId, name: chain.name, color: 0, mute: chain.mute ?? false, solo: chain.solo ?? false };
             }),
         });
         return { id: deviceId, name: spec.name, type: "audio_effect", class_name: spec.class_name };
+    }
+
+    // Puts a new device, with a "Device On" switch, into the devices of a track or chain, at the
+    // index or at the end for -1, as Live does; an index past the end is refused.
+    function inserter(ownerId: string) {
+        return (name: string, index: number) => {
+            const devices = (live.get(ownerId) as { devices: { id: string }[] }).devices;
+            if (index > devices.length) throw new Error(`Index ${index} is out of range`);
+            const added = device({
+                name,
+                class_name: name.replace(/ /g, ""),
+                parameters: [{ name: "Device On", items: ["off", "on"], value: 1 }],
+            });
+            devices.splice(index === -1 ? devices.length : index, 0, added);
+            return added;
+        };
+    }
+
+    // Moves a device from whichever track or chain holds it into the target, as Song.move_device does,
+    // and answers the position it ended up at.
+    function mover() {
+        return (deviceId: string, targetId: string, position: number) => {
+            const lists = [...live.values()].flatMap((object) => (Array.isArray(object.devices) ? [object.devices as { id: string }[]] : []));
+            const from = lists.find((devices) => devices.some((candidate) => candidate.id === deviceId));
+            const target = (live.get(targetId) as { devices?: { id: string }[] } | undefined)?.devices;
+            if (!from || !target) throw new Error(`Unknown object id: ${from ? targetId : deviceId}`);
+            const [moving] = from.splice(from.findIndex((candidate) => candidate.id === deviceId), 1);
+            if (position > target.length) {
+                from.push(moving as { id: string });
+                throw new Error(`Index ${position} is out of range`);
+            }
+            target.splice(position, 0, moving as { id: string });
+            return position;
+        };
     }
 
     function track(spec: TrackSpec) {
@@ -422,6 +494,7 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
             clipless: spec.type === "return" || spec.type === "main",
             group: spec.type === "group",
             devices: (spec.devices ?? []).map(device),
+            insertDevice: inserter(trackId),
             clip_slots: (spec.session ?? []).map((spec) => {
                 const slotId = id();
                 const clipData = spec ? clip(spec) : null;
@@ -518,5 +591,28 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
             views.push(args[0] as string);
         },
     });
-    return { live, track, clip, set: (props: Record<string, unknown>) => Object.assign(set, props) };
+    live.set("mentor", { ns: "mentor", moveDevice: mover() });
+
+    // The browser as Live's script describes it: root items that hold their children, where a
+    // folder has `children`, a device is_device, and anything else loadable is a preset or sample.
+    type ItemSpec = { name: string; device?: boolean; loadable?: boolean; children?: ItemSpec[] };
+    function browserItem(spec: ItemSpec): Record<string, unknown> {
+        const itemId = id();
+        live.set(itemId, { ns: "browser-item", children: (spec.children ?? []).map(browserItem) });
+        return {
+            id: itemId,
+            name: spec.name,
+            is_loadable: spec.loadable ?? spec.device ?? false,
+            is_selected: false,
+            is_device: spec.device ?? false,
+            is_folder: spec.children !== undefined,
+            source: "Live",
+            uri: `query:${spec.name}`,
+        };
+    }
+    function browser(roots: Record<string, ItemSpec[]>) {
+        live.set("browser", { ns: "browser", ...Object.fromEntries(Object.entries(roots).map(([root, items]) => [root, items.map(browserItem)])) });
+    }
+
+    return { live, track, clip, browser, set: (props: Record<string, unknown>) => Object.assign(set, props) };
 }

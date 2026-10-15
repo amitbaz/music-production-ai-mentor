@@ -1,6 +1,17 @@
 import type { Tool } from "@mentor/harness";
 import { createClient } from "./client.ts";
-import { editTracks, readArrangement, readClip, readSet, readTracks, setParameters, show, transport } from "./tools/index.ts";
+import {
+    editDevices,
+    editTracks,
+    findInBrowser,
+    readArrangement,
+    readClip,
+    readSet,
+    readTracks,
+    setParameters,
+    show,
+    transport,
+} from "./tools/index.ts";
 
 // The Ableton tool set. Its tools reach the Live Set open in Ableton Live through the
 // Remote Script, at the address and with the password the app gives, and share one client.
@@ -15,6 +26,8 @@ export function createAbleton(options: { address?: string; password?: string }):
         editTracks(client),
         transport(client),
         show(client),
+        editDevices(client),
+        findInBrowser(client),
     ];
 }
 

@@ -150,6 +150,24 @@ test("a script version the client does not know gives a result saying to pair ag
     );
 });
 
+test("a copy of the script without our own file gives a result saying to pair again and restart Live", async (t) => {
+    useStandIn(t, emptySet(), { locked: true, mentorVersion: null });
+
+    await assert.rejects(
+        async () => findTool(createAbleton({ address: ADDRESS, password: PASSWORD }), "read_set").run({}),
+        /mentor file missing.*pnpm pair ableton.*restart Live/i,
+    );
+});
+
+test("our own file of another version gives a result saying to pair again and restart Live", async (t) => {
+    useStandIn(t, emptySet(), { mentorVersion: "0" });
+
+    await assert.rejects(
+        async () => findTool(createAbleton({ address: ADDRESS }), "read_set").run({}),
+        /mentor file 0.*pnpm pair ableton.*restart Live/i,
+    );
+});
+
 test("a Live older than 12.4 gives a result saying to update Live", async (t) => {
     useStandIn(t, emptySet(), { liveVersion: [12, 3] });
 

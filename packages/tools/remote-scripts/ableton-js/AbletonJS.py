@@ -94,6 +94,7 @@ class AbletonJS(ControlSurface):
             "tuning-system": TuningSystem(c_instance, self.socket),
             "clip_slot": ClipSlot(c_instance, self.socket),
             "clip": Clip(c_instance, self.socket),
+            "mentor": __import__("Mentor", globals(), None, ["Mentor"], 1).Mentor(c_instance, self.socket),
         }
 
         self._last_tick = time.time() * 1000
