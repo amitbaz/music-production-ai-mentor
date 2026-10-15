@@ -114,13 +114,13 @@ function print(message: Message) {
     } else if (message.type === "tool_call") {
         console.log(`\n⏺ ${message.name}(${JSON.stringify(message.args)})`);
     } else if (message.type === "tool_result") {
-        const line = `  ⎿  ${summary(message.output)}`;
+        const line = `  ⎿  ${firstLine(message.output)}`;
         console.log(message.isError ? styleText("red", line) : line);
     }
 }
 
 // The first line of a tool's output, cut to fit the screen. The model still sees all of it.
-function summary(output: string): string {
+function firstLine(output: string): string {
     const [first = "", ...rest] = output.split("\n");
     const width = (process.stdout.columns ?? 80) - 6;
     const line = first.length > width ? `${first.slice(0, width - 1)}…` : first;

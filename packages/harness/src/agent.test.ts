@@ -797,8 +797,10 @@ test("later rounds of a turn are sent from the summary on too", async () => {
 
     await agent.generate(withSummary, "shout hi");
 
+    assert.deepEqual(calls[1]?.conversation.map((m) => m.type), [
+        "summary", "user", "assistant", "user", "tool_call", "tool_result",
+    ]);
     assert.deepEqual(calls[1]?.conversation[0], { type: "summary", text: "Latest summary" });
-    assert.equal(calls[1]?.conversation.length, 6);
 });
 
 test("Gemini is sent a summary as user text framed as history", async (t) => {
@@ -837,4 +839,14 @@ test("the size estimate counts only what the model is sent: the latest summary a
 
     // summary 40 + user 80 + reply 120 = 240 characters; the 4,000 before the summary are not sent
     assert.equal(result.conversationSize, Math.ceil(240 / 4));
+});
+
+test("a failed turn still returns every message, including those before the summary", async () => {
+    const model: Model = { call: async () => { throw new Error("boom"); } };
+    const agent = createAgent({ model, tools });
+
+    const result = await agent.generate(withSummary, "next");
+
+    assert.equal(result.stop, "error");
+    assert.deepEqual(result.messages, [...withSummary, { type: "user", text: "next" }]);
 });
