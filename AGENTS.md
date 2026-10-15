@@ -27,6 +27,7 @@ The repo is a pnpm workspace. Packages export their `.ts` source; there is no bu
 - `packages/tools/` is `@mentor/tools` and holds the tool sets, as `src/<kind>/<name>/`, each with its own entry such as `@mentor/tools/daws/ableton`. It depends only on the harness.
 - `packages/mentor/` is `@mentor/mentor`, the product: the system prompt, the model and the tool sets, joined by `createMentor`. It is the only place the harness and the tool sets meet.
 - `apps/` holds the apps. `apps/cli/` is the terminal. An app depends only on `@mentor/mentor` and owns what the user sees.
+- `evals/` is `@mentor/evals`, the evals (ADR 0020): the base Sets under `sets/`, their plants, and the runner. It is a development package, not an app: it depends on `@mentor/mentor` and `@mentor/tools`, because it plants and reads the Live Set itself. `pnpm plant` applies or reverts a plant on the Set open in Live.
 
 A package can import another only by name, and only when it lists it as a dependency. `pnpm check` fails on an import that breaks this, including a relative path into another package.
 

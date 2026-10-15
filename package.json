@@ -10,7 +10,8 @@
         "test": "pnpm -r test",
         "typecheck": "pnpm -r typecheck",
         "lint": "pnpm -r lint",
-        "check": "pnpm -r check"
+        "check": "pnpm -r check",
+        "plant": "pnpm --filter @mentor/evals plant"
     },
     "devDependencies": {
         "@biomejs/biome": "^2.5.15",

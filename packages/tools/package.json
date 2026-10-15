@@ -3,7 +3,8 @@
     "private": true,
     "type": "module",
     "exports": {
-        "./daws/ableton": "./src/daws/ableton/ableton.ts"
+        "./daws/ableton": "./src/daws/ableton/ableton.ts",
+        "./daws/ableton/stand-in-live": "./src/daws/ableton/stand-in-live.ts"
     },
     "scripts": {
         "test": "node --test \"src/**/*.test.ts\"",
