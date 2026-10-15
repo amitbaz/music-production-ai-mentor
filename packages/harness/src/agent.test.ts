@@ -402,8 +402,7 @@ async function sizeAfter(
     turn: Parameters<ReturnType<typeof createAgent>["generate"]>[2] = {},
 ) {
     const { model } = scriptedModel(replies, tokens);
-    const result = await createAgent({ model, tools: [], ...options }).generate([], "u".repeat(80), turn);
-    return result;
+    return createAgent({ model, tools: [], ...options }).generate([], "u".repeat(80), turn);
 }
 
 test("with no count reported, the size estimates everything sent at characters / 4: system prompt, tool descriptions and messages", async () => {
@@ -582,4 +581,45 @@ test("a Gemini count is followed by the tool result added after it", async (t) =
     const result = await agent.generate([], "Hi");
     assert.equal(result.stop, "round_limit");
     assert.equal(result.conversationSize, 1_050 + 400 / 4);
+});
+
+test("a count that came before is kept when the turn ends in an error, a cancel or an empty reply", async () => {
+    const call = { type: "tool_call" as const, id: "1", name: "shout", args: { text: "x".repeat(400) } };
+
+    // Error: round 2 fails; the 400-character tool result came after the count.
+    let round = 0;
+    const failsSecond: Model = {
+        call: async () => {
+            if (++round === 2) throw new Error("down");
+            return { messages: [call], tokens: 1_000, cutOff: false };
+        },
+    };
+    const error = await createAgent({ model: failsSecond, tools }).generate([], "go");
+    assert.equal(error.stop, "error");
+    assert.equal(error.conversationSize, 1_000 + 400 / 4);
+
+    // Cancel after the tools of a round ran
+    const controller = new AbortController();
+    const cancelTool: Tool = { ...tools[0] as Tool, run: () => { controller.abort(); return "x".repeat(400); } };
+    const { model } = scriptedModel([[call]], [1_000]);
+    const cancelled = await createAgent({ model, tools: [cancelTool] }).generate([], "go", { signal: controller.signal });
+    assert.equal(cancelled.stop, "cancelled");
+    assert.equal(cancelled.conversationSize, 1_000 + 400 / 4);
+
+    // Empty: the count covers an empty reply, which is not kept
+    const empty = await sizeAfter([[{ type: "assistant", text: "" }]], [3_000]);
+    assert.equal(empty.stop, "empty");
+    assert.equal(empty.conversationSize, 3_000);
+});
+
+test("the Gemini adapter keeps the counts of earlier pieces when a later piece brings only some", async (t) => {
+    streamedFetch(t, [
+        {
+            candidates: [{ content: { parts: [{ text: "Hello!" }] } }],
+            usageMetadata: { promptTokenCount: 10_000, candidatesTokenCount: 5 },
+        },
+        { usageMetadata: { totalTokenCount: 10_005 } },
+    ]);
+    const result = await geminiAgent().generate([], "Hi");
+    assert.equal(result.conversationSize, 10_005);
 });

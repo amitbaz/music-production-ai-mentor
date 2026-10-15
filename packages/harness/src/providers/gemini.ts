@@ -192,7 +192,7 @@ async function readReply(
         for (const line of lines) {
             if (!line.startsWith("data:")) continue;
             piece = JSON.parse(line.slice("data:".length));
-            usage = piece.usageMetadata ?? usage;
+            usage = { ...usage, ...piece.usageMetadata };
             const candidate = piece.candidates?.[0];
             if (!candidate) continue;
             replied = true;

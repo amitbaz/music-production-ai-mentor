@@ -26,3 +26,6 @@ export function fixedChars(tools: Tool[], system = ""): number {
         system.length,
     );
 }
+
+export const messagesChars = (messages: Message[]) =>
+    messages.reduce((sum, message) => sum + messageChars(message), 0);

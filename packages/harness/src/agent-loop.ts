@@ -1,4 +1,4 @@
-import { estimateTokens, fixedChars, messageChars } from "./conversation-size.ts";
+import { estimateTokens, fixedChars, messagesChars } from "./conversation-size.ts";
 import type { Message, Model, ModelReply, Tool, ToolCall } from "./types.ts";
 
 // Defaults, each replaceable through LoopOptions
@@ -48,15 +48,22 @@ export async function runAgentLoop(
     // Work on a copy so the caller's list is not modified.
     const messages = [...conversation];
 
-    // The last count a provider reported, and how many messages it covered
-    let counted: { tokens: number; messages: number } | undefined;
+    // The last count a provider reported, and how many messages it covers
+    let counted: { tokens: number; covered: number } | undefined;
 
     // The conversation size: the last count plus an estimate for what came after it.
     // With no count, everything sent is estimated, system prompt and tools included.
     const conversationSize = () =>
         counted
-            ? counted.tokens + estimateTokens(sumChars(messages.slice(counted.messages)))
-            : estimateTokens(fixedChars(tools, options.system) + sumChars(messages));
+            ? counted.tokens + estimateTokens(messagesChars(messages.slice(counted.covered)))
+            : estimateTokens(fixedChars(tools, options.system) + messagesChars(messages));
+
+    // Ends the turn
+    const stopWith = (stop: "finished" | "empty" | "round_limit" | "cancelled"): LoopResult => ({
+        messages,
+        stop,
+        conversationSize: conversationSize(),
+    });
 
     // Records a new message and reports it to the caller
     const add = (message: Message) => {
@@ -82,9 +89,7 @@ export async function runAgentLoop(
             // Text that arrived is kept, cut off where it stopped.
             if (arrived.trim() !== "") add({ type: "assistant", text: arrived });
             // A cancel makes the pending call fail; that is not an error.
-            if (options.signal?.aborted) {
-                return { messages, stop: "cancelled", conversationSize: conversationSize() };
-            }
+            if (options.signal?.aborted) return stopWith("cancelled");
             const error = e instanceof Error ? e : new Error(String(e));
             return { messages, stop: "error", error, conversationSize: conversationSize() };
         }
@@ -96,8 +101,8 @@ export async function runAgentLoop(
         );
         if (!isEmpty) for (const message of reply.messages) add(message);
         // The count holds the whole request and the reply, so only what comes later is estimated.
-        if (reply.tokens !== undefined) counted = { tokens: reply.tokens, messages: messages.length };
-        if (isEmpty) return { messages, stop: "empty", conversationSize: conversationSize() };
+        if (reply.tokens !== undefined) counted = { tokens: reply.tokens, covered: messages.length };
+        if (isEmpty) return stopWith("empty");
 
         // Run each tool the model asked for and record its result
         let calledTool = false;
@@ -108,16 +113,14 @@ export async function runAgentLoop(
         }
 
         // No tool calls means the model is done; otherwise go around again.
-        if (!calledTool) return { messages, stop: "finished", conversationSize: conversationSize() };
-        if (options.signal?.aborted) {
-            return { messages, stop: "cancelled", conversationSize: conversationSize() };
-        }
+        if (!calledTool) return stopWith("finished");
+        if (options.signal?.aborted) return stopWith("cancelled");
     }
 
-    return { messages, stop: "round_limit", conversationSize: conversationSize() };
+    return stopWith("round_limit");
 }
 
-const sumChars = (messages: Message[]) => messages.reduce((sum, m) => sum + messageChars(m), 0);
+
 
 // Runs one tool call. Never throws: any failure becomes an error result for the model.
 async function runToolCall(
