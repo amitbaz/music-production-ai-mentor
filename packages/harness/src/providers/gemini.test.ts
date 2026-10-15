@@ -458,3 +458,37 @@ test("the model does not relabel a cancelled request", async (t) => {
 
     await assert.rejects(model.call([{ type: "user", text: "Hi" }], []), cancelled);
 });
+
+// Gemini sends the finish reason on the last piece of a reply, after the text.
+test("a reply with finish reason MAX_TOKENS is cut off, and its text is kept", async (t) => {
+    fakeStream(t, [
+        streamed([
+            { candidates: [{ content: { role: "model", parts: [{ text: "The kick is" }] } }] },
+            {
+                candidates: [
+                    {
+                        content: { role: "model", parts: [{ text: " too loud and" }] },
+                        finishReason: "MAX_TOKENS",
+                    },
+                ],
+            },
+        ]),
+    ]);
+
+    const reply = await createGeminiModel("test-key", "test-model").call(hi, []);
+
+    assert.equal(reply.cutOff, true);
+    assert.deepEqual(reply.messages, [{ type: "assistant", text: "The kick is too loud and" }]);
+});
+
+test("a reply that ends with another finish reason is not cut off", async (t) => {
+    fakeFetch(t, 200, {
+        candidates: [
+            { content: { role: "model", parts: [{ text: "Done." }] }, finishReason: "STOP" },
+        ],
+    });
+
+    const reply = await createGeminiModel("test-key", "test-model").call(hi, []);
+
+    assert.equal(reply.cutOff, false);
+});

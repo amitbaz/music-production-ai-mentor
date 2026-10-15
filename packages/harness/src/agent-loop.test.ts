@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runAgentLoop } from "./agent-loop.ts";
 import type { Update } from "./agent-loop.ts";
-import type { Message, Model, Tool } from "./types.ts";
+import type { Message, Model, ModelReply, Tool } from "./types.ts";
 
 // One generic tool, so these tests depend on nothing outside the agent folder.
 const tools: Tool[] = [
@@ -22,15 +22,15 @@ const tools: Tool[] = [
 ];
 
 // A scripted model that hands out prepared replies, one per call,
-// and records what it was sent each time.
-function scriptedModel(replies: Message[][]) {
+// and records what it was sent each time. A reply given as bare messages was not cut off.
+function scriptedModel(replies: (Message[] | ModelReply)[]) {
     const calls: Message[][] = [];
     const model: Model = {
         call: async (conversation) => {
             calls.push([...conversation]);
             const reply = replies.shift();
             if (!reply) throw new Error("The script ran out of replies");
-            return { messages: reply, cutOff: false };
+            return Array.isArray(reply) ? { messages: reply, cutOff: false } : reply;
         },
     };
     return { model, calls };
@@ -560,5 +560,114 @@ test("a model call that fails while a reply is arriving keeps the text that arri
         ],
         stop: "error",
         error: lost,
+    });
+});
+
+test("a cut-off reply keeps its text and stops the turn as cut_off", async () => {
+    const { model, calls } = scriptedModel([
+        { messages: [{ type: "assistant", text: "The kick is too" }], cutOff: true },
+    ]);
+
+    const result = await runAgentLoop(model, tools, [
+        { type: "user", text: "Mix my kick" },
+    ]);
+
+    assert.deepEqual(result, {
+        messages: [
+            { type: "user", text: "Mix my kick" },
+            { type: "assistant", text: "The kick is too" },
+        ],
+        stop: "cut_off",
+    });
+    assert.equal(calls.length, 1);
+});
+
+test("a cut-off reply keeps its tool calls but does not run them", async () => {
+    let ran = 0;
+    const counting: Tool[] = [
+        {
+            name: "shout",
+            description: "Counts how often it runs",
+            params: { type: "object" },
+            run: () => {
+                ran++;
+                return "HELLO";
+            },
+        },
+    ];
+    const { model } = scriptedModel([
+        {
+            messages: [
+                { type: "assistant", text: "Let me shout" },
+                { type: "tool_call", id: "call_1", name: "shout", args: { text: "a" } },
+                { type: "tool_call", id: "call_2", name: "shout", args: { text: "b" } },
+            ],
+            cutOff: true,
+        },
+    ]);
+    const reported: Update[] = [];
+
+    const result = await runAgentLoop(
+        model,
+        counting,
+        [{ type: "user", text: "Shout twice" }],
+        { onUpdate: (update) => reported.push(update) },
+    );
+
+    const notRun = (callId: string) => ({
+        type: "tool_result",
+        callId,
+        name: "shout",
+        output: "Not run: the reply was cut off",
+        isError: true,
+    });
+    assert.equal(ran, 0);
+    assert.equal(result.stop, "cut_off");
+    assert.deepEqual(result.messages, [
+        { type: "user", text: "Shout twice" },
+        { type: "assistant", text: "Let me shout" },
+        { type: "tool_call", id: "call_1", name: "shout", args: { text: "a" } },
+        { type: "tool_call", id: "call_2", name: "shout", args: { text: "b" } },
+        notRun("call_1"),
+        notRun("call_2"),
+    ]);
+    // Every message added to the conversation is also reported.
+    assert.deepEqual(
+        reported,
+        result.messages.slice(1).map((message) => ({ type: "message", message })),
+    );
+});
+
+test("a tool that needs approval is not asked about in a cut-off reply", async () => {
+    let asked = 0;
+    const risky: Tool[] = tools.map((tool) => ({ ...tool, needsApproval: true }));
+    const { model } = scriptedModel([
+        {
+            messages: [{ type: "tool_call", id: "call_1", name: "shout", args: { text: "a" } }],
+            cutOff: true,
+        },
+    ]);
+
+    const result = await runAgentLoop(model, risky, [{ type: "user", text: "Shout" }], {
+        approve: () => {
+            asked++;
+            return true;
+        },
+    });
+
+    assert.equal(asked, 0);
+    assert.equal(result.stop, "cut_off");
+});
+
+test("a reply cut off before any text arrived is not kept", async () => {
+    const { model } = scriptedModel([
+        { messages: [{ type: "assistant", text: " \n" }], cutOff: true },
+    ]);
+
+    const result = await runAgentLoop(model, tools, [{ type: "user", text: "Hello" }]);
+
+    assert.deepEqual(result, {
+        messages: [{ type: "user", text: "Hello" }],
+        stop: "cut_off",
     });
 });
