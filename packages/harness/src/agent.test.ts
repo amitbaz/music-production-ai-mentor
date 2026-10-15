@@ -16,12 +16,18 @@ type Call = { conversation: Message[]; tools: Tool[]; options?: CallOptions };
 
 // A scripted model that hands out prepared replies, one per call,
 // and records what it was sent each time.
-function scriptedModel(replies: Message[][]) {
+// `tokens` holds the count each call reports, in order; a call past the end, or an undefined, reports none.
+function scriptedModel(replies: Message[][], tokens: (number | undefined)[] = []) {
     const calls: Call[] = [];
     const model: Model = {
         call: async (conversation, tools, options) => {
             calls.push({ conversation: [...conversation], tools, options });
-            return { messages: replies.shift() ?? [], cutOff: false };
+            const count = tokens[calls.length - 1];
+            return {
+                messages: replies.shift() ?? [],
+                ...(count === undefined ? {} : { tokens: count }),
+                cutOff: false,
+            };
         },
     };
     return { model, calls };
@@ -386,4 +392,194 @@ test("a number option that makes no sense ends the first turn with an error, wit
         assert.deepEqual(result.messages, [{ type: "user", text: "Hi" }]);
         assert.equal(calls.length, 0);
     }
+});
+
+// Runs one turn on a scripted model and returns the conversation size it reports.
+async function sizeAfter(
+    replies: Message[][],
+    tokens: (number | undefined)[],
+    options: Partial<Parameters<typeof createAgent>[0]> = {},
+    turn: Parameters<ReturnType<typeof createAgent>["generate"]>[2] = {},
+) {
+    const { model } = scriptedModel(replies, tokens);
+    const result = await createAgent({ model, tools: [], ...options }).generate([], "u".repeat(80), turn);
+    return result;
+}
+
+test("with no count reported, the size estimates everything sent at characters / 4: system prompt, tool descriptions and messages", async () => {
+    // system 40 + tool (name 2 + description 38 + params "{}" 2) + user 80 + reply 120 = 282 characters
+    const noop: Tool = { name: "ab", description: "d".repeat(38), params: {}, run: () => "" };
+    const result = await sizeAfter([[{ type: "assistant", text: "r".repeat(120) }]], [], {
+        system: "s".repeat(40),
+        tools: [noop],
+    });
+    assert.equal(result.stop, "finished");
+    assert.equal(result.conversationSize, Math.ceil(282 / 4));
+});
+
+test("a reported count is the size, as it already holds the request and the reply", async () => {
+    const result = await sizeAfter([[{ type: "assistant", text: "r".repeat(120) }]], [5_000]);
+    assert.equal(result.conversationSize, 5_000);
+});
+
+test("messages added after the last count are added at characters / 4", async () => {
+    // The count of round 1 holds the tool call; the tool result of 400 characters comes after it, then the round limit ends the turn.
+    const result = await sizeAfter(
+        [[{ type: "tool_call", id: "1", name: "shout", args: { text: "x".repeat(400) } }]],
+        [1_000],
+        { tools, maxRounds: 1 },
+    );
+    assert.equal(result.stop, "round_limit");
+    assert.equal(result.conversationSize, 1_000 + 400 / 4);
+});
+
+test("the last count wins: a later call that reports none adds its reply to the count before", async () => {
+    // Round 1 reports 1,000; its tool result is 400 characters; round 2 reports nothing and replies with 200 characters.
+    const result = await sizeAfter(
+        [
+            [{ type: "tool_call", id: "1", name: "shout", args: { text: "x".repeat(400) } }],
+            [{ type: "assistant", text: "r".repeat(200) }],
+        ],
+        [1_000, undefined],
+        { tools },
+    );
+    assert.equal(result.stop, "finished");
+    assert.equal(result.conversationSize, 1_000 + (400 + 200) / 4);
+});
+
+test("a later count replaces the one before", async () => {
+    const result = await sizeAfter(
+        [
+            [{ type: "tool_call", id: "1", name: "shout", args: { text: "x".repeat(400) } }],
+            [{ type: "assistant", text: "r".repeat(200) }],
+        ],
+        [1_000, 1_700],
+        { tools },
+    );
+    assert.equal(result.conversationSize, 1_700);
+});
+
+test("a count never carries over from one turn to the next", async () => {
+    const { model } = scriptedModel(
+        [[{ type: "assistant", text: "a".repeat(40) }], [{ type: "assistant", text: "b".repeat(40) }]],
+        [9_000],
+    );
+    const agent = createAgent({ model, tools: [] });
+
+    const first = await agent.generate([], "u".repeat(40));
+    // 40 + 40 from the first turn, the new user text 40 and the reply 40
+    const second = await agent.generate(first.messages, "u".repeat(40));
+
+    assert.equal(first.conversationSize, 9_000);
+    assert.equal(second.conversationSize, Math.ceil(160 / 4));
+});
+
+test("a tool call counts its name and its arguments as JSON, a tool result its output", async () => {
+    // No count, no tools given. The call is its name "shout" 5 + its arguments {"text":"hi"} 13 = 18.
+    // Its result is "Tool shout not found", 20.
+    const result = await sizeAfter(
+        [[{ type: "tool_call", id: "1", name: "shout", args: { text: "hi" } }]],
+        [],
+        { tools: [], maxRounds: 1 },
+    );
+    // plus the user text, 80
+    assert.equal(result.conversationSize, Math.ceil((80 + 18 + 20) / 4));
+});
+
+test("the size is on every stop reason", async () => {
+    const sizes: Record<string, number> = {};
+
+    // empty: the model says nothing, so nothing is kept; with no count, only the user text is estimated
+    const empty = await sizeAfter([[{ type: "assistant", text: "" }]], []);
+    sizes[empty.stop] = empty.conversationSize;
+
+    // error: the first call fails, so the conversation is just the user text
+    const failing: Model = { call: async () => { throw new Error("down"); } };
+    const error = await createAgent({ model: failing, tools: [] }).generate([], "u".repeat(80));
+    sizes[error.stop] = error.conversationSize;
+
+    // cancelled: text that arrived before the cancel is kept and counted
+    const controller = new AbortController();
+    const cut: Model = {
+        call: async (_conversation, _tools, options) => {
+            options?.onText?.("a".repeat(40));
+            controller.abort();
+            throw new Error("aborted");
+        },
+    };
+    const cancelled = await createAgent({ model: cut, tools: [] }).generate([], "u".repeat(80), { signal: controller.signal });
+    sizes[cancelled.stop] = cancelled.conversationSize;
+
+    const limit = await sizeAfter(
+        [[{ type: "tool_call", id: "1", name: "shout", args: { text: "hi" } }]],
+        [700],
+        { tools, maxRounds: 1 },
+    );
+    sizes[limit.stop] = limit.conversationSize;
+
+    assert.deepEqual(sizes, { empty: 20, error: 20, cancelled: 30, round_limit: 701 });
+});
+
+// Replaces fetch with one that streams the given pieces as one reply, as Gemini does.
+function streamedFetch(t: TestContext, pieces: unknown[]) {
+    return t.mock.method(
+        globalThis,
+        "fetch",
+        async () => new Response(pieces.map((piece) => `data: ${JSON.stringify(piece)}\n\n`).join("")),
+    );
+}
+
+const geminiAgent = () =>
+    createAgent({ model: "gemini:gemini-3.5-flash-lite", keys: { gemini: "test-key" }, tools });
+
+test("the Gemini adapter reports the prompt count, which holds the cached tokens, plus the reply, and leaves thinking out", async (t) => {
+    streamedFetch(t, [
+        {
+            candidates: [{ content: { parts: [{ text: "Hello!" }] } }],
+            usageMetadata: {
+                promptTokenCount: 10_000,
+                cachedContentTokenCount: 8_000,
+                candidatesTokenCount: 200,
+                thoughtsTokenCount: 3_000,
+                totalTokenCount: 13_200,
+            },
+        },
+    ]);
+    const result = await geminiAgent().generate([], "Hi");
+    assert.equal(result.conversationSize, 10_200);
+});
+
+test("the Gemini adapter reads the count from the last piece, which may hold no candidate", async (t) => {
+    streamedFetch(t, [
+        {
+            candidates: [{ content: { parts: [{ text: "Hel" }] } }],
+            usageMetadata: { promptTokenCount: 10_000, candidatesTokenCount: 1 },
+        },
+        { candidates: [{ content: { parts: [{ text: "lo!" }] } }] },
+        { usageMetadata: { promptTokenCount: 10_000, candidatesTokenCount: 5 } },
+    ]);
+    const result = await geminiAgent().generate([], "Hi");
+    assert.equal(result.conversationSize, 10_005);
+});
+
+test("a Gemini reply with no usage metadata leaves the size estimated", async (t) => {
+    fakeFetch(t, [hello]);
+    const result = await geminiAgent().generate([], "Hi");
+    // The tool is described to the model too: its name, its description and its params as JSON.
+    const toolChars = JSON.stringify(tools[0]?.params).length + "shout".length + (tools[0]?.description.length ?? 0);
+    assert.equal(result.conversationSize, Math.ceil((toolChars + 2 + 6) / 4));
+});
+
+test("a Gemini count is followed by the tool result added after it", async (t) => {
+    const calls = [
+        {
+            candidates: [{ content: { parts: [{ functionCall: { id: "1", name: "shout", args: { text: "x".repeat(400) } } }] } }],
+            usageMetadata: { promptTokenCount: 1_000, candidatesTokenCount: 50 },
+        },
+    ];
+    streamedFetch(t, calls);
+    const agent = createAgent({ model: "gemini:gemini-3.5-flash-lite", keys: { gemini: "test-key" }, tools, maxRounds: 1 });
+    const result = await agent.generate([], "Hi");
+    assert.equal(result.stop, "round_limit");
+    assert.equal(result.conversationSize, 1_050 + 400 / 4);
 });

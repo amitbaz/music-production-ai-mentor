@@ -51,6 +51,8 @@ test("returns the model's text when it calls no tools", async () => {
             { type: "assistant", text: "Hi there" },
         ],
         stop: "finished",
+        // The tool, as the model is told of it, and both messages: 131 characters
+        conversationSize: 33,
     });
     assert.equal(calls.length, 1);
 });
@@ -538,6 +540,8 @@ test("a cancel while a reply is arriving keeps the text that arrived", async () 
     assert.deepEqual(result, {
         messages: [{ type: "user", text: "What is a compressor?" }, kept],
         stop: "cancelled",
+        // The tool and both messages: 170 characters
+        conversationSize: 43,
     });
     // Stream is off here: the rule does not depend on it.
     assert.deepEqual(reported, [{ type: "message", message: kept }]);
@@ -560,5 +564,7 @@ test("a model call that fails while a reply is arriving keeps the text that arri
         ],
         stop: "error",
         error: lost,
+        // The tool and both messages: 158 characters
+        conversationSize: 40,
     });
 });

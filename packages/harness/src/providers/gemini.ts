@@ -96,6 +96,10 @@ function signtatureFrom(providerMeta: unknown): GeminiPart {
 
 type GeminiResponse = {
     candidates?: { content?: { parts: GeminiReplyPart[] } }[];
+    // Token counts, on the last piece of a streamed reply or on every one, as a running total.
+    // The prompt count already holds the cached tokens. Thinking has its own count, left out
+    // because Gemini does not send it back on the next call.
+    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
     // Present instead of candidates when Gemini refuses the prompt
     promptFeedback?: { blockReason?: string };
     // Present instead of candidates when the request itself was rejected
@@ -177,6 +181,7 @@ async function readReply(
     const messages: Message[] = [];
     let piece: GeminiResponse = {};
     let replied = false;
+    let usage: GeminiResponse["usageMetadata"];
     // The end of what was read so far, when it stops in the middle of a line
     let rest = "";
 
@@ -187,6 +192,7 @@ async function readReply(
         for (const line of lines) {
             if (!line.startsWith("data:")) continue;
             piece = JSON.parse(line.slice("data:".length));
+            usage = piece.usageMetadata ?? usage;
             const candidate = piece.candidates?.[0];
             if (!candidate) continue;
             replied = true;
@@ -198,8 +204,12 @@ async function readReply(
         // Happens when Gemini refuses the prompt; the reply then says why.
         throw new Error(`Gemini returned no reply: ${JSON.stringify(piece)}`);
     }
-    // Token counts and the finish reason are not read yet.
-    return { messages, cutOff: false };
+    // The finish reason is not read yet.
+    const tokens =
+        usage?.promptTokenCount === undefined
+            ? {}
+            : { tokens: usage.promptTokenCount + (usage.candidatesTokenCount ?? 0) };
+    return { messages, ...tokens, cutOff: false };
 }
 
 // Every window is at least 1,000,000 tokens (ADR 0019). Add a model after checking its docs page.

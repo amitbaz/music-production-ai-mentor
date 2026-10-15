@@ -236,7 +236,7 @@ test("a cancel during a wait ends the turn as cancelled, with no further attempt
         { signal: controller.signal },
     );
 
-    assert.deepEqual(result, { messages: hello, stop: "cancelled" });
+    assert.deepEqual(result, { messages: hello, stop: "cancelled", conversationSize: 2 });
     assert.equal(attempts.length, 1);
 });
 
@@ -255,7 +255,7 @@ test("a cancel during an attempt ends the turn as cancelled, with no retry", asy
         signal: controller.signal,
     });
 
-    assert.deepEqual(result, { messages: hello, stop: "cancelled" });
+    assert.deepEqual(result, { messages: hello, stop: "cancelled", conversationSize: 2 });
     assert.equal(attempts, 1);
 });
 
@@ -269,5 +269,5 @@ test("when the retries run out the turn ends with the error and keeps the conver
         hello,
     );
 
-    assert.deepEqual(result, { messages: hello, stop: "error", error: last });
+    assert.deepEqual(result, { messages: hello, stop: "error", error: last, conversationSize: 2 });
 });
