@@ -1,4 +1,5 @@
 import type { Tool } from "@mentor/harness";
+import { goneMessage, isGone } from "../../changing.ts";
 import { type Client, type Command, getProp, setProp } from "../../client.ts";
 import type { LiveDevice, LiveDeviceParameter } from "../../live.ts";
 
@@ -49,7 +50,10 @@ async function run(client: Client, args: Record<string, unknown>) {
         try {
             results.push(await apply(client, edit));
         } catch (error) {
-            results.push({ action: typeof edit.action === "string" ? edit.action : undefined, error: error instanceof Error ? error.message : String(error) });
+            // Either object of the edit may be the one deleted meanwhile, so both are named.
+            const ids = [edit.device, edit.to].filter((id) => typeof id === "string").join(" or ");
+            const message = isGone(error) ? goneMessage(ids) : error instanceof Error ? error.message : String(error);
+            results.push({ action: typeof edit.action === "string" ? edit.action : undefined, error: message });
         }
     }
     return JSON.stringify({ edits: results });

@@ -1,4 +1,5 @@
 import type { Tool } from "@mentor/harness";
+import { isGone } from "../../changing.ts";
 import { type Client, getProp, strForValue } from "../../client.ts";
 import {
     isPlugin,
@@ -63,8 +64,7 @@ async function read(client: Client, args: Record<string, unknown>) {
     try {
         return await readIds(client, trackIds, args);
     } catch (error) {
-        // An object the user deleted in Live since the ids were given fails in the script like this.
-        if (!(error instanceof Error) || !error.message.includes("Unknown object id")) throw error;
+        if (!isGone(error)) throw error;
         throw new Error(`One of ${trackIds.join(", ")}, or something inside it, is no longer in the Live Set. Read again with read_set to get current ids.`);
     }
 }

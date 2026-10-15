@@ -73,14 +73,20 @@ async function find(client: Client, args: Record<string, unknown>) {
         if (seen >= MAX_ITEMS) return answer(matches, `Stopped after ${MAX_ITEMS} items, so some folders have not been searched. Ask again with a more exact name, or a kind.`);
 
         // A device can hold presets, so it is asked for its children too.
+        // Folders are asked for their children only until the items come to MAX_ITEMS, and the level is
+        // cut there, so one wide level cannot bring back far more.
         const parents = level.filter(({ item }) => item.is_folder || item.is_device);
         const children: unknown[][] = [];
-        for (let start = 0; start < parents.length; start += PER_MESSAGE) {
-            children.push(...(await client.sendEach(parents.slice(start, start + PER_MESSAGE), ({ item }) => [getProp("browser-item", "children", item.id)])));
+        let fetched = 0;
+        for (let start = 0; start < parents.length && seen + fetched < MAX_ITEMS; start += PER_MESSAGE) {
+            const batch = await client.sendEach(parents.slice(start, start + PER_MESSAGE), ({ item }) => [getProp("browser-item", "children", item.id)]);
+            children.push(...batch);
+            fetched += batch.reduce((count, [list]) => count + ((list as unknown[] | null)?.length ?? 0), 0);
         }
-        level = parents.flatMap(({ item, path }, index) =>
-            ((children[index]?.[0] ?? []) as LiveBrowserItem[]).map((child) => ({ item: child, path: `${path}/${item.name}` })),
-        );
+        level = parents
+            .slice(0, children.length)
+            .flatMap(({ item, path }, index) => ((children[index]?.[0] ?? []) as LiveBrowserItem[]).map((child) => ({ item: child, path: `${path}/${item.name}` })))
+            .slice(0, MAX_ITEMS - seen);
     }
     return answer(matches);
 }

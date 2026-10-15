@@ -97,6 +97,21 @@ test("find_in_browser stops after a number of items and says folders may not hav
     assert.match(result.note ?? "", /stopped after 5000 items.*folders.*not been searched/i);
 });
 
+test("find_in_browser stops asking folders for their children once a wide level reaches the item limit", async (t) => {
+    const folders = Array.from({ length: 600 }, (_, folder) => ({
+        name: `Folder ${folder}`,
+        children: Array.from({ length: 20 }, (_, item) => ({ name: folder === 599 ? "Needle.wav" : `Item ${folder}-${item}.wav`, loadable: true })),
+    }));
+    const find = setup(t, { user_library: folders });
+
+    const result = await find({ query: "needle" });
+
+    const asked = StandInSocket.opened.flatMap((socket) => socket.sent.flatMap((request) => request.commands.filter((command) => command.ns === "browser-item")));
+    assert.ok(asked.length < 600, `asked ${asked.length} folders`);
+    assert.deepEqual(result.matches, []);
+    assert.match(result.note ?? "", /stopped after 5000 items/i);
+});
+
 test("find_in_browser needs a name to look for, and a kind it knows", async (t) => {
     const find = setup(t);
 

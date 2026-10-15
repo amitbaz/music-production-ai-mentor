@@ -79,11 +79,14 @@ class Mentor(Interface):
             # A track or a rack chain.
             parent.delete_device(list(parent.devices).index(obj))
         elif isinstance(obj, Live.Clip.Clip):
-            # A Session clip is held by its slot, an arrangement clip by its track.
+            # A Session clip is held by its slot, an arrangement clip by its track. A clip in a take
+            # lane is held by the lane, which offers no way to delete it.
             if isinstance(parent, Live.ClipSlot.ClipSlot):
                 parent.delete_clip()
-            else:
+            elif isinstance(parent, Live.Track.Track):
                 parent.delete_clip(obj)
+            else:
+                raise Exception(f"{name} is in a take lane, and Live gives a script no way to delete a clip there")
         else:
             raise Exception(f"{name} is not a track, device or clip")
         Interface.obj_ids.pop(object_id, None)

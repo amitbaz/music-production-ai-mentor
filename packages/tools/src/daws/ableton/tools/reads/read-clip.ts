@@ -1,4 +1,5 @@
 import type { Tool } from "@mentor/harness";
+import { reportingGone } from "../../changing.ts";
 import { type Client, getProp } from "../../client.ts";
 import { numberArg, RESULT_LIMIT, roundBeats } from "../../reading.ts";
 
@@ -25,15 +26,7 @@ export function readClip(client: Client): Tool {
 
 
 // Reads in two messages: what kind of clip it is, then what is inside.
-async function read(client: Client, args: Record<string, unknown>) {
-    try {
-        return await readIt(client, args);
-    } catch (error) {
-        // A clip the user deleted in Live since the id was given fails in the script like this.
-        if (!(error instanceof Error) || !error.message.includes("Unknown object id")) throw error;
-        throw new Error(`${args.clip} is no longer in the Live Set. Read again with read_arrangement to get current ids.`);
-    }
-}
+const read = (client: Client, args: Record<string, unknown>) => reportingGone(String(args.clip), () => readIt(client, args), "read_arrangement");
 
 async function readIt(client: Client, args: Record<string, unknown>) {
     const { clip: id } = args;

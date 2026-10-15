@@ -3,6 +3,9 @@ import { reportingGone } from "../../changing.ts";
 import { type Client, getProp, setProp } from "../../client.ts";
 import { KIND_OF_PROPERTY, LIVE_NAME, liveObject, objectParam, withinLimit, withObjectIds } from "./live-get.ts";
 
+// The script's own functions, which it runs in place of Live's of the same name: none of them is Live's.
+const SCRIPT_FUNCTIONS = new Set(["add_listener", "remove_listener", "get_prop", "set_prop", "dispatch", "get_ns", "get_obj", "save_obj", "format_result", "log_debug", "drop_connection"]);
+
 // Sets any property or calls any function Live offers to scripts, by Live's own name. It can do
 // anything, removing included, so it always asks (ADR 0014).
 export function liveChange(client: Client): Tool {
@@ -47,6 +50,7 @@ async function change(client: Client, args: Record<string, unknown>) {
     }
 
     if (typeof name !== "string" || !LIVE_NAME.test(name)) throw new Error("function must be one of Live's names, such as tap_tempo");
+    if (SCRIPT_FUNCTIONS.has(name)) throw new Error(`${name} belongs to the script that reaches Live, not to Live. Use live_get to read and property with value to set.`);
     const callArgs = args.args ?? {};
     if (typeof callArgs !== "object" || callArgs === null) throw new Error("args must be a list or an object");
     const [result] = await reportingGone(String(object), () => client.send([{ ns, nsid, name, args: callArgs }]));

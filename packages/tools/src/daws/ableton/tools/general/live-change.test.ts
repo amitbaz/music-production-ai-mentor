@@ -4,6 +4,7 @@ import { createClient } from "../../client.ts";
 import { ADDRESS, liveSet, useStandIn } from "../../stand-in-live.ts";
 import { readSet } from "../reads/read-set.ts";
 import { liveChange } from "./live-change.ts";
+import { liveGet } from "./live-get.ts";
 
 // A Live Set with Bass and Main. Reads it first, as the mentor does.
 async function setup(t: TestContext) {
@@ -65,6 +66,22 @@ test("live_change keeps a function's answer past the result limit short", async 
 
     assert.ok(output.length < 40_000, `${output.length} characters`);
     assert.equal(JSON.parse(output).count, 5000);
+});
+
+test("after live_change deletes a track with Live's own function, its id says it is gone, and to read again", async (t) => {
+    const { client, change, bass } = await setup(t);
+
+    await change({ object: "song", function: "delete_track", args: [0] });
+
+    await assert.rejects(async () => liveGet(client).run({ object: bass, property: "name" }), new RegExp(`${bass} is no longer in the Live Set.*read again`, "i"));
+});
+
+test("live_change refuses the script's own functions, which are not Live's", async (t) => {
+    const { tool } = await setup(t);
+
+    for (const name of ["add_listener", "remove_listener", "get_prop", "set_prop", "dispatch", "get_obj", "save_obj"]) {
+        await assert.rejects(async () => tool.run({ object: "song", function: name }), new RegExp(`${name} belongs to the script`));
+    }
 });
 
 test("live_change is marked as needing approval", async (t) => {

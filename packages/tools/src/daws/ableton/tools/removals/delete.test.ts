@@ -7,6 +7,9 @@ import { readArrangement } from "../reads/read-arrangement.ts";
 import { readClip } from "../reads/read-clip.ts";
 import { readSet } from "../reads/read-set.ts";
 import { readTracks } from "../reads/read-tracks.ts";
+import { editDevices } from "../changes/edit-devices.ts";
+import { setParameters } from "../changes/set-parameters.ts";
+import { liveGet } from "../general/live-get.ts";
 import { deleteTool } from "./delete.ts";
 
 const note = (pitch: number, start_time: number, duration: number, velocity = 100, probability = 1) => ({
@@ -162,6 +165,17 @@ test("delete reports a device that went with the rack deleted before it in the s
 
     assert.equal(rack.name, "Audio Effect Rack");
     assert.match(saturator.error, new RegExp(`${ids.saturator} is no longer in the Live Set.*read again`, "i"));
+});
+
+test("after a track is deleted, the other tools say what was on it is gone, and to read again", async (t) => {
+    const { remove, client, ids } = await setup(t);
+    await remove([ids.bassTrack]);
+    const gone = new RegExp(`${ids.eq} is no longer in the Live Set.*read again`, "i");
+
+    await assert.rejects(async () => liveGet(client).run({ object: ids.eq, property: "name" }), gone);
+    assert.match(await setParameters(client).run({ changes: [{ target: ids.eq, parameter: "Gain", value: 1 }] }), gone);
+    assert.match(JSON.parse(await editDevices(client).run({ edits: [{ action: "switch", device: ids.eq, on: false }] })).edits[0].error, gone);
+    await assert.rejects(async () => readClip(client).run({ clip: ids.arrangementClip }), /no longer in the Live Set.*read_arrangement/i);
 });
 
 test("delete gives Live's error for an item it cannot remove, and carries on with the rest", async (t) => {

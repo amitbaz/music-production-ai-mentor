@@ -136,6 +136,9 @@ function routingProp(routing: Record<"input" | "output", RoutingSpec>, prop: str
     return null;
 }
 
+// What Live 12.4.6 answers for any use of an object deleted since the script took its id.
+const DEAD = "Python argument types in\n    None.None(MaxDevice)\ndid not match C++ signature:\n    None(TPyHandle<ADevice>)";
+
 // A script function that raises is a failed command, not a failed message.
 function attempt(run: () => unknown) {
     try {
@@ -161,6 +164,7 @@ function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
     // A track's view is a part of the track, which the script reaches by the track's own id.
     const object = ns === "track-view" ? (live.get(nsid ?? "")?.view as Record<string, unknown> | undefined) : live.get(SINGLETONS.has(ns) ? ns : (nsid ?? ""));
     if (!object) return { ok: false, error: `Unknown object id: ${nsid}`, errorType: "Exception" };
+    if (object.dead) return { ok: false, error: DEAD, errorType: "ArgumentError" };
     // The script would look the name up on the wrong kind of object and fail.
     if (object.ns !== ns) return { ok: false, error: `${nsid} is not a ${ns}`, errorType: "Exception" };
     if (name === "get_prop") {
@@ -552,6 +556,13 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
         create_audio_track: ({ index }: { index: number }) => created("audio", "Audio", "tracks", index),
         create_midi_track: ({ index }: { index: number }) => created("midi", "MIDI", "tracks", index),
         create_return_track: () => created("return", "Return", "return_tracks", -1),
+        // Live's own function: the track and what is in it are deleted, and the script keeps their ids.
+        delete_track: (args: unknown) => {
+            if (!Array.isArray(args)) throw new Error("delete_track takes its index as a list of arguments");
+            const [deleted] = (set.tracks as { id: string }[]).splice(args[0] as number, 1);
+            if (!deleted) throw new Error(`No track at index ${args[0]}`);
+            kill(deleted.id);
+        },
         duplicate_track: (args: unknown) => {
             if (!Array.isArray(args)) throw new Error("duplicate_track takes its index as a list of arguments");
             const [index] = args as [number];
@@ -605,15 +616,17 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
             views.push(args[0] as string);
         },
     });
-    // Forgets an object and everything inside it, as Live does when it deletes one.
-    function dropWithInside(objectId: string) {
+    // Marks an object and everything inside it as deleted in Live. The script still holds them by
+    // their ids, so each fails as a dead object does in Live.
+    function kill(objectId: string) {
         const object = live.get(objectId);
-        live.delete(objectId);
+        if (!object) return;
+        object.dead = true;
         for (const key of ["devices", "chains", "arrangement_clips", "clip_slots"]) {
-            for (const entry of (object?.[key] as { id: string }[] | undefined) ?? []) dropWithInside(entry.id);
+            for (const entry of (object[key] as { id: string }[] | undefined) ?? []) kill(entry.id);
         }
-        const clip = object?.clip as { id: string } | null | undefined;
-        if (clip) dropWithInside(clip.id);
+        const clip = object.clip as { id: string } | null | undefined;
+        if (clip) kill(clip.id);
     }
 
     // Deletes a track, device or clip by the script's id, as our Mentor.py does, and answers its name.
@@ -621,7 +634,7 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
     function deleter() {
         return ({ object_id }: { object_id: string }) => {
             const object = live.get(object_id);
-            if (!object) throw new Error(`Unknown object id: ${object_id}`);
+            if (!object || object.dead) throw new Error(`Unknown object id: ${object_id}`);
             if ((set.master_track as { id: string }).id === object_id) throw new Error("Main cannot be deleted");
             // The song's lists of tracks, and the devices and clips of each track and chain.
             const lists = [...live.values()].flatMap((holder) =>
@@ -632,7 +645,9 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
             if (list) list.splice(list.findIndex((entry) => entry.id === object_id), 1);
             else if (slot) slot.clip = null;
             else throw new Error(`${object_id} cannot be deleted`);
-            dropWithInside(object_id);
+            // Our file forgets the object itself, so only what was inside it stays behind, dead.
+            kill(object_id);
+            live.delete(object_id);
             return object.name as string;
         };
     }
