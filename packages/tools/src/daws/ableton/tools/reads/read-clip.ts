@@ -28,11 +28,22 @@ const round = (beats: number) => Math.round(beats * 10000) / 10000;
 
 // Reads in two messages: what kind of clip it is, then what is inside.
 async function read(client: Client, args: Record<string, unknown>) {
+    try {
+        return await readIt(client, args);
+    } catch (error) {
+        // A clip the user deleted in Live since the id was given fails in the script like this.
+        if (!(error instanceof Error) || !error.message.includes("Unknown object id")) throw error;
+        throw new Error(`${args.clip} is no longer in the Live Set. Read again with read_arrangement to get current ids.`);
+    }
+}
+
+async function readIt(client: Client, args: Record<string, unknown>) {
     const { clip: id } = args;
     if (typeof id !== "string") throw new Error("clip is needed: the object id of a clip, such as c3, from read_arrangement");
     if (!/^c\d+$/.test(id)) throw new Error(`${id} is not a clip. Use an object id such as c3 from read_arrangement.`);
     const fromBeat = numberArg(args, "from_beat") ?? 0;
     const toBeat = numberArg(args, "to_beat");
+    if (toBeat !== undefined && toBeat <= fromBeat) throw new Error("to_beat must be after from_beat");
     const clipId = client.scriptId(id);
 
     const [name, isMidi] = await client.send([getProp("clip", "name", clipId), getProp("clip", "is_midi_clip", clipId)]);

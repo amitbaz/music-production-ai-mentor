@@ -28,6 +28,7 @@ function withClips(t: Parameters<typeof useStandIn>[0], clips: ClipSpec[]) {
     useStandIn(t, live);
     const tools = createAbleton({ address: ADDRESS });
     return {
+        live,
         readArrangement: findTool(tools, "read_arrangement"),
         readClip: findTool(tools, "read_clip"),
     };
@@ -143,6 +144,21 @@ test("read_clip, when the notes would pass the result limit, gives the note coun
     assert.equal(result.note_count, 3000);
     assert.equal("notes" in result, false);
     assert.match(result.note, /from_beat/);
+});
+
+test("read_clip refuses a clip deleted in Live since it was read, and says to read again", async (t) => {
+    const { live, readArrangement, readClip } = withClips(t, [{ name: "Bass line", kind: "midi", start: 0, end: 16 }]);
+    await readArrangement.run({});
+    for (const [id, object] of live) if (object.ns === "clip") live.delete(id);
+
+    await assert.rejects(async () => readClip.run({ clip: "c1" }), /c1.*no longer.*read_arrangement/i);
+});
+
+test("read_clip refuses to_beat that is not after from_beat", async (t) => {
+    const { readArrangement, readClip } = withClips(t, [{ name: "Bass line", kind: "midi", start: 0, end: 16 }]);
+    await readArrangement.run({});
+
+    await assert.rejects(async () => readClip.run({ clip: "c1", from_beat: 2, to_beat: 1 }), /to_beat must be after from_beat/);
 });
 
 test("read_clip lists only the notes that start inside the beats asked for", async (t) => {

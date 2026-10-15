@@ -70,8 +70,9 @@ export function createClient(address: string | undefined, password?: string) {
             };
             const fail = (message: string) => {
                 clearTimeout(timer);
-                drop();
+                // Rejected first: drop() rejects the handshake's own wait, which calls fail() again.
                 reject(new Error(message));
+                drop();
                 socket.close();
             };
             socket.addEventListener("message", (event) => {
