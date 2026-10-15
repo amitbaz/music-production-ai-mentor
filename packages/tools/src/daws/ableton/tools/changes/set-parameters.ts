@@ -93,9 +93,10 @@ async function changeMixer(client: Client, { target, parameter, value }: Change,
     const options: { name: string; label: string; parameter: LiveParameter; returned?: LiveTrack }[] = [
         { name: "volume", label: "Volume", parameter: volume },
         { name: "pan", label: "Pan", parameter: panning },
-        ...sends.map((send, index) => {
-            const returned = returns[index] as LiveTrack;
-            return { name: `send ${client.objectId("t", returned.id)}`, label: `Send to ${returned.name}`, parameter: send, returned };
+        // A send with no return track to match is left out.
+        ...sends.flatMap((send, index) => {
+            const returned = returns[index];
+            return returned ? [{ name: `send ${client.objectId("t", returned.id)}`, label: `Send to ${returned.name}`, parameter: send, returned }] : [];
         }),
     ];
     const option = options.find((option) => option.name === parameter.trim().toLowerCase());
@@ -185,14 +186,23 @@ async function writeNumber(client: Client, parameter: Parameter, name: string, v
         getProp("device-parameter", "max", parameter.id),
         strForValue(parameter.id, parameter.value),
     ])) as [number, number, string];
-    const [, kept, shown] = (await client.send([
-        setProp("device-parameter", "display_value", value, parameter.id),
-        getProp("device-parameter", "value", parameter.id),
-        getProp("device-parameter", "display_value", parameter.id),
-    ])) as [unknown, number, number];
+    const restore = () => client.send([setProp("device-parameter", "value", parameter.value, parameter.id)]);
+    let kept: number;
+    let shown: number;
+    try {
+        [, kept, shown] = (await client.send([
+            setProp("device-parameter", "display_value", value, parameter.id),
+            getProp("device-parameter", "value", parameter.id),
+            getProp("device-parameter", "display_value", parameter.id),
+        ])) as [unknown, number, number];
+    } catch (error) {
+        // The write may have landed before the read failed, so the old value goes back; if Live cannot be reached, that fails too.
+        await restore().catch(() => {});
+        throw error;
+    }
 
     // A little room for the rounding Live does, such as 120.5 Hz kept as 121.
-    const clamped = (kept <= min || kept >= max) && Math.abs((shown as number) - value) > 0.005 * Math.abs(shown as number) + 1e-9;
+    const clamped = (kept <= min || kept >= max) && Math.abs(shown - value) > 0.005 * Math.abs(shown) + 1e-9;
     if (clamped) {
         const [, low, high] = (await client.send([
             setProp("device-parameter", "value", parameter.value, parameter.id),

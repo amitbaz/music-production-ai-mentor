@@ -77,6 +77,15 @@ test("set_parameters changes the volume, the pan and a send of a track the same 
     assert.deepEqual([bassTrack.volume, bassTrack.pan, bassTrack.sends], ["-6.0 dB", "25L", { t2: "-3.0 dB" }]);
 });
 
+test("set_parameters ignores a send that has no return track, and refuses it as unknown", async (t) => {
+    const { setParameters } = await open(t, (track) => [track({ name: "Bass", type: "midi", volume: db(-3), pan: pan(0), sends: [db(-12), db(-6)] })]);
+
+    const result = await run(setParameters, change("t1", "send t2", -3), change("t1", "send t3", -3));
+
+    assert.equal(result.changes[0], "Bass / Send to A-Reverb: -12.0 dB → -3.0 dB");
+    assert.match(result.changes[1] as string, /send t3.*not changed.*volume, pan, send t2 \(A-Reverb\)/);
+});
+
 test("set_parameters changes the volume of a return track and of Main", async (t) => {
     const { setParameters } = await open(t);
 
