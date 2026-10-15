@@ -1,5 +1,6 @@
 import type { Message, Model, ModelReply, Tool, ToolCall } from "./types.ts";
 
+// Defaults, each replaceable through LoopOptions
 const MAX_ROUNDS = 10; // Prevent infinite loops if the model keeps calling tools.
 const RESULT_LIMIT = 40_000; // Most characters one tool result may hold (ADR 0018).
 
@@ -28,6 +29,10 @@ export type LoopOptions = {
     system?: string;
     // Asked before running a tool marked needsApproval; true means go ahead
     approve?: (call: ToolCall) => boolean | Promise<boolean>;
+    // Most model calls in one turn
+    maxRounds?: number;
+    // Most characters one tool result may hold; past it the result is cut
+    resultLimit?: number;
 };
 
 // Never throws: a failed model call is returned as stop "error"
@@ -46,7 +51,7 @@ export async function runAgentLoop(
         options.onUpdate?.({ type: "message", message });
     };
 
-    for (let round = 0; round < MAX_ROUNDS; round++) {
+    for (let round = 0; round < (options.maxRounds ?? MAX_ROUNDS); round++) {
         // Send the whole conversation; get back the model's next messages.
         let reply: ModelReply;
         // The text of the reply so far, in case the call stops before it is whole
@@ -140,15 +145,16 @@ async function runToolCall(
     }
 
     try {
-        return { ...result, output: limit(await tool.run(call.args)), isError: false };
+        return { ...result, output: limit(await tool.run(call.args), options), isError: false };
     } catch (e) {
         const output = e instanceof Error ? e.message : String(e);
-        return { ...result, output: limit(output), isError: true };
+        return { ...result, output: limit(output, options), isError: true };
     }
 }
 
 // Keeps the start of an output past the result limit and says how much was cut
-function limit(output: string): string {
-    if (output.length <= RESULT_LIMIT) return output;
-    return `${output.slice(0, RESULT_LIMIT)}\n\n[Cut: showing the first ${RESULT_LIMIT} of ${output.length} characters. Ask the tool for less.]`;
+function limit(output: string, options: LoopOptions): string {
+    const max = options.resultLimit ?? RESULT_LIMIT;
+    if (output.length <= max) return output;
+    return `${output.slice(0, max)}\n\n[Cut: showing the first ${max} of ${output.length} characters. Ask the tool for less.]`;
 }

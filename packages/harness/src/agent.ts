@@ -13,14 +13,18 @@ export type AgentOptions = {
     system?: string | (() => string);
     // Called before each wait of a retry
     onRetry?: RetryOptions["onRetry"];
+    // Most model calls in one turn; the loop's default when absent
+    maxRounds?: number;
+    // Most characters one tool result may hold; the loop's default when absent
+    resultLimit?: number;
 };
 
 // What a caller can hook into during a turn. The system prompt is the agent's own.
-export type TurnOptions = Omit<LoopOptions, "system">;
+export type TurnOptions = Omit<LoopOptions, "system" | "maxRounds" | "resultLimit">;
 
 // An agent: one model, one system prompt and one set of tools. Never throws.
 export function createAgent(options: AgentOptions) {
-    const { tools, system } = options;
+    const { tools, system, maxRounds, resultLimit } = options;
     const model =
         typeof options.model === "string"
             ? modelFor(options.model, options.keys ?? {}, {
@@ -37,6 +41,8 @@ export function createAgent(options: AgentOptions) {
         ): Promise<LoopResult> =>
             runAgentLoop(model, tools, [...conversation, { type: "user", text }], {
                 ...turn,
+                maxRounds,
+                resultLimit,
                 system: typeof system === "function" ? system() : system,
             }),
     };

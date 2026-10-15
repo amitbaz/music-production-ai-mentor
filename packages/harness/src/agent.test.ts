@@ -258,3 +258,28 @@ test("an error past 40,000 characters is cut the same way and stays an error", a
     );
     assert.equal(result.isError, true);
 });
+
+test("an agent made with a result limit cuts tool results at that limit", async () => {
+    const { model } = scriptedModel([
+        [{ type: "tool_call", id: "1", name: "shout", args: { text: "x".repeat(25) } }],
+        [{ type: "assistant", text: "ok" }],
+    ]);
+    const result = await createAgent({ model, tools, resultLimit: 10 }).generate([], "go");
+    const toolResult = result.messages.find((m) => m.type === "tool_result");
+    assert.ok(toolResult?.type === "tool_result");
+    assert.equal(
+        toolResult.output,
+        `${"X".repeat(10)}\n\n[Cut: showing the first 10 of 25 characters. Ask the tool for less.]`,
+    );
+});
+
+test("an agent made with a round limit stops after that many model calls", async () => {
+    const { model, calls } = scriptedModel(
+        Array.from({ length: 5 }, (_, i) => [
+            { type: "tool_call" as const, id: String(i), name: "shout", args: { text: "hi" } },
+        ]),
+    );
+    const result = await createAgent({ model, tools, maxRounds: 2 }).generate([], "go");
+    assert.equal(result.stop, "round_limit");
+    assert.equal(calls.length, 2);
+});
