@@ -269,6 +269,21 @@ test("when Live accepts the connection but never answers, read_set gives up afte
     await assert.rejects(run, /did not answer/);
 });
 
+test("when Live greets, then never answers the password, the result says Live did not answer, not that the password was refused", async (t) => {
+    useStandIn(t, emptySet(), { locked: true });
+    StandInSocket.stalled = true;
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+
+    const run = assert.rejects(
+        async () => findTool(createAbleton({ address: ADDRESS, password: PASSWORD }), "read_set").run({}),
+        /did not answer/,
+    );
+    await turn();
+    t.mock.timers.tick(5000);
+
+    await run;
+});
+
 test("a command Live does not answer within 10 seconds gives a result saying so, and to read again", async (t) => {
     useStandIn(t, emptySet());
     const tool = findTool(createAbleton({ address: ADDRESS }), "read_set");

@@ -9,9 +9,9 @@ import {
     type LiveDeviceParameter,
     type LiveTrack,
 } from "../../live.ts";
+import { RESULT_LIMIT } from "../../reading.ts";
 
-// The most characters a result may hold (AGENTS.md), less room for the note about what was left out.
-const RESULT_LIMIT = 40_000;
+// Room kept under the result limit for the note about what was left out.
 const NOTE_ROOM = 1_000;
 
 type Parameter = { name: string; value: string; range?: [string, string]; choices?: string[] };
@@ -77,13 +77,20 @@ async function readIds(client: Client, trackIds: string[], args: Record<string, 
     }
     const scriptIds = trackIds.map((id) => client.scriptId(id));
 
-    // Return tracks and Main have no clips, and asking Live for them may fail the whole message.
-    const [returns, main] = (await client.send([getProp("song", "return_tracks"), getProp("song", "master_track")])) as [LiveTrack[], LiveTrack];
+    // Return tracks and Main have no clips, and a group track no arrangement clips; asking Live
+    // for them fails the whole message.
+    const [returns, main, all] = (await client.send([
+        getProp("song", "return_tracks"),
+        getProp("song", "master_track"),
+        getProp("song", "tracks"),
+    ])) as [LiveTrack[], LiveTrack, LiveTrack[]];
     const withoutClips = new Set([main.id, ...returns.map((track) => track.id)]);
+    const groups = new Set(all.filter((track) => track.type === "group").map((track) => track.id));
     const tracks = (await client.sendEach(scriptIds, (id) => [
         getProp("track", "name", id),
         getProp("track", "devices", id),
-        ...(withoutClips.has(id) ? [] : [getProp("track", "clip_slots", id), getProp("track", "arrangement_clips", id)]),
+        ...(withoutClips.has(id) ? [] : [getProp("track", "clip_slots", id)]),
+        ...(withoutClips.has(id) || groups.has(id) ? [] : [getProp("track", "arrangement_clips", id)]),
     ])) as [string, LiveDevice[], LiveClipSlot[]?, LiveClip[]?][];
 
     const filledSlots = tracks.map(([, , slots]) => (slots ?? []).map((slot, index) => ({ slot, scene: index + 1 })).filter(({ slot }) => slot.has_clip));

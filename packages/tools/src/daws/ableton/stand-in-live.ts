@@ -110,11 +110,23 @@ function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
         if (object.clipless && (prop === "clip_slots" || prop === "arrangement_clips")) {
             return { ok: false, error: `${prop} is not available on this track`, errorType: "Exception" };
         }
+        // Seen in Live 12.4: a group track refuses its arrangement clips, though its children have some.
+        if (object.group && prop === "arrangement_clips") {
+            return { ok: false, error: "Main, Group and Return Tracks have no arrangement clips", errorType: "Exception" };
+        }
         return { ok: true, data: object[prop] ?? null };
     }
     if (name === "str_for_value") {
         const [value] = args as number[];
         return { ok: true, data: typeof object.shown === "function" ? object.shown(value) : object.shown };
+    }
+    if (name === "get_notes_extended") {
+        // As the script does, from_time and time_span pick the notes that start inside that stretch.
+        const { from_time = 0, time_span = 99999999999999 } = (args ?? {}) as { from_time?: number; time_span?: number };
+        const notes = (object.notes as { start_time: number }[]).filter(
+            (note) => note.start_time >= from_time && note.start_time < from_time + time_span,
+        );
+        return { ok: true, data: notes };
     }
     return { ok: false, error: `Function call failed: ${name} doesn't exist`, errorType: "Exception" };
 }
@@ -165,7 +177,28 @@ export type DeviceSpec = {
     chains?: { name: string; mute?: boolean; solo?: boolean; devices?: DeviceSpec[] }[];
 };
 
-export type ClipSpec = { name: string; kind: "midi" | "audio"; muted?: boolean; start?: number; end?: number };
+type NoteSpec = { pitch: number; start_time: number; duration: number; velocity: number; probability: number };
+
+type AudioSpec = {
+    warping: boolean;
+    warp_mode: string;
+    gain_display_string: string;
+    pitch_coarse: number;
+    pitch_fine: number;
+    file_path: string;
+};
+
+// A clip in beats. A MIDI clip holds `notes`; an audio clip's `audio` settings are those of a
+// warped loop unless given.
+export type ClipSpec = {
+    name: string;
+    kind: "midi" | "audio";
+    muted?: boolean;
+    start?: number;
+    end?: number;
+    notes?: NoteSpec[];
+    audio?: Partial<AudioSpec>;
+};
 
 type TrackSpec = {
     name: string;
@@ -194,9 +227,22 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
         return { id: paramId, name: "", value: 0, is_quantized: false };
     }
 
+    // A clip as the script serializes it; the object behind it holds what a read of the clip asks for.
     function clip(spec: ClipSpec) {
         const clipId = id();
-        live.set(clipId, { ns: "clip" });
+        live.set(clipId, {
+            ns: "clip",
+            name: spec.name,
+            is_midi_clip: spec.kind === "midi",
+            notes: spec.notes ?? [],
+            warping: true,
+            warp_mode: "beats",
+            gain_display_string: "0.0 dB",
+            pitch_coarse: 0,
+            pitch_fine: 0,
+            file_path: "/Samples/loop.wav",
+            ...spec.audio,
+        });
         return {
             id: clipId,
             name: spec.name,
@@ -248,6 +294,7 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
             ns: "track",
             name: spec.name,
             clipless: spec.type === "return" || spec.type === "main",
+            group: spec.type === "group",
             devices: (spec.devices ?? []).map(device),
             clip_slots: (spec.session ?? []).map((spec) => {
                 const slotId = id();
@@ -268,7 +315,7 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
         return serialized;
     }
 
-    const set = { ns: "song", tempo: song.tempo, signature_numerator: song.numerator, signature_denominator: song.denominator };
+    const set = { ns: "song", tempo: song.tempo, signature_numerator: song.numerator, signature_denominator: song.denominator, cue_points: [] };
     live.set("song", set);
-    return { live, track, set: (props: Record<string, unknown>) => Object.assign(set, props) };
+    return { live, track, clip, set: (props: Record<string, unknown>) => Object.assign(set, props) };
 }

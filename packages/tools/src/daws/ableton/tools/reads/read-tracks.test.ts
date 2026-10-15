@@ -157,6 +157,23 @@ test("read_tracks reads a return track and Main, which have devices but no clips
     );
 });
 
+test("read_tracks reads a group track, which Live refuses its arrangement clips, with its devices", async (t) => {
+    const { readTracks } = await open(t, (track) => [
+        track({
+            name: "Drums",
+            type: "group",
+            volume: "0.0 dB",
+            pan: "C",
+            devices: [{ name: "Glue Compressor", class_name: "GlueCompressor", parameters: [gain(1)] }],
+        }),
+    ]);
+
+    const [group] = JSON.parse(await readTracks.run({ tracks: ["t1"] })).tracks;
+
+    assert.equal(group.devices[0].name, "Glue Compressor");
+    assert.equal(group.arrangement, undefined);
+});
+
 test("read_tracks reads several tracks at once, in the order asked", async (t) => {
     const { readTracks } = await open(t, (track) => [
         bass(track, { devices: [{ name: "EQ Eight", class_name: "Eq8", parameters: [gain(1)] }] }),
