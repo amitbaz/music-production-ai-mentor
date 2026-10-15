@@ -654,3 +654,26 @@ test("a model found by its model id estimates with its entry's number", async (t
     const toolChars = JSON.stringify(tools[0]?.params).length + "shout".length + (tools[0]?.description.length ?? 0);
     assert.equal(result.conversationSize, Math.ceil((toolChars + 2 + 6) / 2));
 });
+
+test("a tool call whose arguments cannot be written as JSON still gets a size, counting only its name", async () => {
+    // 10n cannot be written as JSON
+    const call = { type: "tool_call" as const, id: "1", name: "shout", args: { n: 10n } };
+    const { model } = scriptedModel([[call]]);
+
+    const result = await createAgent({ model, tools, maxRounds: 1 }).generate([], "go");
+
+    assert.equal(result.stop, "round_limit");
+    // The tool as described, "go" 2, the call's name 5, and the result "UNDEFINED" 9
+    const toolChars = JSON.stringify(tools[0]?.params).length + "shout".length + (tools[0]?.description.length ?? 0);
+    assert.equal(result.conversationSize, Math.ceil((toolChars + 2 + 5 + 9) / 4));
+});
+
+test("a tool whose params cannot be written as JSON still gets a size, counting only its name and description", async () => {
+    const odd: Tool = { name: "odd", description: "d".repeat(10), params: { n: 10n }, run: () => "" };
+    const { model } = scriptedModel([[{ type: "assistant", text: "hi" }]]);
+
+    const result = await createAgent({ model, tools: [odd] }).generate([], "go");
+
+    assert.equal(result.stop, "finished");
+    assert.equal(result.conversationSize, Math.ceil((3 + 10 + 2 + 2) / 4));
+});

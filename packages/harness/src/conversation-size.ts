@@ -4,6 +4,16 @@ import type { Message, Tool } from "./types.ts";
 export const estimateTokens = (chars: number, charsPerToken = 4) =>
     Math.ceil(chars / charsPerToken);
 
+// The characters of a value written as JSON. A value that cannot be written (a BigInt, a cycle)
+// counts as 0: the size is an estimate and must never stop a turn.
+function jsonChars(value: unknown): number {
+    try {
+        return JSON.stringify(value)?.length ?? 0;
+    } catch {
+        return 0;
+    }
+}
+
 // The characters a message adds to a request
 export function messageChars(message: Message): number {
     switch (message.type) {
@@ -11,7 +21,7 @@ export function messageChars(message: Message): number {
         case "assistant":
             return message.text.length;
         case "tool_call":
-            return message.name.length + JSON.stringify(message.args).length;
+            return message.name.length + jsonChars(message.args);
         case "tool_result":
             return message.output.length;
     }
@@ -21,7 +31,7 @@ export function messageChars(message: Message): number {
 export function fixedChars(tools: Tool[], system = ""): number {
     return tools.reduce(
         (sum, tool) =>
-            sum + tool.name.length + tool.description.length + JSON.stringify(tool.params).length,
+            sum + tool.name.length + tool.description.length + jsonChars(tool.params),
         system.length,
     );
 }
