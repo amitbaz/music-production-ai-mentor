@@ -8,7 +8,7 @@ Users will pick their model from more than one provider, and context windows dif
 
 ## Decision
 
-- The harness keeps a fixed list of supported models, one list per provider adapter, next to the provider lookup.
+- The harness keeps a fixed list of supported models, one list per provider adapter, in the adapter's own file and read by the provider lookup.
 - Every model on the list has a context window of at least 1,000,000 tokens. Each entry holds its window and a link to the provider's documentation page that states it. An offline test fails if any entry is under 1,000,000.
 - A model id not on the list fails the first model call, the same way an unknown provider does. It is not retried.
 - The harness never asks a provider for a model's window while it runs.

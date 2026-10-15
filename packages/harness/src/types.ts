@@ -78,3 +78,7 @@ export type CallOptions = {
     // Called with each piece of assistant text as it arrives
     onText?: (text: string) => void;
 };
+
+// A model a provider adapter supports: its name at the provider, its context window
+// in tokens, and the provider's documentation page that states the window.
+export type SupportedModel = { name: string; contextWindow: number; docs: string };

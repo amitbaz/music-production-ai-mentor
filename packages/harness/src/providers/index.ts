@@ -1,13 +1,16 @@
 import { type RetryOptions, withRetry } from "../retry.ts";
-import type { Model } from "../types.ts";
-import { createGeminiModel } from "./gemini.ts";
+import type { Model, SupportedModel } from "../types.ts";
+import { createGeminiModel, geminiModels } from "./gemini.ts";
 
 // One API key per provider name. A provider whose key is missing cannot be used.
 export type Keys = Record<string, string | undefined>;
 
-// Every provider adapter, under the name a model id starts with.
-const adapters: Record<string, (apiKey: string, name: string) => Model> = {
-    gemini: createGeminiModel,
+// Every provider adapter, under the name a model id starts with, with the models it supports.
+export const adapters: Record<
+    string,
+    { create: (apiKey: string, name: string) => Model; models: SupportedModel[] }
+> = {
+    gemini: { create: createGeminiModel, models: geminiModels },
 };
 
 // The provider lookup: gives the model for a model id, written provider:model.
@@ -32,10 +35,14 @@ export function modelFor(
         return broken(`Unknown provider "${provider}" in model id "${modelId}"`);
     }
 
+    if (!adapter.models.some((model) => model.name === name)) {
+        return broken(`Model "${name}" is not supported by provider "${provider}"`);
+    }
+
     const key = Object.hasOwn(keys, provider) ? keys[provider] : undefined;
     if (!key) return broken(`No API key for provider "${provider}"`);
 
-    return withRetry(adapter(key, name), retry);
+    return withRetry(adapter.create(key, name), retry);
 }
 
 // A model whose every call fails with a plain Error, so it is never retried.

@@ -120,7 +120,7 @@ test("generate passes the turn's options to the agent loop", async () => {
 test("a model id picks the provider adapter, the model name and the key", async (t) => {
     const fetchMock = fakeFetch(t, [hello]);
     const agent = createAgent({
-        model: "gemini:test-model",
+        model: "gemini:gemini-3.5-flash-lite",
         keys: { gemini: "test-key" },
         tools,
     });
@@ -129,22 +129,19 @@ test("a model id picks the provider adapter, the model name and the key", async 
 
     assert.deepEqual(result.messages.at(-1), { type: "assistant", text: "Hello!" });
     const [url, options] = sentRequest(fetchMock);
-    assert.equal(url, "https://generativelanguage.googleapis.com/v1beta/models/test-model:streamGenerateContent?alt=sse");
+    assert.equal(url, "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:streamGenerateContent?alt=sse");
     assert.equal((options.headers as Record<string, string>)["x-goog-api-key"], "test-key");
 });
 
-test("a model id is split on its first colon only", async (t) => {
-    const fetchMock = fakeFetch(t, [hello]);
-    const agent = createAgent({
-        model: "gemini:tuned:abc",
-        keys: { gemini: "test-key" },
-        tools,
-    });
+test("the whole name after the first colon is checked against the list", async (t) => {
+    const fetchMock = fakeFetch(t, []);
 
-    await agent.generate([], "Hi");
-
-    const [url] = sentRequest(fetchMock);
-    assert.match(url, /\/models\/tuned:abc:streamGenerateContent\?alt=sse$/);
+    // The whole name after the first colon is the model name, colons included.
+    assert.equal(
+        await firstTurn("gemini:tuned:abc", { gemini: "test-key" }),
+        'Model "tuned:abc" is not supported by provider "gemini"',
+    );
+    assert.equal(fetchMock.mock.callCount(), 0);
 });
 
 test("a model found by its model id retries a retryable failure", async (t) => {
@@ -155,7 +152,7 @@ test("a model found by its model id retries a retryable failure", async (t) => {
     const fetchMock = fakeFetch(t, [busy, hello]);
     const retries: number[] = [];
     const agent = createAgent({
-        model: "gemini:test-model",
+        model: "gemini:gemini-3.5-flash-lite",
         keys: { gemini: "test-key" },
         tools,
         onRetry: (report) => retries.push(report.retry),
@@ -185,11 +182,32 @@ async function firstTurn(model: string, keys?: Record<string, string | undefined
 test("a missing key ends the first turn with an error, without a request", async (t) => {
     const fetchMock = fakeFetch(t, []);
     assert.equal(
-        await firstTurn("gemini:test-model", { gemini: undefined }),
+        await firstTurn("gemini:gemini-3.5-flash-lite", { gemini: undefined }),
         'No API key for provider "gemini"',
     );
-    assert.equal(await firstTurn("gemini:test-model"), 'No API key for provider "gemini"');
+    assert.equal(await firstTurn("gemini:gemini-3.5-flash-lite"), 'No API key for provider "gemini"');
     assert.equal(fetchMock.mock.callCount(), 0);
+});
+
+test("a model not on its provider's list ends the first turn with an error, without a request or a retry", async (t) => {
+    const fetchMock = fakeFetch(t, []);
+    // firstTurn also checks that nothing was retried.
+    assert.equal(
+        await firstTurn("gemini:gemini-1.5-flash", { gemini: "test-key" }),
+        'Model "gemini-1.5-flash" is not supported by provider "gemini"',
+    );
+    // A name every object has must not be taken for a supported model.
+    assert.equal(
+        await firstTurn("gemini:constructor", { gemini: "test-key" }),
+        'Model "constructor" is not supported by provider "gemini"',
+    );
+    assert.equal(fetchMock.mock.callCount(), 0);
+});
+
+test("a ready model is not checked against the list", async () => {
+    const { model } = scriptedModel([[{ type: "assistant", text: "Hi" }]]);
+    const result = await createAgent({ model, tools }).generate([], "hi");
+    assert.equal(result.stop, "finished");
 });
 
 test("an unknown provider ends the first turn with an error", async (t) => {
@@ -208,7 +226,7 @@ test("an unknown provider ends the first turn with an error", async (t) => {
 
 test("a model id with no provider or no model name ends the first turn with an error", async (t) => {
     const fetchMock = fakeFetch(t, []);
-    for (const modelId of ["test-model", ":test-model", "gemini:"]) {
+    for (const modelId of ["gemini-3.5-flash-lite", ":gemini-3.5-flash-lite", "gemini:"]) {
         assert.equal(
             await firstTurn(modelId, { gemini: "test-key" }),
             `Model id "${modelId}" is not written provider:model`,
@@ -298,7 +316,7 @@ const overloaded = { status: 503, body: { error: { message: "The model is overlo
 test("an agent made with maxRetries 0 does not retry a failed model call", async (t) => {
     const fetchMock = fakeFetch(t, [overloaded]);
     const agent = createAgent({
-        model: "gemini:test-model",
+        model: "gemini:gemini-3.5-flash-lite",
         keys: { gemini: "test-key" },
         tools,
         maxRetries: 0,
@@ -312,7 +330,7 @@ test("an agent made with firstWaitMs waits that long before the first retry", as
     fakeFetch(t, [overloaded, hello]);
     const waits: number[] = [];
     const agent = createAgent({
-        model: "gemini:test-model",
+        model: "gemini:gemini-3.5-flash-lite",
         keys: { gemini: "test-key" },
         tools,
         firstWaitMs: 7,
@@ -334,7 +352,7 @@ test("an agent made with timeoutMs gives up on an attempt that sends nothing for
             ),
     );
     const agent = createAgent({
-        model: "gemini:test-model",
+        model: "gemini:gemini-3.5-flash-lite",
         keys: { gemini: "test-key" },
         tools,
         maxRetries: 0,

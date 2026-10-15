@@ -1,6 +1,6 @@
 # 0011 — An agent is created from a model id
 
-Date: 2026-10-13 · Status: accepted
+Date: 2026-10-13 · Status: accepted · Narrowed by [0019](0019-only-supported-models-with-a-1m-window.md): a model name not on its provider's list of supported models fails the first model call, and each lookup entry holds its adapter and that list
 
 ## Context
 

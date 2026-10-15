@@ -13,13 +13,14 @@ Early. The mentor runs in the terminal on Gemini and reads the Live Set open in 
 - `read_set` gives the mentor an overview of the Live Set open in Ableton Live, saved or not: tempo, time signature, and each track with its kind, group, volume, pan, sends, mute and solo, and its devices. It connects to Live the first time it is used.
 - Ctrl+C cancels a turn. What already happened stays in the conversation.
 - A failed model call is retried after a growing wait, and an attempt that hangs is timed out.
+- Only supported models run: a model with a context window of at least 1,000,000 tokens, from a fixed list per provider (today `gemini-3.5-flash-lite`). Any other model name is refused with a plain error. See [ADR 0019](docs/adr/0019-only-supported-models-with-a-1m-window.md).
 
 ## Planned
 
 - **The real Ableton Live** ([#2](https://github.com/amitbaz/music-production-ai-mentor/issues/2)): read device parameters, clips and the arrangement, and change tracks, native devices, clips and the arrangement. A setup command installs the Remote Script, and approval comes back with `delete`.
 - **Load a tool set only when the mentor needs it** ([#1](https://github.com/amitbaz/music-production-ai-mentor/issues/1)).
 - **Evals** for what the model decides: which tool it picks, whether it follows the system prompt, which format tool results should use ([#16](https://github.com/amitbaz/music-production-ai-mentor/issues/16)), and what a summary of a long conversation keeps ([#18](https://github.com/amitbaz/music-production-ai-mentor/issues/18)).
-- **Long conversations** ([#21](https://github.com/amitbaz/music-production-ai-mentor/issues/21)): the mentor summarises the older part of a long conversation so each question stays cheap and its answers stay sharp, shows how big the conversation is, and says when a reply was cut off. Only models with a context window of at least 1,000,000 tokens are offered. See [ADR 0018](docs/adr/0018-a-long-conversation-is-summarised.md) and [ADR 0019](docs/adr/0019-only-supported-models-with-a-1m-window.md).
+- **Long conversations** ([#21](https://github.com/amitbaz/music-production-ai-mentor/issues/21)): the mentor summarises the older part of a long conversation so each question stays cheap and its answers stay sharp, shows how big the conversation is, and says when a reply was cut off. See [ADR 0018](docs/adr/0018-a-long-conversation-is-summarised.md).
 - **Memory across conversations** ([#20](https://github.com/amitbaz/music-production-ai-mentor/issues/20)): the mentor remembers your preferences from one conversation to the next.
 - **Run tools in parallel**: when the model asks for several tools in one reply, run them at the same time instead of one after another.
 - **Third-party plug-ins in Ableton**: read and change the settings of plug-ins that are not native devices. Left out of the first tool set by [ADR 0015](docs/adr/0015-the-first-real-ableton-tool-set-has-a-narrow-scope.md); see [reaching third-party plug-ins](docs/research/reaching-third-party-plug-ins.md).
