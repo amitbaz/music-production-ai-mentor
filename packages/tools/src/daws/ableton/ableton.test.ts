@@ -69,7 +69,8 @@ test("read_set sends the same number of messages for a large Live Set as for a s
         set({ tracks, return_tracks: [reverb], master_track: track({ name: "Main", type: "main", volume: "0.0 dB", pan: "C" }) });
         useStandIn(t, live);
         await findTool(createAbleton({ address: ADDRESS }), "read_set").run({});
-        return StandInSocket.opened.flatMap((socket) => socket.sent).length;
+        // The first message on a connection is the handshake, the same for any Live Set.
+        return StandInSocket.opened.flatMap((socket) => socket.sent.slice(1)).length;
     }
 
     const small = await messagesFor(2);
@@ -138,6 +139,44 @@ test("with nothing answering once paired, read_set asks whether Live is open wit
         async () => findTool(createAbleton({ address: ADDRESS, password: PASSWORD }), "read_set").run({}),
         /Could not reach Ableton Live.*open.*MusicMentor/i,
     );
+});
+
+test("a script version the client does not know gives a result saying to pair again and restart Live", async (t) => {
+    useStandIn(t, emptySet(), { locked: true, scriptVersion: "4.2.0" });
+
+    await assert.rejects(
+        async () => findTool(createAbleton({ address: ADDRESS, password: PASSWORD }), "read_set").run({}),
+        /version 4\.2\.0.*pnpm pair ableton.*restart Live/i,
+    );
+});
+
+test("a Live older than 12.4 gives a result saying to update Live", async (t) => {
+    useStandIn(t, emptySet(), { liveVersion: [12, 3] });
+
+    await assert.rejects(async () => findTool(createAbleton({ address: ADDRESS }), "read_set").run({}), /12\.3.*12\.4 or later.*update/i);
+});
+
+test("Live 12.4 and later versions are accepted", async (t) => {
+    for (const liveVersion of [
+        [12, 4],
+        [13, 0],
+    ] as const) {
+        useStandIn(t, emptySet(), { liveVersion });
+        const result = JSON.parse(await findTool(createAbleton({ address: ADDRESS }), "read_set").run({}));
+        assert.equal(result.tempo, 120);
+    }
+});
+
+test("after a failed version check, the next tool call tries again", async (t) => {
+    useStandIn(t, emptySet(), { liveVersion: [12, 3] });
+    const tool = findTool(createAbleton({ address: ADDRESS }), "read_set");
+    await assert.rejects(async () => tool.run({}));
+
+    // The user updates Live and opens it again.
+    StandInSocket.liveVersion = [12, 4];
+    const result = JSON.parse(await tool.run({}));
+
+    assert.equal(result.tempo, 120);
 });
 
 // A tool that takes an object id, as read_tracks and the tools after it do: it answers with the
@@ -228,4 +267,36 @@ test("when Live accepts the connection but never answers, read_set gives up afte
     t.mock.timers.tick(1);
 
     await assert.rejects(run, /did not answer/);
+});
+
+test("a command Live does not answer within 10 seconds gives a result saying so, and to read again", async (t) => {
+    useStandIn(t, emptySet());
+    const tool = findTool(createAbleton({ address: ADDRESS }), "read_set");
+    await tool.run({});
+    StandInSocket.stalled = true;
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+
+    let finished = false;
+    const run = Promise.resolve(tool.run({})).finally(() => (finished = true));
+
+    await turn();
+    t.mock.timers.tick(9999);
+    await turn();
+    assert.equal(finished, false);
+    t.mock.timers.tick(1);
+
+    await assert.rejects(run, /did not answer within 10 seconds.*may still happen.*read again/i);
+});
+
+test("a command in flight when the connection is lost gives a result saying to try again", async (t) => {
+    useStandIn(t, emptySet());
+    const tool = findTool(createAbleton({ address: ADDRESS }), "read_set");
+    await tool.run({});
+    StandInSocket.stalled = true;
+
+    const run = assert.rejects(async () => tool.run({}), /connection to Ableton Live was lost.*Try again/);
+    await turn();
+    await loseConnection();
+
+    await run;
 });

@@ -1,6 +1,7 @@
 // Test only: a stand-in for the global WebSocket that answers like the ableton-js
 // Remote Script, and a builder for the Live Set it answers about. Each Ableton test uses it
 // the way the Gemini adapter tests replace the global fetch.
+import { readFileSync } from "node:fs";
 import type { TestContext } from "node:test";
 import type { Command } from "./client.ts";
 
@@ -15,6 +16,11 @@ type LiveSet = Map<string, Record<string, unknown>>;
 // The password a stand-in Live can ask for, the salt it sends, and the hash the script would
 // accept: HMAC-SHA256 of the salt keyed with the password, worked out apart from our code.
 export const PASSWORD = "the-right-password";
+
+// The version of the pinned script the repo installs, read from its own file.
+const PINNED_VERSION = String(
+    readFileSync(new URL("../../../remote-scripts/ableton-js/version.py", import.meta.url)).toString().match(/"(.+)"/)?.[1],
+);
 const SALT = "a1b2c3d4";
 const HASH = "4c780e169dbefc73d44e402a05c72ee2bcde8596208b31b37e317902a5baa169";
 
@@ -28,6 +34,11 @@ export class StandInSocket extends EventTarget {
     static closed = false;
     // Whether something accepts the connection but never answers, as a stalled Live would.
     static silent = false;
+    // Whether Live has stopped answering commands on a connection it already took, as when it is busy.
+    static stalled = false;
+    // The script version it reports, and Live's major and minor version.
+    static scriptVersion = PINNED_VERSION;
+    static liveVersion: readonly [number, number] = [12, 4];
 
     url: string;
     sent: Request[] = [];
@@ -53,6 +64,7 @@ export class StandInSocket extends EventTarget {
     send(text: string) {
         const request = JSON.parse(text) as Request;
         this.sent.push(request);
+        if (StandInSocket.stalled) return;
         const [first] = request.commands;
         const authenticating = first?.ns === "internal" && first.name === "authenticate";
         if (StandInSocket.locked && !this.authenticated) {
@@ -84,6 +96,9 @@ export class StandInSocket extends EventTarget {
 }
 
 function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
+    if (ns === "internal" && name === "get_version") return { ok: true, data: StandInSocket.scriptVersion };
+    if (ns === "application" && name === "get_major_version") return { ok: true, data: StandInSocket.liveVersion[0] };
+    if (ns === "application" && name === "get_minor_version") return { ok: true, data: StandInSocket.liveVersion[1] };
     const object = live.get(ns === "song" ? "song" : (nsid ?? ""));
     if (!object) return { ok: false, error: `Unknown object id: ${nsid}`, errorType: "Exception" };
     // The script would look the name up on the wrong kind of object and fail.
@@ -102,13 +117,26 @@ export const ADDRESS = "ws://127.0.0.1:40123";
 
 // Puts the stand-in in place of the global WebSocket for one test. `locked` makes Live ask
 // for PASSWORD, as the installed script does; `closed` makes nothing listen at all, and `silent`
-// accepts the connection but never answers.
-export function useStandIn(t: TestContext, live: LiveSet, { locked = false, closed = false, silent = false } = {}) {
+// accepts the connection but never answers. `scriptVersion` and `liveVersion` are what it reports.
+export function useStandIn(
+    t: TestContext,
+    live: LiveSet,
+    {
+        locked = false,
+        closed = false,
+        silent = false,
+        scriptVersion = PINNED_VERSION,
+        liveVersion = [12, 4] as readonly [number, number],
+    } = {},
+) {
     StandInSocket.opened = [];
     StandInSocket.live = live;
     StandInSocket.locked = locked;
     StandInSocket.closed = closed;
     StandInSocket.silent = silent;
+    StandInSocket.stalled = false;
+    StandInSocket.scriptVersion = scriptVersion;
+    StandInSocket.liveVersion = liveVersion;
     globalThis.WebSocket = StandInSocket as unknown as typeof WebSocket;
     t.after(() => {
         globalThis.WebSocket = realWebSocket;

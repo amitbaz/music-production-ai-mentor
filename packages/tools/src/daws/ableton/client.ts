@@ -10,17 +10,29 @@ type Waiting = { resolve: (results: Result[]) => void; reject: (error: Error) =>
 
 export type Client = ReturnType<typeof createClient>;
 
+// The version of the pinned script that pairing installs, in remote-scripts/ableton-js/version.py.
+const SCRIPT_VERSION = "5.0.4";
+
+// How long Live has to greet a new connection, accept the password and give its versions, so a
+// stalled Live, or another program on the port, cannot hang a tool.
+const HANDSHAKE_MS = 5000;
+// How long Live has to answer a message once connected: room for a heavy action, while a stalled
+// Live still gives the model an answer within its round.
+const COMMAND_MS = 10_000;
+
 // What the user is told when Live cannot be used. Without a password Ableton was never paired;
 // with one, pairing again writes a new one into both places, and Live reads its copy when it starts.
 const CONTROL_SURFACE = "MusicMentor as a Control Surface in Settings → Link, Tempo & MIDI";
 const NOT_PAIRED = `Ableton Live is not paired with the mentor yet. Run pnpm pair ableton, restart Live, and choose ${CONTROL_SURFACE}.`;
 const REFUSED = "Ableton Live refused the password. Pair Ableton again with pnpm pair ableton, then restart Live.";
 const UNREACHABLE = "Could not reach Ableton Live. Is it open, with MusicMentor chosen as a Control Surface in Settings → Link, Tempo & MIDI?";
+const WRONG_SCRIPT = (version: string) =>
+    `The MusicMentor script in Ableton Live is version ${version}, and the mentor needs ${SCRIPT_VERSION}. Pair Ableton again with pnpm pair ableton, then restart Live.`;
+const OLD_LIVE = (version: string) => `Ableton Live ${version} is too old: the mentor needs Live 12.4 or later. Update Live, then try again.`;
+const LOST =
+    "The connection to Ableton Live was lost, as when Live is closed or another Live Set is opened. Try again; object ids from before must be read again.";
+const NO_REPLY = `Ableton Live did not answer within ${COMMAND_MS / 1000} seconds. It may be busy. What was asked may still happen, so read again before trying again.`;
 const NO_ANSWER = "Ableton Live did not answer. If it is busy, try again; if this keeps happening, restart Live.";
-
-// How long Live has to greet a new connection and accept the password, so a stalled Live, or
-// another program on the port, cannot hang a tool.
-const HANDSHAKE_MS = 5000;
 
 // The address is the script's WebSocket, such as ws://127.0.0.1:39031, and the password the one
 // pairing Ableton wrote into the installed script. The app gives both.
@@ -36,15 +48,27 @@ export function createClient(address: string | undefined, password?: string) {
     const counts = new Map<string, number>();
 
     function connect(address: string) {
-        return new Promise<WebSocket>((resolve, reject) => {
+        const opening = new Promise<WebSocket>((resolve, reject) => {
             const socket = new WebSocket(address);
             const timer = setTimeout(() => fail(NO_ANSWER), HANDSHAKE_MS);
             const ready = () => {
                 clearTimeout(timer);
                 resolve(socket);
             };
+            // Forgets this connection and the ids it gave out, unless a newer one has taken its place,
+            // so a late event from an old socket cannot drop a newer connection.
+            const drop = () => {
+                if (connection !== opening) return;
+                connection = undefined;
+                objectIds.clear();
+                scriptIds.clear();
+                const error = new Error(LOST);
+                for (const wait of waiting.values()) wait.reject(error);
+                waiting.clear();
+            };
             const fail = (message: string) => {
                 clearTimeout(timer);
+                drop();
                 reject(new Error(message));
                 socket.close();
             };
@@ -52,17 +76,30 @@ export function createClient(address: string | undefined, password?: string) {
                 const reply = JSON.parse(String(event.data)) as Reply;
                 // The script greets each new connection before it takes commands. With its password
                 // on, the greeting carries a salt, and the first command must prove the password.
+                // The versions are checked in the same message.
                 if (reply.event === "connect") {
                     const { requiresAuth, salt } = (reply.data ?? {}) as { requiresAuth?: boolean; salt?: string };
-                    if (!requiresAuth) return ready();
-                    if (!password) return fail(NOT_PAIRED);
+                    if (requiresAuth && !password) return fail(NOT_PAIRED);
+                    const commands: Command[] = [
+                        { ns: "internal", name: "get_version" },
+                        { ns: "application", name: "get_major_version" },
+                        { ns: "application", name: "get_minor_version" },
+                    ];
+                    if (requiresAuth && password) {
+                        const hash = createHmac("sha256", password).update(salt ?? "").digest("hex");
+                        commands.unshift({ ns: "internal", name: "authenticate", args: { hash } });
+                    }
                     const uuid = String(nextUuid++);
                     waiting.set(uuid, {
-                        resolve: ready,
-                        reject: () => fail(REFUSED),
+                        resolve: (results) => {
+                            const [script, major, minor] = results.slice(-3).map((result) => (result.ok ? result.data : undefined));
+                            if (script !== SCRIPT_VERSION) return fail(WRONG_SCRIPT(String(script)));
+                            if (Number(major) < 12 || (Number(major) === 12 && Number(minor) < 4)) return fail(OLD_LIVE(`${major}.${minor}`));
+                            ready();
+                        },
+                        reject: (error) => fail(requiresAuth ? REFUSED : error.message),
                     });
-                    const hash = createHmac("sha256", password).update(salt ?? "").digest("hex");
-                    socket.send(JSON.stringify({ uuid, commands: [{ ns: "internal", name: "authenticate", args: { hash } }] }));
+                    socket.send(JSON.stringify({ uuid, commands }));
                     return;
                 }
                 const wait = reply.uuid === null ? undefined : waiting.get(reply.uuid);
@@ -72,24 +109,16 @@ export function createClient(address: string | undefined, password?: string) {
                 else wait.reject(new Error(String(reply.data)));
             });
             // When nothing listens, Node's WebSocket sends only an error, with no close after it.
-            // A socket can also send both; only the first counts, so a late one from an old socket
-            // cannot drop a newer connection.
-            let gone = false;
+            // A socket can also send both.
             const lost = () => {
-                if (gone) return;
-                gone = true;
                 clearTimeout(timer);
-                connection = undefined;
-                objectIds.clear();
-                scriptIds.clear();
-                const error = new Error("The connection to Ableton Live was lost");
-                for (const wait of waiting.values()) wait.reject(error);
-                waiting.clear();
+                drop();
                 reject(new Error(password ? UNREACHABLE : NOT_PAIRED));
             };
             socket.addEventListener("error", lost);
             socket.addEventListener("close", lost);
         });
+        return opening;
     }
 
     // Sends several commands in one message and returns their results in order.
@@ -98,10 +127,16 @@ export function createClient(address: string | undefined, password?: string) {
         connection ??= connect(address);
         const socket = await connection;
         const uuid = String(nextUuid++);
+        let timer: ReturnType<typeof setTimeout> | undefined;
         const results = await new Promise<Result[]>((resolve, reject) => {
             waiting.set(uuid, { resolve, reject });
+            // A late answer finds nothing waiting and is dropped.
+            timer = setTimeout(() => {
+                waiting.delete(uuid);
+                reject(new Error(NO_REPLY));
+            }, COMMAND_MS);
             socket.send(JSON.stringify({ uuid, commands }));
-        });
+        }).finally(() => clearTimeout(timer));
         return results.map((result) => {
             if (!result.ok) throw new Error(result.error);
             return result.data;
