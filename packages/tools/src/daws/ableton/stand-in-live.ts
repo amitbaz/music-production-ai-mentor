@@ -302,6 +302,8 @@ type TrackSpec = {
     arm?: boolean;
     // Not on Main, which only has an output, or on a return track, which has no input.
     routing?: { input: RoutingSpec; output: RoutingSpec };
+    // For a group track: whether its tracks are hidden. For another, the group it is in.
+    folded?: boolean;
     group?: { id: string };
     devices?: DeviceSpec[];
     // The Session slots from the top, null for an empty one.
@@ -407,6 +409,7 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
             mute: spec.mute ?? false,
             solo: spec.solo ?? false,
             arm: spec.arm ?? false,
+            fold_state: spec.folded ? 1 : 0,
             routing: spec.routing,
             clipless: spec.type === "return" || spec.type === "main",
             group: spec.type === "group",

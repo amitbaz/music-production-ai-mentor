@@ -1,6 +1,6 @@
 import type { Tool } from "@mentor/harness";
 import { type Client, type Command, getProp, setProp } from "../../client.ts";
-import { goneMessage, isGone } from "../../changing.ts";
+import { goneMessage, isGone, revealer } from "../../changing.ts";
 import type { LiveTrack } from "../../live.ts";
 
 type Change = Record<string, unknown>;
@@ -8,6 +8,7 @@ type Direction = "input" | "output";
 type Routing = { type: string; channel: string };
 type Wanted = Partial<Routing>;
 // The tracks of the Live Set as of the last look: the tracks that can be duplicated, and all of them.
+type Reveal = ReturnType<typeof revealer>;
 type Known = { tracks: LiveTrack[]; all: LiveTrack[] };
 
 const KINDS = ["audio", "midi", "return"] as const;
@@ -76,11 +77,12 @@ async function run(client: Client, args: Record<string, unknown>) {
     // Looked at first, so a Live that cannot be reached fails the whole call, not each change.
     const known = await readKnown(client);
 
+    const reveal = revealer(client);
     const results: unknown[] = [];
     for (const change of changes) {
         const asked = (change ?? {}) as Change;
         try {
-            results.push(await apply(client, change, known));
+            results.push(await apply(client, change, known, reveal));
         } catch (error) {
             const message = isGone(error) && typeof asked.track === "string" ? goneMessage(asked.track) : (error as Error).message;
             results.push({
@@ -103,14 +105,14 @@ async function readKnown(client: Client): Promise<Known> {
     return { tracks, all: [...tracks, ...returns, main] };
 }
 
-async function apply(client: Client, change: unknown, known: Known) {
+async function apply(client: Client, change: unknown, known: Known, reveal: Reveal) {
     if (typeof change !== "object" || change === null || Array.isArray(change)) {
         throw new Error('Each change is an object with an action, such as {"action": "edit", "track": "t1", "mute": true}');
     }
     const { action } = change as Change;
-    if (action === "create") return create(client, change as Change, known);
-    if (action === "duplicate") return duplicate(client, change as Change, known);
-    if (action === "edit") return edit(client, change as Change, known);
+    if (action === "create") return create(client, change as Change, known, reveal);
+    if (action === "duplicate") return duplicate(client, change as Change, known, reveal);
+    if (action === "edit") return edit(client, change as Change, known, reveal);
     throw new Error(`action must be create, duplicate or edit, not ${String(action)}. edit_tracks cannot delete a track.`);
 }
 
@@ -142,7 +144,7 @@ async function rename(client: Client, scriptId: string, name: string | undefined
     return results.at(-1) as string;
 }
 
-async function create(client: Client, change: Change, known: Known) {
+async function create(client: Client, change: Change, known: Known, reveal: Reveal) {
     const { kind } = change;
     if (!KINDS.includes(kind as (typeof KINDS)[number])) throw new Error(`kind must be audio, midi or return, not ${String(kind)}`);
     const name = nameArg(change);
@@ -155,6 +157,7 @@ async function create(client: Client, change: Change, known: Known) {
     // The Live Set has a track more, which a later duplicate must not take for its copy.
     Object.assign(known, await readKnown(client));
     const track = client.objectId("t", created.id);
+    await reveal.track(created.id);
     try {
         return { action: "create", track, kind, name: await rename(client, created.id, name) };
     } catch (error) {
@@ -162,7 +165,7 @@ async function create(client: Client, change: Change, known: Known) {
     }
 }
 
-async function duplicate(client: Client, change: Change, known: Known) {
+async function duplicate(client: Client, change: Change, known: Known, reveal: Reveal) {
     const id = trackId(change);
     const name = nameArg(change);
     const { scriptId, track } = trackOf(client, id, known);
@@ -176,6 +179,7 @@ async function duplicate(client: Client, change: Change, known: Known) {
     Object.assign(known, now);
     if (!copy) throw new Error(`Ableton Live did not make a copy of ${id}. Read again with read_set to see the Live Set.`);
     const copyId = client.objectId("t", copy.id);
+    await reveal.track(copy.id);
     try {
         return { action: "duplicate", from: id, track: copyId, name: await rename(client, copy.id, name) };
     } catch (error) {
@@ -214,7 +218,7 @@ async function readRouting(client: Client, scriptId: string, direction: Directio
     return { now: { type: names([type])[0] as string, channel: names([channel])[0] as string }, types: names(types), channels: names(channels) };
 }
 
-async function edit(client: Client, change: Change, known: Known) {
+async function edit(client: Client, change: Change, known: Known, reveal: Reveal) {
     const id = trackId(change);
     const name = nameArg(change);
     const flags = (["mute", "solo", "arm"] as const).filter((field) => change[field] !== undefined);
@@ -249,6 +253,8 @@ async function edit(client: Client, change: Change, known: Known) {
         }
     }
 
+    // Shown before the first change, so the user sees it happen.
+    await reveal.track(scriptId);
     const changed: Record<string, unknown> = {};
     try {
         const set = [name === undefined ? undefined : "name", ...flags].filter((field) => field !== undefined);

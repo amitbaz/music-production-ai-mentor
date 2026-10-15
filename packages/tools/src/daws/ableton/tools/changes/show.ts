@@ -1,11 +1,11 @@
 import type { Tool } from "@mentor/harness";
 import { type Client, getProp, setProp } from "../../client.ts";
-import { goneMessage, isGone } from "../../changing.ts";
+import { DEVICE_VIEW, findTracksOfDevices, goneMessage, isGone, revealDevice, revealTrack, showView } from "../../changing.ts";
 
 // For each kind of object id: what it is, who Live asks its name, and the panel that shows it.
 const KINDS = {
     t: { kind: "track", ns: "track" },
-    d: { kind: "device", ns: "device", view: "Detail/DeviceChain", panel: "device view" },
+    d: { kind: "device", ns: "device", view: DEVICE_VIEW, panel: "device view" },
     c: { kind: "clip", ns: "clip", view: "Detail/Clip", panel: "clip view" },
 } as const;
 
@@ -44,13 +44,9 @@ async function run(client: Client, args: Record<string, unknown>) {
         throw isGone(error) ? new Error(goneMessage(id)) : error;
     }
 
-    const select = {
-        t: setProp("song-view", "selected_track", scriptId),
-        d: { ns: "song-view", name: "select_device", args: { device_id: scriptId } },
-        c: setProp("song-view", "detail_clip", scriptId),
-    }[letter];
-    const panel = "view" in object ? [{ ns: "application-view", name: "show_view", args: [object.view] }] : [];
-    await client.send([select, ...panel]);
+    if (letter === "t") await revealTrack(client, scriptId);
+    else if (letter === "d") await revealDevice(client, scriptId, (await findTracksOfDevices(client)).get(scriptId)?.id);
+    else await client.send([setProp("song-view", "detail_clip", scriptId), showView(KINDS.c.view)]);
 
     return JSON.stringify({ shown: id, kind: object.kind, name, ...("panel" in object && { panel: object.panel }) });
 }

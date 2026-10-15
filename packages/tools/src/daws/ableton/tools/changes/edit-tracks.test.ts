@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Tool } from "@mentor/harness";
 import { createAbleton } from "../../ableton.ts";
-import { ADDRESS, liveSet, type RoutingSpec, useStandIn } from "../../stand-in-live.ts";
+import { ADDRESS, liveSet, type RoutingSpec, StandInSocket, useStandIn } from "../../stand-in-live.ts";
 
 function findTool(tools: Tool[], name: string): Tool {
     const tool = tools.find((tool) => tool.name === name);
@@ -298,4 +298,67 @@ test("edit_tracks is not marked as needing approval", async (t) => {
     const { editTracks } = await withTracks(t);
 
     assert.notEqual(editTracks.needsApproval, true);
+});
+
+// Drums (folded) holds Kicks (folded), which holds Kick, a track the user cannot see; a Snare sits
+// in a group that is open. The tracks are read, so Kick is t3 and Snare t5.
+async function withFoldedGroups(t: Parameters<typeof useStandIn>[0]) {
+    const { live, track, set } = liveSet({ tempo: 120, numerator: 4, denominator: 4 });
+    const drums = track({ name: "Drums", type: "group", ...mixer, folded: true });
+    const kicks = track({ name: "Kicks", type: "group", ...mixer, folded: true, group: drums });
+    const kick = track({ name: "Kick", type: "audio", ...mixer, group: kicks });
+    const open = track({ name: "Open", type: "group", ...mixer });
+    const snare = track({ name: "Snare", type: "audio", ...mixer, group: open });
+    set({ tracks: [drums, kicks, kick, open, snare], return_tracks: [], master_track: track({ name: "Main", type: "main", ...mixer }) });
+    useStandIn(t, live);
+    const tools = createAbleton({ address: ADDRESS });
+    await findTool(tools, "read_set").run({});
+    const view = live.get("song-view") as Record<string, unknown>;
+    return { live, drums, kicks, kick, open, snare, view, editTracks: findTool(tools, "edit_tracks") };
+}
+
+// The writes of the properties asked for, in the order Live got them, such as "fold_state".
+const written = (...props: string[]) =>
+    StandInSocket.opened
+        .flatMap((socket) => socket.sent.slice(1))
+        .flatMap((request) => request.commands)
+        .filter((command) => command.name === "set_prop" && props.includes((command.args as { prop: string }).prop))
+        .map((command) => (command.args as { prop: string }).prop);
+
+const folded = (live: Map<string, Record<string, unknown>>, ...tracks: { id: string }[]) => tracks.map((track) => live.get(track.id)?.fold_state);
+
+test("edit_tracks shows the track it changes: the folded groups it is in are opened and it is selected, before the change", async (t) => {
+    const { live, drums, kicks, kick, view, editTracks } = await withFoldedGroups(t);
+
+    await edit(editTracks, { action: "edit", track: "t3", mute: true });
+
+    assert.deepEqual(folded(live, drums, kicks), [0, 0]);
+    assert.equal(view.selected_track, kick.id);
+    assert.deepEqual(written("fold_state", "selected_track", "mute"), ["fold_state", "fold_state", "selected_track", "mute"]);
+});
+
+test("edit_tracks leaves a group that is open alone, and selects the track", async (t) => {
+    const { live, open, snare, view, editTracks } = await withFoldedGroups(t);
+
+    await edit(editTracks, { action: "edit", track: "t5", solo: true });
+
+    assert.deepEqual(folded(live, open), [0]);
+    assert.equal(view.selected_track, snare.id);
+    assert.deepEqual(written("fold_state"), []);
+});
+
+test("edit_tracks selects a track it made or duplicated, and does not move the view for a change it refuses", async (t) => {
+    const { live, kick, view, editTracks } = await withFoldedGroups(t);
+    const song = live.get("song") as { tracks: { id: string }[] };
+
+    await edit(editTracks, { action: "edit", track: "t3", arm: "yes" });
+    assert.equal(view.selected_track, null);
+
+    await edit(editTracks, { action: "create", kind: "midi", name: "Lead" });
+    assert.equal(view.selected_track, song.tracks.at(-1)?.id);
+
+    const [copy] = await edit(editTracks, { action: "duplicate", track: "t3" });
+    const copied = song.tracks.find((track) => track.id !== kick.id && live.get(track.id)?.name === "Kick");
+    assert.equal(copy.track, "t8");
+    assert.equal(view.selected_track, copied?.id);
 });

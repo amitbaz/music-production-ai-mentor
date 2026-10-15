@@ -107,3 +107,23 @@ test("show changes nothing when it cannot find the object, and is not marked as 
     assert.notEqual(show.needsApproval, true);
     assert.equal(StandInSocket.opened.length, 0);
 });
+
+test("show opens the folded group of a track it selects, and of the track of a device", async (t) => {
+    const { live, track, set } = liveSet({ tempo: 120, numerator: 4, denominator: 4 });
+    const synths = track({ name: "Synths", type: "group", volume: "0.0 dB", pan: "C", folded: true });
+    const lead = track({ name: "Lead", type: "midi", volume: "0.0 dB", pan: "C", group: synths, devices: [{ name: "Wavetable", class_name: "InstrumentVector" }] });
+    set({ tracks: [synths, lead], return_tracks: [], master_track: track({ ...main }) });
+    useStandIn(t, live);
+    const tools = createAbleton({ address: ADDRESS });
+    await findTool(tools, "read_set").run({});
+    const show = findTool(tools, "show");
+
+    await show.run({ object: "t2" });
+    assert.equal(live.get(synths.id)?.fold_state, 0);
+    assert.equal((live.get("song-view") as Record<string, unknown>).selected_track, lead.id);
+
+    (live.get(synths.id) as Record<string, unknown>).fold_state = 1;
+    await show.run({ object: "d1" });
+    assert.equal(live.get(synths.id)?.fold_state, 0);
+    assert.equal((live.get("song-view") as Record<string, unknown>).selected_track, lead.id);
+});

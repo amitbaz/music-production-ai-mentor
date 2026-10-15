@@ -1,4 +1,6 @@
 // What the changing tools share.
+import { type Client, getProp, setProp } from "./client.ts";
+import { isPlugin, type LiveChain, type LiveDevice, type LiveTrack } from "./live.ts";
 
 // An object the user deleted in Live since its id was given fails in the script like this.
 export function isGone(error: unknown) {
@@ -6,3 +8,73 @@ export function isGone(error: unknown) {
 }
 
 export const goneMessage = (id: string) => `${id} is no longer in the Live Set. Read again with read_set to get current ids.`;
+
+// The panel at the bottom of Live that shows the devices of the selected track.
+export const DEVICE_VIEW = "Detail/DeviceChain";
+
+export const showView = (view: string) => ({ ns: "application-view", name: "show_view", args: [view] });
+
+// Every device of the Live Set, also inside racks, with the track it is on. Live does not say
+// which track a device is on, so this walks down from the tracks, three messages for each level
+// of racks inside racks.
+export async function findTracksOfDevices(client: Client) {
+    const [tracks, returns, main] = (await client.send([
+        getProp("song", "tracks"),
+        getProp("song", "return_tracks"),
+        getProp("song", "master_track"),
+    ])) as [LiveTrack[], LiveTrack[], LiveTrack];
+    const owners = [...tracks, ...returns, main];
+    const lists = await client.sendEach(owners, (track) => [getProp("track", "devices", track.id)]);
+    let level = owners.flatMap((track, index) => (lists[index] as [LiveDevice[]])[0].map((device) => ({ device, track })));
+
+    const tracksOf = new Map<string, { id: string; name: string }>();
+    while (level.length > 0) {
+        for (const { device, track } of level) tracksOf.set(device.id, { id: track.id, name: track.name });
+        const native = level.filter(({ device }) => !isPlugin(device));
+        const canHaveChains = await client.sendEach(native, ({ device }) => [getProp("device", "can_have_chains", device.id)]);
+        const racks = native.filter((_, index) => canHaveChains[index]?.[0]);
+        const chainLists = await client.sendEach(racks, ({ device }) => [getProp("device", "chains", device.id)]);
+        const chains = racks.flatMap(({ track }, index) => (chainLists[index] as [LiveChain[]])[0].map((chain) => ({ chain, track })));
+        const deviceLists = await client.sendEach(chains, ({ chain }) => [getProp("chain", "devices", chain.id)]);
+        level = chains.flatMap(({ track }, index) => (deviceLists[index] as [LiveDevice[]])[0].map((device) => ({ device, track })));
+    }
+    return tracksOf;
+}
+
+// Opens the folded groups a track is in, since a track in one cannot be seen, inner group first.
+async function unfoldGroups(client: Client, trackId: string) {
+    const groupOf = async (id: string) => ((await client.send([getProp("track", "group_track", id)])) as [LiveTrack | null])[0];
+    for (let group = await groupOf(trackId); group; group = await groupOf(group.id)) {
+        const [fold] = await client.send([getProp("track", "fold_state", group.id)]);
+        if (fold) await client.send([setProp("track", "fold_state", 0, group.id)]);
+    }
+}
+
+// Brings a track into view for the user: its groups are opened, and selecting it makes Live scroll to it.
+export async function revealTrack(client: Client, trackId: string) {
+    await unfoldGroups(client, trackId);
+    await client.send([setProp("song-view", "selected_track", trackId)]);
+}
+
+// Brings a device into view: its track first, then the device in the device view. Without its
+// track, only the device.
+export async function revealDevice(client: Client, deviceId: string, trackId?: string) {
+    if (trackId) await revealTrack(client, trackId);
+    await client.send([{ ns: "song-view", name: "select_device", args: { device_id: deviceId } }, showView(DEVICE_VIEW)]);
+}
+
+// For a tool that changes the Live Set, so the user sees what it changes. The change matters more
+// than the view, so a view that fails to move is not an error, and one track or device is shown
+// once for a call, however many changes it gets.
+export function revealer(client: Client) {
+    const shown = new Set<string>();
+    const once = async (id: string, reveal: () => Promise<void>) => {
+        if (shown.has(id)) return;
+        shown.add(id);
+        await reveal().catch(() => {});
+    };
+    return {
+        track: (trackId: string) => once(trackId, () => revealTrack(client, trackId)),
+        device: (deviceId: string, trackId?: string) => once(deviceId, () => revealDevice(client, deviceId, trackId)),
+    };
+}

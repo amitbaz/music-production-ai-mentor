@@ -36,6 +36,7 @@ async function open(t: TestContext, build: (track: MakeTrack) => Track[] = (trac
     const find = (name: string): Tool => tools.find((tool) => tool.name === name) as Tool;
     await find("read_set").run({});
     return {
+        live,
         setParameters: find("set_parameters"),
         read: async (...ids: string[]) => JSON.parse(await find("read_tracks").run({ tracks: ids })).tracks,
         readSet: async () => JSON.parse(await find("read_set").run({})).tracks,
@@ -310,4 +311,68 @@ test("set_parameters sends the same number of messages to read a device whatever
     }
 
     assert.equal(await messagesFor(80), await messagesFor(1));
+});
+
+// The writes of the properties asked for, in the order Live got them.
+const written = (...props: string[]) =>
+    StandInSocket.opened
+        .flatMap((socket) => socket.sent.slice(1))
+        .flatMap((request) => request.commands)
+        .filter((command) => ["set_prop", "select_device"].includes(command.name) && props.includes((command.args as { prop?: string }).prop ?? command.name))
+        .map((command) => (command.args as { prop?: string }).prop ?? command.name);
+
+// A Bass track in a folded group, with a device, read so that Bass is t2 and the device d1.
+async function openInFoldedGroup(t: TestContext) {
+    let group: Track | undefined;
+    let inside: Track | undefined;
+    const made = await open(t, (track) => {
+        group = track({ name: "Synths", type: "group", volume: db(0), pan: pan(0), folded: true });
+        inside = track({
+            name: "Bass",
+            type: "midi",
+            volume: db(-3),
+            pan: pan(0),
+            sends: [db(-12)],
+            group,
+            devices: [{ name: "EQ Eight", class_name: "Eq8", parameters: [gain(0), { name: "Other", value: 1, min: 0, max: 2, shown: (v) => `${v}` }] }],
+        });
+        return [group, inside];
+    });
+    const view = made.live.get("song-view") as Record<string, unknown>;
+    const application = made.live.get("application-view") as { views: string[] };
+    const deviceId = [...made.live].find(([, object]) => object.ns === "device")?.[0];
+    return { ...made, group: group as Track, bassTrack: inside as Track, view, views: application.views, deviceId };
+}
+
+test("set_parameters shows the track of a device first: the group is opened, then the track and the device are selected, and the device view opens", async (t) => {
+    const { setParameters, live, group, bassTrack, view, views, deviceId } = await openInFoldedGroup(t);
+
+    await run(setParameters, change("d1", "Gain", 2));
+
+    assert.equal(live.get(group.id)?.fold_state, 0);
+    assert.equal(view.selected_track, bassTrack.id);
+    assert.equal(view.selected_device, deviceId);
+    assert.deepEqual(views, ["Detail/DeviceChain"]);
+    // The device is shown before its parameter changes.
+    assert.deepEqual(written("fold_state", "selected_track", "select_device", "display_value"), ["fold_state", "selected_track", "select_device", "display_value"]);
+});
+
+test("set_parameters shows the track of a mixer change, and shows a device once however many of its parameters change", async (t) => {
+    const { setParameters, group, bassTrack, view, live } = await openInFoldedGroup(t);
+
+    await run(setParameters, change("t2", "volume", -6));
+    assert.equal(live.get(group.id)?.fold_state, 0);
+    assert.equal(view.selected_track, bassTrack.id);
+
+    await run(setParameters, change("d1", "Gain", 1), change("d1", "Other", 2), change("d1", "Gain", 3));
+    assert.deepEqual(written("select_device"), ["select_device"]);
+});
+
+test("set_parameters does not move the view for a change it refuses", async (t) => {
+    const { setParameters, view } = await openInFoldedGroup(t);
+
+    await run(setParameters, change("d1", "Nothing", 2));
+
+    assert.equal(view.selected_track, null);
+    assert.equal(view.selected_device, null);
 });

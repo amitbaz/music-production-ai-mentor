@@ -1,6 +1,7 @@
 import type { Tool } from "@mentor/harness";
 import { type Client, getProp, setProp, strForValue } from "../../client.ts";
-import { isPlugin, type LiveChain, type LiveDevice, type LiveDeviceParameter, type LiveParameter, type LiveTrack } from "../../live.ts";
+import { findTracksOfDevices, revealer } from "../../changing.ts";
+import { isPlugin, type LiveDeviceParameter, type LiveParameter, type LiveTrack } from "../../live.ts";
 
 // A parameter of a device or of a track's mixer, as the script describes it.
 type Parameter = LiveParameter & { is_quantized?: boolean };
@@ -44,9 +45,10 @@ async function run(client: Client, args: Record<string, unknown>) {
         throw new Error('changes must be a list of one or more changes, such as [{"target": "t1", "parameter": "volume", "value": -6}]');
     }
     // The tracks of the devices are looked up once, and only if a change needs them.
-    let trackOf: Promise<Map<string, string>> | undefined;
+    let trackOf: Promise<Map<string, { id: string; name: string }>> | undefined;
     const tracksOfDevices = () => (trackOf ??= findTracksOfDevices(client));
 
+    const reveal = revealer(client);
     const lines: string[] = [];
     for (const change of changes) {
         const { target, parameter, value } = (typeof change === "object" && change !== null ? change : {}) as Record<string, unknown>;
@@ -55,7 +57,7 @@ async function run(client: Client, args: Record<string, unknown>) {
             if (typeof target !== "string" || typeof parameter !== "string" || value === undefined) {
                 throw new Error("A change needs a target, a parameter and a value");
             }
-            const { before, after } = await apply(client, { target, parameter, value }, label, tracksOfDevices);
+            const { before, after } = await apply(client, { target, parameter, value }, label, tracksOfDevices, reveal);
             lines.push(`${label.text}: ${before} → ${after}`);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -67,15 +69,17 @@ async function run(client: Client, args: Record<string, unknown>) {
     return JSON.stringify({ changes: lines });
 }
 
+type Reveal = ReturnType<typeof revealer>;
+type TracksOfDevices = () => Promise<Map<string, { id: string; name: string }>>;
 type Change = { target: string; parameter: string; value: unknown };
 
-function apply(client: Client, change: Change, label: Label, tracksOfDevices: () => Promise<Map<string, string>>): Promise<Written> {
-    if (/^t\d+$/.test(change.target)) return changeMixer(client, change, label);
-    if (/^d\d+$/.test(change.target)) return changeDevice(client, change, label, tracksOfDevices);
+function apply(client: Client, change: Change, label: Label, tracksOfDevices: TracksOfDevices, reveal: Reveal): Promise<Written> {
+    if (/^t\d+$/.test(change.target)) return changeMixer(client, change, label, reveal);
+    if (/^d\d+$/.test(change.target)) return changeDevice(client, change, label, tracksOfDevices, reveal);
     throw new Error(`${change.target} is not a track or a device. set_parameters takes object ids such as t1 or d12.`);
 }
 
-async function changeMixer(client: Client, { target, parameter, value }: Change, label: Label) {
+async function changeMixer(client: Client, { target, parameter, value }: Change, label: Label, reveal: Reveal) {
     const trackId = client.scriptId(target);
     const [name, mixer, returns] = (await client.send([
         getProp("track", "name", trackId),
@@ -105,15 +109,16 @@ async function changeMixer(client: Client, { target, parameter, value }: Change,
         throw new Error(`${name} has no parameter ${parameter}. The parameters are: ${names.join(", ")}`);
     }
     label.text = `${name} / ${option.label}`;
+    await reveal.track(trackId);
     return write(client, option.parameter, option.label, value);
 }
 
-async function changeDevice(client: Client, { target, parameter, value }: Change, label: Label, tracksOfDevices: () => Promise<Map<string, string>>) {
+async function changeDevice(client: Client, { target, parameter, value }: Change, label: Label, tracksOfDevices: TracksOfDevices, reveal: Reveal) {
     const deviceId = client.scriptId(target);
     const [name, className] = (await client.send([getProp("device", "name", deviceId), getProp("device", "class_name", deviceId)])) as [string, string];
     const track = (await tracksOfDevices()).get(deviceId);
     if (!track) throw new Error(`${target} is no longer in the Live Set. Read again with read_tracks to get current ids.`);
-    label.text = `${track} / ${name} / ${parameter}`;
+    label.text = `${track.name} / ${name} / ${parameter}`;
     if (isPlugin({ id: deviceId, name, class_name: className })) {
         throw new Error(
             `${name} is a third-party plug-in, and the mentor cannot change the parameters of a plug-in yet. Tell the user which control to change and to what value, to do by hand.`,
@@ -128,35 +133,9 @@ async function changeDevice(client: Client, { target, parameter, value }: Change
     if (found.length === 0) throw new Error(`${name} has no parameter ${parameter}. The parameters are: ${parameters.map((candidate) => candidate.name).join(", ")}`);
     if (found.length > 1) throw new Error(`More than one parameter of ${name} is named ${parameter}, so the mentor cannot tell which one is meant.`);
     const [chosen] = found as [LiveDeviceParameter];
-    label.text = `${track} / ${name} / ${chosen.name}`;
+    label.text = `${track.name} / ${name} / ${chosen.name}`;
+    await reveal.device(deviceId, track.id);
     return write(client, chosen, chosen.name, value);
-}
-
-// Every device of the Live Set, also inside racks, with the name of the track it is on. Live does
-// not say which track a device is on, so this walks down from the tracks, three messages for each
-// level of racks inside racks.
-async function findTracksOfDevices(client: Client) {
-    const [tracks, returns, main] = (await client.send([
-        getProp("song", "tracks"),
-        getProp("song", "return_tracks"),
-        getProp("song", "master_track"),
-    ])) as [LiveTrack[], LiveTrack[], LiveTrack];
-    const owners = [...tracks, ...returns, main];
-    const lists = await client.sendEach(owners, (track) => [getProp("track", "devices", track.id)]);
-    let level = owners.flatMap((track, index) => (lists[index] as [LiveDevice[]])[0].map((device) => ({ device, track: track.name })));
-
-    const tracksOf = new Map<string, string>();
-    while (level.length > 0) {
-        for (const { device, track } of level) tracksOf.set(device.id, track);
-        const native = level.filter(({ device }) => !isPlugin(device));
-        const canHaveChains = await client.sendEach(native, ({ device }) => [getProp("device", "can_have_chains", device.id)]);
-        const racks = native.filter((_, index) => canHaveChains[index]?.[0]);
-        const chainLists = await client.sendEach(racks, ({ device }) => [getProp("device", "chains", device.id)]);
-        const chains = racks.flatMap(({ track }, index) => (chainLists[index] as [LiveChain[]])[0].map((chain) => ({ chain, track })));
-        const deviceLists = await client.sendEach(chains, ({ chain }) => [getProp("chain", "devices", chain.id)]);
-        level = chains.flatMap(({ track }, index) => (deviceLists[index] as [LiveDevice[]])[0].map((device) => ({ device, track })));
-    }
-    return tracksOf;
 }
 
 // Writes one parameter and says what it was and what it is, as Live shows them.
