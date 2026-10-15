@@ -8,7 +8,7 @@ from .Namespaces.Track import Track
 
 # The version of this file, which the client checks on connect. Raise it with every change here,
 # and the client's MENTOR_VERSION with it, so a copy installed earlier is told to pair again.
-VERSION = "2"
+VERSION = "3"
 
 
 class Mentor(Interface):
@@ -33,6 +33,23 @@ class Mentor(Interface):
         clip = Interface.get_obj(clip_id)
         specifications = tuple(Live.Clip.MidiNoteSpecification(**note) for note in notes)
         return list(clip.add_new_notes(specifications))
+
+    def modify_notes(self, ns, clip_id, notes):
+        """Changes notes of a MIDI clip, each named by note_id with the fields to set, such as
+        start_time, duration, pitch, velocity and probability. Unlike the script's own
+        apply_note_modifications, which looks only at the notes from beat 0, it reads them from far
+        before the clip's start, so a note before the start can be changed too."""
+        clip = Interface.get_obj(clip_id)
+        existing = clip.get_notes_extended(0, 128, -1000000.0, 99999999999999.0)
+        by_id = {note.note_id: note for note in existing}
+        for change in notes:
+            note = by_id.get(change["note_id"])
+            if note is None:
+                continue
+            for key, value in change.items():
+                if key != "note_id":
+                    setattr(note, key, value)
+        clip.apply_note_modifications(existing)
 
     def set_compressor_sidechain(self, ns, device_id, routing_type, routing_channel=None):
         """Sets the sidechain source of a Compressor by the names Live shows, such as the

@@ -34,7 +34,7 @@ export function editArrangement(client: Client): Tool {
     return {
         name: "edit_arrangement",
         description:
-            'Reshapes the Arrangement View of the Live Set. Takes a list of edits, applied in order; each is reported, and one that fails does not stop the rest. Bars are numbered as read_arrangement gives them, from 1 by the time signature; lengths are in bars. Object ids come from read_set and read_arrangement. Live moves the playback position to a clip it makes and to a locator; each edit puts it back where it was, and position_problems in the result says when it could not. The edits: {action: "create_clip", track, bar, bars, name?} creates an empty MIDI clip on a MIDI track and gives its object id. {action: "duplicate", clip, bar, track?} copies a clip to start at a bar, on its own track or another track of the same kind (MIDI or audio), and gives the copy\'s object id. {action: "move", clip, bar, track?} moves a clip the same way: Live cannot move a clip, so it is copied and the original removed, and the clip gets a new object id. {action: "edit_clip", clip, ...} changes any of name, muted, looping, loop_start and loop_end (beats from the start of the clip, as read_clip counts; not on an unwarped audio clip), and for an audio clip warp (off, beats, tones, texture, repitch, complex or complex_pro), gain (dB, as Live shows it), pitch_semitones and pitch_cents, and reports each before and after as Live shows it. {action: "add_locator", bar, name?} adds a locator at the start of a bar inside the arrangement, and gives its object id. {action: "rename_locator", locator, name} and {action: "remove_locator", locator} take a locator\'s object id from read_arrangement. Live does not let a script split a clip, insert or cut time, or write automation on the arrangement timeline: the actions split, insert_time, cut_time and automation give the steps to tell the user instead, with bar and bars if given. It cannot delete a clip.',
+            'Reshapes the Arrangement View of the Live Set. Takes a list of edits, applied in order; each is reported, and one that fails does not stop the rest. Bars are numbered as read_arrangement gives them, from 1 by the time signature; lengths are in bars. Object ids come from read_set and read_arrangement. Live moves the playback position to a clip it makes and to a locator; each edit puts it back where it was, and position_problems in the result says when it could not. The edits: {action: "create_clip", track, bar, bars, name?} creates an empty MIDI clip on a MIDI track and gives its object id. {action: "duplicate", clip, bar, track?} copies a clip to start at a bar, on its own track or another track of the same kind (MIDI or audio), and gives the copy\'s object id. {action: "move", clip, bar, track?} moves a clip the same way: Live cannot move a clip, so it is copied and the original removed, and the clip gets a new object id. {action: "edit_clip", clip, ...} changes any of name, muted, looping, loop_start and loop_end (beats from the start of the clip, as read_clip counts; not on an unwarped audio clip), and for an audio clip warp (off, beats, tones, texture, repitch, complex or complex_pro), gain (dB, as Live shows it, or "-inf" for silence), pitch_semitones and pitch_cents, and reports each before and after as Live shows it. {action: "add_locator", bar, name?} adds a locator at the start of a bar inside the arrangement, and gives its object id. {action: "rename_locator", locator, name} and {action: "remove_locator", locator} take a locator\'s object id from read_arrangement. Live does not let a script split a clip, insert or cut time, or write automation on the arrangement timeline: the actions split, insert_time, cut_time and automation give the steps to tell the user instead, with bar and bars if given. It cannot delete a clip.',
         params: {
             type: "object",
             properties: {
@@ -55,7 +55,10 @@ export function editArrangement(client: Client): Tool {
                             loop_start: { type: "number", description: "edit_clip: beats from the start of the clip." },
                             loop_end: { type: "number", description: "edit_clip: beats from the start of the clip, after loop_start." },
                             warp: { type: "string", enum: WARPS, description: "edit_clip, audio only: the warp mode, or off." },
-                            gain: { type: "number", description: `edit_clip, audio only: dB, from ${MIN_GAIN} to ${MAX_GAIN}.` },
+                            gain: {
+                                anyOf: [{ type: "number" }, { type: "string", enum: ["-inf"] }],
+                                description: `edit_clip, audio only: dB, from ${MIN_GAIN} to ${MAX_GAIN}, or "-inf" for silence.`,
+                            },
                             pitch_semitones: { type: "number", description: "edit_clip, audio only: -48 to 48." },
                             pitch_cents: { type: "number", description: "edit_clip, audio only: -50 to 49." },
                         },
@@ -231,6 +234,8 @@ const GAIN_CURVE: [number, number][] = [
     [0.275, -8.37], [0.3, -6.2], [0.325, -4.27], [0.35, -2.6], [0.375, -1.18], [0.4, 0], [1, 24],
 ];
 const MIN_GAIN = (GAIN_CURVE[0] as [number, number])[1];
+// Below the curve is silence, gain 0, which Live shows as -inf dB.
+const SILENCE = "-inf";
 const MAX_GAIN = (GAIN_CURVE.at(-1) as [number, number])[1];
 
 function gainOf(db: number) {
@@ -267,8 +272,8 @@ function checkSetting(setting: Setting, value: unknown) {
         throw new Error(`${setting} must be a number of beats from the start of the clip, from 0`);
     }
     if (setting === "warp" && !WARPS.includes(value as string)) throw new Error(`warp must be one of ${WARPS.join(", ")}`);
-    if (setting === "gain" && !(typeof value === "number" && value >= MIN_GAIN && value <= MAX_GAIN)) {
-        throw new Error(`gain must be from ${MIN_GAIN} to ${MAX_GAIN} dB`);
+    if (setting === "gain" && value !== SILENCE && !(typeof value === "number" && value >= MIN_GAIN && value <= MAX_GAIN)) {
+        throw new Error(`gain must be from ${MIN_GAIN} to ${MAX_GAIN} dB, or "${SILENCE}" for silence`);
     }
     if (setting === "pitch_semitones" && !whole(-48, 48)) throw new Error("pitch_semitones must be a whole number from -48 to 48");
     if (setting === "pitch_cents" && !whole(-50, 49)) throw new Error("pitch_cents must be a whole number from -50 to 49");
@@ -290,7 +295,7 @@ async function readSettings(client: Client, clipId: string, settings: Setting[])
 function writes(setting: Setting, value: unknown, clipId: string): Command[] {
     const set = (prop: string, to: unknown) => setProp("clip", prop, to, clipId);
     if (setting === "warp") return value === "off" ? [set("warping", false)] : [set("warping", true), set("warp_mode", value)];
-    if (setting === "gain") return [set("gain", gainOf(value as number))];
+    if (setting === "gain") return [set("gain", value === SILENCE ? 0 : gainOf(value as number))];
     if (setting === "pitch_semitones") return [set("pitch_coarse", value)];
     if (setting === "pitch_cents") return [set("pitch_fine", value)];
     return [set(setting, value)];
@@ -334,8 +339,20 @@ async function editClip(client: Client, edit: Edit) {
 }
 
 async function readLocators(client: Client) {
-    const [cues, length] = (await client.send([getProp("song", "cue_points"), getProp("song", "song_length")])) as [LiveCuePoint[], number];
-    return { cues, length };
+    const [cues, length, playing] = (await client.send([getProp("song", "cue_points"), getProp("song", "song_length"), getProp("song", "is_playing")])) as [
+        LiveCuePoint[],
+        number,
+        boolean,
+    ];
+    return { cues, length, playing };
+}
+
+// Seen in Live 12.4.6: while Live plays, the playback position moves on under the toggle, and a
+// locator was not removed. So adding and removing wait for Live to stop.
+function refuseWhilePlaying(playing: boolean) {
+    if (playing) {
+        throw new Error("Live is playing, and it adds or removes a locator only at the playback position, which moves while it plays. Stop playback first (transport can stop it), then ask again.");
+    }
 }
 
 // A locator by its object id, as it is now.
@@ -367,7 +384,8 @@ async function addLocator(client: Client, edit: Edit, song: Song) {
     const { name } = edit;
     if (name !== undefined && (typeof name !== "string" || name.trim() === "")) throw new Error("name must be some text");
     const beats = beatsOf(bar, song.perBar);
-    const { cues, length } = await readLocators(client);
+    const { cues, length, playing } = await readLocators(client);
+    refuseWhilePlaying(playing);
     const there = cues.find((cue) => cue.time === beats);
     if (there) throw new Error(`There is already a locator at bar ${bar}: ${client.objectId("l", there.id)}, ${there.name}.`);
     if (beats > length) {
@@ -391,7 +409,8 @@ async function renameLocator(client: Client, edit: Edit, song: Song) {
 }
 
 async function removeLocator(client: Client, edit: Edit, song: Song) {
-    const { id, cue, length } = await locatorArg(client, edit);
+    const { id, cue, length, playing } = await locatorArg(client, edit);
+    refuseWhilePlaying(playing);
     // Live cannot move the playback position past the end of the arrangement, where the user may have put one.
     if (cue.time > length) {
         throw new Error(`${id}, ${cue.name}, is past the end of the arrangement, where the mentor cannot reach. Steps for the user: in the Arrangement View, click the locator's marker above the tracks and press Delete.`);

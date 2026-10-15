@@ -402,3 +402,32 @@ test("edit_arrangement reports a playback position it could not put back, and th
     assert.equal(result.edits[0].error, undefined);
     assert.match(result.position_problems[0], /could not be put back to bar 3/);
 });
+
+test('edit_arrangement silences an audio clip with gain "-inf", and refuses any other text', async (t) => {
+    const { edit, breakClip } = await setup(t);
+
+    const [silenced, wrong] = await edit([
+        { action: "edit_clip", clip: breakClip, gain: "-inf" },
+        { action: "edit_clip", clip: breakClip, gain: "quiet" },
+    ]);
+
+    assert.deepEqual(silenced.changed, { gain: { before: "0.00 dB", after: "-inf dB" } });
+    assert.match(wrong.error, /gain must be from -61.6 to 24 dB, or "-inf"/);
+});
+
+test("edit_arrangement refuses to add or remove a locator while Live plays, and still renames one", async (t) => {
+    const { edit, read, song, drop } = await setup(t);
+    song().is_playing = true;
+
+    const [added, removed, renamed] = await edit([
+        { action: "add_locator", bar: 9 },
+        { action: "remove_locator", locator: drop },
+        { action: "rename_locator", locator: drop, name: "Drop 1" },
+    ]);
+
+    assert.match(added.error, /Live is playing.*Stop playback.*transport/s);
+    assert.match(removed.error, /Live is playing/);
+    assert.equal(renamed.changed.name.after, "Drop 1");
+    assert.deepEqual((await read()).locators.map((locator) => locator.name), ["Intro", "Drop 1"]);
+    assert.equal(sentNames().includes("set_or_delete_cue"), false);
+});

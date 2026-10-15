@@ -163,7 +163,7 @@ const AUDIO_ONLY: Record<string, string> = {
 const WARP_NAMES = ["beats", "tones", "texture", "repitch", "complex", "rex", "complex_pro"];
 
 // Clip gains and the text Live 12.4.6 showed for them.
-const GAIN_SHOWN: Record<number, string> = { 0.3: "-6.20 dB", 0.35: "-2.60 dB", 0.4: "0.00 dB", 0.7: "12.0 dB", 1: "24.0 dB" };
+const GAIN_SHOWN: Record<number, string> = { 0: "-inf dB", 0.3: "-6.20 dB", 0.35: "-2.60 dB", 0.4: "0.00 dB", 0.7: "12.0 dB", 1: "24.0 dB" };
 
 // What Live accepts to insert by name: only native devices.
 const NATIVE_DEVICES = ["Auto Filter", "Compressor", "EQ Eight", "Limiter", "Reverb", "Saturator", "Utility"];
@@ -463,9 +463,10 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
                 const kept = notes.filter((note) => !ids.includes(note.note_id as number));
                 notes.splice(0, notes.length, ...kept);
             },
-            // As the script does: each change names a note by note_id and sets the fields it gives.
+            // As the script does: each change names a note by note_id and sets the fields it gives. Seen in
+            // Live 12.4.6: it looks only at the notes from beat 0, so a note before the start stays as it was.
             apply_note_modifications: ({ notes: changes }: { notes: (Partial<NoteSpec> & { note_id: number })[] }) => {
-                for (const change of changes) Object.assign(notes.find((note) => note.note_id === change.note_id) ?? {}, change);
+                for (const change of changes) Object.assign(notes.find((note) => note.note_id === change.note_id && note.start_time >= 0) ?? {}, change);
             },
             warping: true,
             // Live gives the warp mode as its number: 0 is Beats.
@@ -762,6 +763,16 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
         ns: "mentor",
         moveDevice: mover(),
         delete: deleter(),
+        // As our file does: each change names a note by note_id, whatever its start. A note marked
+        // stuck stands for one Live does not change.
+        modify_notes: ({ clip_id, notes }: { clip_id: string; notes: (Partial<NoteSpec> & { note_id: number })[] }) => {
+            const held = (live.get(clip_id) as { notes: (NoteSpec & { stuck?: boolean })[] } | undefined)?.notes;
+            if (!held) throw new Error(`Unknown object id: ${clip_id}`);
+            for (const change of notes) {
+                const note = held.find((candidate) => candidate.note_id === change.note_id);
+                if (note && !note.stuck) Object.assign(note, change);
+            }
+        },
         // As our file does: the notes go into the clip with the next numbers, which it answers.
         add_notes: ({ clip_id, notes }: { clip_id: string; notes: NoteSpec[] }) => {
             const held = (live.get(clip_id) as { notes: NoteSpec[] } | undefined)?.notes;

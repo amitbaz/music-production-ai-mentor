@@ -14,7 +14,7 @@ export type Client = ReturnType<typeof createClient>;
 const SCRIPT_VERSION = "5.0.4";
 // The version of our own file in that script, VERSION in remote-scripts/ableton-js/Mentor.py. It is
 // asked for apart from the script's, so the script's files stay as they are upstream.
-const MENTOR_VERSION = "2";
+const MENTOR_VERSION = "3";
 
 // How long Live has to greet a new connection, accept the password and give its versions, so a
 // stalled Live, or another program on the port, cannot hang a tool.

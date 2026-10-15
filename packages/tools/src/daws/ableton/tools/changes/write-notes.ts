@@ -2,7 +2,7 @@ import type { Tool } from "@mentor/harness";
 import { type Client, getProp } from "../../client.ts";
 import { goneMessage, isGone } from "../../changing.ts";
 import type { LiveNote } from "../../live.ts";
-import { noteKey, noteRow, roundBeats } from "../../reading.ts";
+import { EARLIEST_BEAT, noteKey, noteRow, roundBeats } from "../../reading.ts";
 
 type Asked = Record<string, unknown>;
 
@@ -14,7 +14,7 @@ type Field = keyof typeof FIELDS;
 export function writeNotes(client: Client): Tool {
     const note = {
         pitch: { type: "number", description: "MIDI note number, 0 to 127; 60 is C3 in Live." },
-        start: { type: "number", description: "Beats (quarter notes) from the start of the clip." },
+        start: { type: "number", description: "Beats (quarter notes) from the start of the clip; negative is before the start, where a note does not play." },
         length: { type: "number", description: "In beats." },
         velocity: { type: "number", description: "1 to 127." },
         probability: { type: "number", description: "The chance the note plays, 0 to 1." },
@@ -70,7 +70,8 @@ async function run(client: Client, args: Asked) {
     });
     const valid = changes.filter((item): item is Planned => !("error" in item));
     if (valid.length > 0) {
-        await client.send([{ ns: "clip", nsid: clipId, name: "apply_note_modifications", args: { notes: valid.map((item) => item.live) } }]);
+        // Through our file: the script's own apply_note_modifications does not reach a note before the start.
+        await client.send([{ ns: "mentor", name: "modify_notes", args: { clip_id: clipId, notes: valid.map((item) => item.live) } }]);
     }
     const adds = add.map((asked) => attempt(() => toLive(asked, ["pitch", "start", "length"], { velocity: 100, probability: 1 })));
     const newNotes = adds.filter((item): item is Partial<LiveNote> => !("error" in item));
@@ -106,8 +107,13 @@ async function run(client: Client, args: Asked) {
                 if ("error" in item) return item;
                 const now = attempt(() => read(item.noteId));
                 if ("error" in now) return { note: item.note, ...now };
-                const changed = Object.fromEntries(item.fields.map((field) => [field, { before: shown(field, item.before), after: shown(field, now) }]));
-                return { note: item.note, changed };
+                // Live may keep a field as it was without an error, so each is checked against what was asked.
+                const asked = (field: Field) => (field === "start" || field === "length" ? roundBeats(item.live[FIELDS[field]] as number) : item.live[FIELDS[field]]);
+                const missed = item.fields.filter((field) => shown(field, now) !== asked(field));
+                const done = item.fields.filter((field) => shown(field, now) !== shown(field, item.before));
+                const changed = Object.fromEntries(done.map((field) => [field, { before: shown(field, item.before), after: shown(field, now) }]));
+                if (missed.length === 0) return { note: item.note, changed };
+                return { note: item.note, error: `Ableton Live did not change ${missed.join(" and ")} of ${item.note}. Read the clip again with read_clip.`, changed };
             }),
         }),
     });
@@ -133,7 +139,7 @@ function attempt<T>(make: () => T): T | { error: string } {
 }
 
 async function notesOf(client: Client, clipId: string) {
-    const [notes] = (await client.send([{ ns: "clip", nsid: clipId, name: "get_notes_extended", args: { from_time: 0 } }])) as [LiveNote[]];
+    const [notes] = (await client.send([{ ns: "clip", nsid: clipId, name: "get_notes_extended", args: { from_time: EARLIEST_BEAT } }])) as [LiveNote[]];
     return notes;
 }
 
@@ -157,7 +163,7 @@ function toLive(asked: Asked, required: Field[], defaults: Partial<Record<Field,
 function check(field: Field, value: unknown) {
     const number = typeof value === "number" && Number.isFinite(value) ? value : Number.NaN;
     if (field === "pitch" && !(Number.isInteger(number) && number >= 0 && number <= 127)) throw new Error("pitch must be a whole number from 0 to 127");
-    if (field === "start" && !(number >= 0)) throw new Error("start must be a number of beats from 0");
+    if (field === "start" && Number.isNaN(number)) throw new Error("start must be a number of beats");
     if (field === "length" && !(number > 0)) throw new Error("length must be a number of beats above 0");
     if (field === "velocity" && !(number >= 1 && number <= 127)) throw new Error("velocity must be from 1 to 127");
     if (field === "probability" && !(number >= 0 && number <= 1)) throw new Error("probability must be from 0 to 1");

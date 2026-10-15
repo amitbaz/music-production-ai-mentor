@@ -25,6 +25,10 @@ export function barOf(beats: number, beatsInBar: number) {
     return Math.round((beats / beatsInBar + 1) * 1000) / 1000;
 }
 
+// Where a read of a clip's notes starts when no beat is asked for: far enough before the clip's
+// start that a note recorded early, which Live keeps at a negative beat, is read too.
+export const EARLIEST_BEAT = -1_000_000;
+
 // Beats to four decimals, enough for a sixty-fourth note.
 export const roundBeats = (beats: number) => Math.round(beats * 10000) / 10000;
 

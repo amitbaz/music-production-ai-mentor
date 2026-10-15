@@ -169,3 +169,29 @@ test("write_notes says to read the clip again for a note id from before", async 
 
     assert.match(result.changed[0].error, /n99 is not an object id from the current connection.*read_clip/);
 });
+
+test("write_notes changes a note before the start of the clip, which read_clip lists with a negative start", async (t) => {
+    const { live, write, notes, beat } = await setup(t);
+    // Recorded a little early: half a beat before the clip's start.
+    for (const object of live.values()) {
+        if (object.ns === "clip" && object.name === "Beat") (object.notes as unknown[]).push({ note_id: 9, pitch: 35, start_time: -0.5, duration: 0.5, velocity: 80, probability: 1 });
+    }
+    const early = (await notes(beat)).find((row) => row[1] === 35);
+
+    const result = await write({ clip: beat, change: [{ note: early?.[0], velocity: 60, start: -0.25 }] });
+
+    assert.deepEqual(early?.slice(1), [35, -0.5, 0.5, 80, 1]);
+    assert.deepEqual(result.changed[0].changed, { start: { before: -0.5, after: -0.25 }, velocity: { before: 80, after: 60 } });
+});
+
+test("write_notes says when Live did not change a note as asked", async (t) => {
+    const { live, write, beat, kick1 } = await setup(t);
+    // A note Live holds still, as it would one it does not let a script change.
+    for (const object of live.values()) {
+        if (object.ns === "clip" && object.name === "Beat") Object.assign((object.notes as object[])[0] ?? {}, { stuck: true });
+    }
+
+    const result = await write({ clip: beat, change: [{ note: kick1, velocity: 90 }] });
+
+    assert.match(result.changed[0].error, /Ableton Live did not change velocity/);
+});

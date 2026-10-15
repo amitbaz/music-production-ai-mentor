@@ -448,6 +448,10 @@ On 2026-10-14 a throwaway script, kept outside the repo, tried the facts that [#
 - `set_or_delete_cue` at playback position 201.3 beats put the locator at 200, the start of the bar. `CuePoint.name` can be set, and a cue point keeps its id across reads. The playback position cannot be set past `song_length`: "Cannot set the Songtime behind the Songlength".
 - **Every command of a message runs, even after one fails.** A move of the playback position that failed, followed in the same message by `set_or_delete_cue`, added a locator at the old position. A command that must not run after a failure goes in a message of its own.
 - `Clip.apply_note_modifications` changed a note's start, velocity and probability by `note_id`. Our `add_notes` added notes with probability and answered their `note_id`s.
+- A copy onto bars that hold part of another clip splits that clip: an 8-beat copy at beat 8 of a 32-beat clip left the old clip at 0–8, the copy at 8–16 and a new clip at 16–32 with the rest. A clip moved along its own track onto bars it covers itself (copy, then the original deleted) ended as one whole clip, notes kept.
+- A note can sit before a clip's start: `add_notes` took a start of −0.5, and `get_notes_extended` from −1,000,000 gave it back. The script's own `apply_note_modifications` reads notes from beat 0 only, so a change to such a note is dropped without an error; our `modify_notes` reads from far before the start.
+- Gain 0 shows as "-inf dB".
+- While Live played, adding a locator at bar 40 put it on the bar, but removing it with the same toggle left it in place.
 
 **Arrangement automation through a Session View clip does not work.**
 
