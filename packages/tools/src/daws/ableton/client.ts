@@ -12,7 +12,7 @@ export type Client = ReturnType<typeof createClient>;
 
 // What the user is told when the password does not open Live: connecting again writes a new one
 // into both places, and Live reads its copy when it starts.
-const FIX = "Connect Ableton again (connect-ableton), then restart Live.";
+const FIX = "Connect Ableton again (connect ableton), then restart Live.";
 
 // The address is the script's WebSocket, such as ws://127.0.0.1:39031, and the password the one
 // connecting Ableton wrote into the installed script. The app gives both.

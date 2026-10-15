@@ -27,7 +27,7 @@ async function setUp(t: TestContext, platform: NodeJS.Platform = "darwin") {
     };
 }
 
-test("connect-ableton installs the Remote Script as MusicMentor and says what to choose in Live", async (t) => {
+test("connect ableton installs the Remote Script as MusicMentor and says what to choose in Live", async (t) => {
     const { run, installed } = await setUp(t);
 
     const said = await run(connectAbleton);
@@ -38,7 +38,7 @@ test("connect-ableton installs the Remote Script as MusicMentor and says what to
     assert.match(said, /choose MusicMentor as a Control Surface/);
 });
 
-test("connect-ableton puts the same new password in the script and the app's .env, and never prints it", async (t) => {
+test("connect ableton puts the same new password in the script and the app's .env, and never prints it", async (t) => {
     const { run, installed, envFile } = await setUp(t);
     await writeFile(envFile, "GEMINI_API_KEY=not-a-real-key\nABLETON_ADDRESS=ws://127.0.0.1:39031\n");
 
@@ -53,7 +53,7 @@ test("connect-ableton puts the same new password in the script and the app's .en
     assert.ok(!said.includes(password), "the password is not printed");
 });
 
-test("connect-ableton again replaces the installed folder and the password", async (t) => {
+test("connect ableton again replaces the installed folder and the password", async (t) => {
     const { run, installed, envFile } = await setUp(t);
     await run(connectAbleton);
     const first = await readFile(envFile, "utf8");
@@ -70,7 +70,7 @@ test("connect-ableton again replaces the installed folder and the password", asy
     assert.ok(!existsSync(join(installed, "Old.py")));
 });
 
-test("disconnect-ableton removes the MusicMentor folder and the password, and says what to do in Live", async (t) => {
+test("disconnect ableton removes the MusicMentor folder and the password, and says what to do in Live", async (t) => {
     const { run, installed, envFile } = await setUp(t);
     await writeFile(envFile, "GEMINI_API_KEY=not-a-real-key\n");
     await run(connectAbleton);
@@ -82,7 +82,7 @@ test("disconnect-ableton removes the MusicMentor folder and the password, and sa
     assert.match(said, /set that Control Surface to None/);
 });
 
-test("disconnect-ableton leaves another app's AbletonJS folder alone", async (t) => {
+test("disconnect ableton leaves another app's AbletonJS folder alone", async (t) => {
     const { run, home } = await setUp(t);
     const theirs = join(home, REMOTE_SCRIPTS, "AbletonJS");
     await mkdir(theirs, { recursive: true });
@@ -94,7 +94,7 @@ test("disconnect-ableton leaves another app's AbletonJS folder alone", async (t)
     assert.equal(await readFile(join(theirs, "Config.py"), "utf8"), "PASSWORD = None\n");
 });
 
-test("disconnect-ableton with nothing installed says so and changes nothing", async (t) => {
+test("disconnect ableton with nothing installed says so and changes nothing", async (t) => {
     const { run, home, envFile } = await setUp(t);
     // Written by hand, without a last newline.
     await writeFile(envFile, "GEMINI_API_KEY=not-a-real-key");

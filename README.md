@@ -4,13 +4,13 @@ An AI mentor for music producers. You talk to it in plain language: it explains 
 
 ## Status
 
-Early. The mentor runs in the terminal on Gemini and reads the Live Set open in Ableton Live, so far only as an overview. `pnpm start connect-ableton` installs the Remote Script it reaches Live through. Reading the rest of the Live Set and changing it are next ([#2](https://github.com/amitbaz/music-production-ai-mentor/issues/2)).
+Early. The mentor runs in the terminal on Gemini and reads the Live Set open in Ableton Live, so far only as an overview. `pnpm start connect ableton` installs the Remote Script it reaches Live through. Reading the rest of the Live Set and changing it are next ([#2](https://github.com/amitbaz/music-production-ai-mentor/issues/2)).
 
 ## What it does today
 
 - Talk to the mentor in the terminal, with its reply shown as it is written.
 - It tells explaining from acting by how you ask, and looks at the current state before changing anything.
-- `pnpm start connect-ableton` installs the Remote Script into Live on macOS, with a new random password that only the mentor knows, and says which Control Surface to choose in Live. Running it again replaces both. `pnpm start disconnect-ableton` removes them again.
+- `pnpm start connect ableton` installs the Remote Script into Live on macOS, with a new random password that only the mentor knows, and says which Control Surface to choose in Live. Running it again replaces both. `pnpm start disconnect ableton` removes them again.
 - `read_set` gives the mentor an overview of the Live Set open in Ableton Live, saved or not: tempo, time signature, and each track with its kind, group, volume, pan, sends, mute and solo, and its devices. It connects to Live the first time it is used.
 - Ctrl+C cancels a turn. What already happened stays in the conversation.
 - A failed model call is retried after a growing wait, and an attempt that hangs is timed out.
@@ -20,7 +20,7 @@ Early. The mentor runs in the terminal on Gemini and reads the Live Set open in 
 ## Planned
 
 - **The real Ableton Live** ([#2](https://github.com/amitbaz/music-production-ai-mentor/issues/2)): read device parameters, clips and the arrangement, and change tracks, native devices, clips and the arrangement. Approval comes back with `delete`.
-- **A `mentor` command** ([#37](https://github.com/amitbaz/music-production-ai-mentor/issues/37)): type `mentor`, `mentor auth gemini` or `mentor connect-ableton` from any folder.
+- **A `mentor` command** ([#37](https://github.com/amitbaz/music-production-ai-mentor/issues/37)): type `mentor`, `mentor auth gemini` or `mentor connect ableton` from any folder.
 - **Load a tool set only when the mentor needs it** ([#1](https://github.com/amitbaz/music-production-ai-mentor/issues/1)).
 - **Evals** for what the model decides: which tool it picks, whether it follows the system prompt, which format tool results should use ([#16](https://github.com/amitbaz/music-production-ai-mentor/issues/16)), and what a summary of a long conversation keeps ([#18](https://github.com/amitbaz/music-production-ai-mentor/issues/18)).
 - **Long conversations** ([#21](https://github.com/amitbaz/music-production-ai-mentor/issues/21)): the mentor summarises the older part of a long conversation so each question stays cheap and its answers stay sharp, and shows how big the conversation is. Sending the model only the latest summary and what follows it is in; writing the summary is next. See [ADR 0018](docs/adr/0018-a-long-conversation-is-summarised.md).
@@ -46,14 +46,14 @@ pnpm start
 For the Ableton tools you also need Ableton Live 12.4 or newer on macOS. Connect it once:
 
 ```sh
-pnpm start connect-ableton
+pnpm start connect ableton
 ```
 
 This copies the [ableton-js](https://github.com/leolabs/ableton-js) 5.0.4 Remote Script, kept unchanged in `packages/tools/remote-scripts/ableton-js/`, to `~/Music/Ableton/User Library/Remote Scripts/MusicMentor`. It also writes a new password into the script and into `apps/cli/.env`. Then restart Live and choose `MusicMentor` as a Control Surface in Settings → Link, Tempo & MIDI. `ABLETON_ADDRESS` in `apps/cli/.env` says where the script listens; `.env.example` has its default, `ws://127.0.0.1:39031`.
 
 ## Uninstall
 
-1. `pnpm start disconnect-ableton` removes the `MusicMentor` Remote Script and its password. It leaves anything else in Live's Remote Scripts folder alone.
+1. `pnpm start disconnect ableton` removes the `MusicMentor` Remote Script and its password. It leaves anything else in Live's Remote Scripts folder alone.
 2. In Live, Settings → Link, Tempo & MIDI: set that Control Surface to None, then restart Live.
 3. Delete the repo's folder.
 

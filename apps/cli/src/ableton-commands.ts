@@ -11,7 +11,7 @@ export type CommandOptions = {
     output: Output;
 };
 
-// connect-ableton: installs the Remote Script and says what the user must choose in Live.
+// connect ableton: installs the Remote Script and says what the user must choose in Live.
 export async function connectAbleton({ platform, home, envFile, output }: CommandOptions) {
     const remoteScripts = remoteScriptsFolder(platform, home);
     if (!remoteScripts) {
@@ -26,7 +26,7 @@ export async function connectAbleton({ platform, home, envFile, output }: Comman
     );
 }
 
-// disconnect-ableton: removes what connect-ableton installed and wrote, and says what to undo in Live.
+// disconnect ableton: removes what connect ableton installed and wrote, and says what to undo in Live.
 export async function disconnectAbleton({ platform, home, envFile, output }: CommandOptions) {
     const remoteScripts = remoteScriptsFolder(platform, home);
     if (!remoteScripts) {

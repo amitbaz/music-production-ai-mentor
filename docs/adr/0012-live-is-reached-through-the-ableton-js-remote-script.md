@@ -36,7 +36,7 @@ Rejected:
 
 ## Amendment (2026-10-15): connecting and disconnecting Ableton
 
-- The setup command is `connect-ableton`, with `disconnect-ableton` as its opposite (run as `pnpm start …` until the `mentor` command of #37). Not `setup`: pnpm has its own `pnpm setup` and `pnpm uninstall`, and "link" was rejected because Ableton Link is Live's tempo sync, on the same settings page.
+- The setup command is `connect ableton`, with `disconnect ableton` as its opposite: a verb, then the DAW, so another DAW is `connect <daw>` (run as `pnpm start …` until the `mentor` command of #37). Not `setup`: pnpm has its own `pnpm setup` and `pnpm uninstall`, and "link" was rejected because Ableton Link is Live's tempo sync, on the same settings page.
 - The script is installed into `Remote Scripts/MusicMentor`, not `AbletonJS`. Other apps built on ableton-js install a folder of that name; overwriting or deleting it would break them. The script's files are unchanged: it imports its own files relatively, so it loads under any folder name, and Live lists it as `MusicMentor`.
-- `disconnect-ableton` deletes that folder and removes the password from the app's `.env`, so nothing `connect-ableton` wrote is left. Choosing the Control Surface in Live, and setting it back to None, stay the user's steps.
+- `disconnect ableton` deletes that folder and removes the password from the app's `.env`, so nothing `connect ableton` wrote is left. Choosing the Control Surface in Live, and setting it back to None, stay the user's steps.
 - The app reaches the install and removal functions only through `@mentor/mentor`, which re-exports them next to its types. This widens ADR 0010's "re-exports the few types an app needs" by these functions alone: connecting a DAW is something the app does before any conversation, so it cannot go through a tool.
