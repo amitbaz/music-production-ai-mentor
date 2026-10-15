@@ -1,6 +1,7 @@
 import { type TestContext, test } from "node:test";
 import assert from "node:assert/strict";
 import { createAgent } from "./agent.ts";
+import { adapters } from "./providers/index.ts";
 import type { CallOptions, Message, Model, Tool } from "./types.ts";
 
 const tools: Tool[] = [
@@ -622,4 +623,34 @@ test("the Gemini adapter keeps the counts of earlier pieces when a later piece b
     ]);
     const result = await geminiAgent().generate([], "Hi");
     assert.equal(result.conversationSize, 10_005);
+});
+
+test("the estimate uses the model's characters per token, 4 when it has none", async () => {
+    const reply = () => [[{ type: "assistant" as const, text: "r".repeat(120) }]];
+    // 80 + 120 = 200 characters
+    const withNumber: Model = { ...scriptedModel(reply()).model, charsPerToken: 2 };
+    const two = await createAgent({ model: withNumber, tools: [] }).generate([], "u".repeat(80));
+    assert.equal(two.conversationSize, 100);
+
+    const none = await createAgent({ model: scriptedModel(reply()).model, tools: [] }).generate([], "u".repeat(80));
+    assert.equal(none.conversationSize, 50);
+});
+
+test("the number also applies to what comes after a reported count", async () => {
+    const { model } = scriptedModel(
+        [[{ type: "tool_call", id: "1", name: "shout", args: { text: "x".repeat(400) } }]],
+        [1_000],
+    );
+    const result = await createAgent({ model: { ...model, charsPerToken: 2 }, tools, maxRounds: 1 }).generate([], "go");
+    assert.equal(result.conversationSize, 1_000 + 400 / 2);
+});
+
+test("a model found by its model id estimates with its entry's number", async (t) => {
+    const entry = adapters.gemini?.models[0];
+    assert.ok(entry);
+    t.mock.property(entry, "charsPerToken", 2);
+    fakeFetch(t, [hello]);
+    const result = await geminiAgent().generate([], "Hi");
+    const toolChars = JSON.stringify(tools[0]?.params).length + "shout".length + (tools[0]?.description.length ?? 0);
+    assert.equal(result.conversationSize, Math.ceil((toolChars + 2 + 6) / 2));
 });

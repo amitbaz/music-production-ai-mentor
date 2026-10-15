@@ -55,8 +55,8 @@ export async function runAgentLoop(
     // With no count, everything sent is estimated, system prompt and tools included.
     const conversationSize = () =>
         counted
-            ? counted.tokens + estimateTokens(messagesChars(messages.slice(counted.covered)))
-            : estimateTokens(fixedChars(tools, options.system) + messagesChars(messages));
+            ? counted.tokens + estimateTokens(messagesChars(messages.slice(counted.covered)), model.charsPerToken)
+            : estimateTokens(fixedChars(tools, options.system) + messagesChars(messages), model.charsPerToken);
 
     // Ends the turn
     const stopWith = (stop: "finished" | "empty" | "round_limit" | "cancelled"): LoopResult => ({

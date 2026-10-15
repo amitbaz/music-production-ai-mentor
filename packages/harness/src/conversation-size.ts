@@ -1,9 +1,8 @@
 import type { Message, Tool } from "./types.ts";
 
-// For text no provider has counted: one token to four characters (ADR 0018).
-const CHARS_PER_TOKEN = 4;
-
-export const estimateTokens = (chars: number) => Math.ceil(chars / CHARS_PER_TOKEN);
+// For text no provider has counted. A model that does not give its own number gets four characters to a token (ADR 0018).
+export const estimateTokens = (chars: number, charsPerToken = 4) =>
+    Math.ceil(chars / charsPerToken);
 
 // The characters a message adds to a request
 export function messageChars(message: Message): number {

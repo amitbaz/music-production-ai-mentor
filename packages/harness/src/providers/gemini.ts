@@ -218,6 +218,8 @@ export const geminiModels: SupportedModel[] = [
         name: "gemini-3.5-flash-lite",
         contextWindow: 1_048_576,
         docs: "https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite",
+        // Google's own rule of thumb for English text, not measured on our content
+        charsPerToken: 4,
     },
 ];
 
