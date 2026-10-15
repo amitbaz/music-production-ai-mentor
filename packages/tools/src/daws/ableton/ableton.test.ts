@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Tool } from "@mentor/harness";
 import { createAbleton } from "./ableton.ts";
+import { type Client, createClient, getProp } from "./client.ts";
+import { readSet } from "./tools/reads/read-set.ts";
 import { ADDRESS, liveSet, PASSWORD, StandInSocket, useStandIn } from "./stand-in-live.ts";
 
 // What belongs to the whole tool set (the connection, object ids, batching),
@@ -138,6 +140,78 @@ test("with nothing answering once paired, read_set asks whether Live is open wit
     );
 });
 
+// A tool that takes an object id, as read_tracks and the tools after it do: it answers with the
+// name of the track the id names.
+function trackName(client: Client): Tool {
+    return {
+        name: "track_name",
+        description: "",
+        params: { type: "object", properties: { id: { type: "string" } } },
+        run: async ({ id }) => String((await client.send([getProp("track", "name", client.scriptId(String(id)))]))[0]),
+    };
+}
+
+// Lets the stand-in deliver what it has queued.
+const turn = () => new Promise((resolve) => setImmediate(resolve));
+
+// Live closes the connection, as when it quits or opens another Live Set.
+async function loseConnection() {
+    StandInSocket.opened.at(-1)?.close();
+    await new Promise((resolve) => setTimeout(resolve));
+}
+
+test("a tool given an object id from read_set reaches that object", async (t) => {
+    useStandIn(t, emptySet());
+    const client = createClient(ADDRESS);
+
+    const [main] = JSON.parse(await readSet(client).run({})).tracks;
+
+    assert.equal(await trackName(client).run({ id: main.id }), "Main");
+});
+
+test("after the connection is lost, the next tool call connects again", async (t) => {
+    useStandIn(t, emptySet());
+    const tool = readSet(createClient(ADDRESS));
+
+    await tool.run({});
+    await loseConnection();
+    const result = JSON.parse(await tool.run({}));
+
+    assert.equal(result.tempo, 120);
+    assert.equal(StandInSocket.opened.length, 2);
+});
+
+test("an object id from before a lost connection is refused with a message to read again", async (t) => {
+    useStandIn(t, emptySet());
+    const client = createClient(ADDRESS);
+    const [main] = JSON.parse(await readSet(client).run({})).tracks;
+
+    await loseConnection();
+
+    await assert.rejects(
+        async () => trackName(client).run({ id: main.id }),
+        new Error(`${main.id} is not an object id from the current connection to Ableton Live. Read again with read_set to get current ids.`),
+    );
+});
+
+test("an object id never given out is refused the same way", async (t) => {
+    useStandIn(t, emptySet());
+
+    await assert.rejects(async () => trackName(createClient(ADDRESS)).run({ id: "t9" }), /t9 is not an object id.*Read again/);
+});
+
+test("after a reconnect, read_set gives out none of the ids from before, so an old id cannot name another object", async (t) => {
+    useStandIn(t, emptySet());
+    const client = createClient(ADDRESS);
+    const before = JSON.parse(await readSet(client).run({})).tracks.map((track: { id: string }) => track.id);
+
+    await loseConnection();
+    const after = JSON.parse(await readSet(client).run({})).tracks.map((track: { id: string }) => track.id);
+
+    assert.deepEqual(before, ["t1"]);
+    assert.deepEqual(after, ["t2"]);
+});
+
 test("when Live accepts the connection but never answers, read_set gives up after 5 seconds and says so", async (t) => {
     useStandIn(t, new Map(), { silent: true });
     t.mock.timers.enable({ apis: ["setTimeout"] });
@@ -146,7 +220,6 @@ test("when Live accepts the connection but never answers, read_set gives up afte
     const run = Promise.resolve(findTool(createAbleton({ address: ADDRESS, password: PASSWORD }), "read_set").run({})).finally(
         () => (finished = true),
     );
-    const turn = () => new Promise((resolve) => setImmediate(resolve));
 
     await turn();
     t.mock.timers.tick(4999);

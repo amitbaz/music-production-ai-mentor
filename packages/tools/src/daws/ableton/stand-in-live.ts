@@ -154,6 +154,7 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
         };
         live.set(trackId, {
             ns: "track",
+            name: spec.name,
             devices: (spec.devices ?? []).map((device) => {
                 const deviceId = id();
                 live.set(deviceId, { ns: "device" });

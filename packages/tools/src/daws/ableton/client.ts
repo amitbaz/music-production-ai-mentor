@@ -29,8 +29,10 @@ export function createClient(address: string | undefined, password?: string) {
     let connection: Promise<WebSocket> | undefined;
     const waiting = new Map<string, Waiting>();
     let nextUuid = 1;
-    // Object ids last as long as the connection: script id -> object id, and a count per kind.
+    // Object ids last as long as the connection: script id -> object id, and back. The count per
+    // kind outlives the connection, so an id from before a loss never names another object.
     const objectIds = new Map<string, string>();
+    const scriptIds = new Map<string, string>();
     const counts = new Map<string, number>();
 
     function connect(address: string) {
@@ -79,7 +81,7 @@ export function createClient(address: string | undefined, password?: string) {
                 clearTimeout(timer);
                 connection = undefined;
                 objectIds.clear();
-                counts.clear();
+                scriptIds.clear();
                 const error = new Error("The connection to Ableton Live was lost");
                 for (const wait of waiting.values()) wait.reject(error);
                 waiting.clear();
@@ -131,8 +133,21 @@ export function createClient(address: string | undefined, password?: string) {
                 counts.set(letter, count);
                 id = `${letter}${count}`;
                 objectIds.set(scriptId, id);
+                scriptIds.set(id, scriptId);
             }
             return id;
+        },
+
+        // The script's id for an object id this connection gave out. Any other id, such as one
+        // from before the connection was lost, is refused with a message to read again.
+        scriptId(objectId: string) {
+            const scriptId = scriptIds.get(objectId);
+            if (!scriptId) {
+                throw new Error(
+                    `${objectId} is not an object id from the current connection to Ableton Live. Read again with read_set to get current ids.`,
+                );
+            }
+            return scriptId;
         },
     };
 }
