@@ -163,7 +163,7 @@ test("translates a text reply into an assistant message", async (t) => {
         ],
     });
 
-    assert.deepEqual(await createGeminiModel("test-key", "test-model").call(hi, []), [
+    assert.deepEqual((await createGeminiModel("test-key", "test-model").call(hi, [])).messages, [
         {
             type: "assistant",
             text: "The tempo is now 128.",
@@ -193,7 +193,7 @@ test("translates function calls into tool calls", async (t) => {
         ],
     });
 
-    assert.deepEqual(await createGeminiModel("test-key", "test-model").call(hi, []), [
+    assert.deepEqual((await createGeminiModel("test-key", "test-model").call(hi, [])).messages, [
         {
             type: "tool_call",
             id: "call_68471",
@@ -244,7 +244,7 @@ test("reads a streamed reply, reporting each piece of text as it arrives", async
     fakeStream(t, recordedStream);
     const pieces: string[] = [];
 
-    const reply = await createGeminiModel("test-key", "test-model").call(hi, [setTempo], {
+    const { messages: reply } = await createGeminiModel("test-key", "test-model").call(hi, [setTempo], {
         onText: (text) => pieces.push(text),
     });
 
@@ -257,7 +257,7 @@ test("reads a streamed reply whose lines are cut in the middle", async (t) => {
     // The network cuts where it likes, not at the end of a line.
     fakeStream(t, [whole.slice(0, 40), whole.slice(40, 300), whole.slice(300)]);
 
-    const reply = await createGeminiModel("test-key", "test-model").call(hi, [setTempo]);
+    const { messages: reply } = await createGeminiModel("test-key", "test-model").call(hi, [setTempo]);
 
     assert.deepEqual(reply, recordedReply);
 });
@@ -293,7 +293,7 @@ test("the model posts the translated request and returns the translated reply", 
     const model = createGeminiModel("test-key", "test-model");
     const conversation: Message[] = [{ type: "user", text: "Hi" }];
 
-    const reply = await model.call(conversation, [setTempo]);
+    const { messages: reply } = await model.call(conversation, [setTempo]);
 
     assert.deepEqual(reply, [{ type: "assistant", text: "Hello!" }]);
 

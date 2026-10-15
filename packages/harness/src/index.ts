@@ -6,6 +6,7 @@ export {
     type CallOptions,
     type Message,
     type Model,
+    type ModelReply,
     ModelCallError,
     type Tool,
     type ToolCall,

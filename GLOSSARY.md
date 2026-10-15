@@ -33,7 +33,8 @@
 - **Native device** — an instrument or effect that is part of Ableton Live, such as EQ Eight or Compressor. A third-party plug-in is not one.
 - **Object id** — a short name such as `t17` or `d204` that a read gives to a track, device or clip, and that a later tool call uses to say which one it means. It follows the object through renames and reorders, and lasts as long as the connection to Live.
 - **Round** — one model call plus the tool calls it triggers. The agent loop is capped at 10 rounds per turn.
-- **Model call** — asking the model once for its next messages, as the agent loop sees it. One per round; made of one or more attempts.
+- **Model call** — asking the model once for its next reply, as the agent loop sees it. One per round; made of one or more attempts.
+- **Reply** — what a model call returns: the new messages, the token count the provider reported for the call if it gave one (the whole request plus the reply, cached tokens included), and whether the reply was cut off by the output limit.
 - **Attempt** — one request sent to the provider.
 - **Retryable failure** — a failed attempt that the provider adapter marks as likely to pass if tried again, such as an overloaded provider or a dropped connection.
 - **Retry** — a further attempt after a retryable failure, made after a wait that grows each time. An attempt whose reply has started to arrive is never retried. A model call fails when a failure is not retryable or the retries run out.

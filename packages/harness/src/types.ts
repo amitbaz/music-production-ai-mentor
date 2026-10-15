@@ -33,13 +33,23 @@ export type Tool = {
 
 export type ToolCall = Extract<Message, { type: "tool_call" }>;
 
-// A model API. Takes the whole conversation and returns the model's new messages.
+// What a model call returns
+export type ModelReply = {
+    // The model's new messages
+    messages: Message[];
+    // Tokens the provider reported for the call: the whole request plus the reply, cached tokens included. Absent when the provider gave none.
+    tokens?: number;
+    // The reply was cut off by the output limit
+    cutOff: boolean;
+};
+
+// A model API. Takes the whole conversation and returns the model's reply.
 export type Model = {
     call: (
         conversation: Message[],
         tools: Tool[],
         options?: CallOptions,
-    ) => Promise<Message[]>;
+    ) => Promise<ModelReply>;
 };
 
 // A failed attempt, labelled by the provider adapter. Only a retryable one is tried again.

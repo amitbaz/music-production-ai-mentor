@@ -1,4 +1,4 @@
-import type { Message, Model, Tool, ToolCall } from "./types.ts";
+import type { Message, Model, ModelReply, Tool, ToolCall } from "./types.ts";
 
 const MAX_ROUNDS = 10; // Prevent infinite loops if the model keeps calling tools.
 
@@ -47,7 +47,7 @@ export async function runAgentLoop(
 
     for (let round = 0; round < MAX_ROUNDS; round++) {
         // Send the whole conversation; get back the model's next messages.
-        let reply: Message[];
+        let reply: ModelReply;
         // The text of the reply so far, in case the call stops before it is whole
         let arrived = "";
         try {
@@ -69,17 +69,17 @@ export async function runAgentLoop(
         }
 
         // No tool call and no text: the model chose to say nothing. Nothing is kept.
-        const isEmpty = reply.every(
+        const isEmpty = reply.messages.every(
             (message) =>
                 message.type === "assistant" && message.text.trim() === "",
         );
         if (isEmpty) return { messages, stop: "empty" };
 
-        for (const message of reply) add(message);
+        for (const message of reply.messages) add(message);
 
         // Run each tool the model asked for and record its result
         let calledTool = false;
-        for (const message of reply) {
+        for (const message of reply.messages) {
             if (message.type !== "tool_call") continue;
             calledTool = true;
             add(await runToolCall(message, tools, options));
