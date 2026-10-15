@@ -3,7 +3,8 @@ import { type Keys, broken, modelFor } from "./providers/index.ts";
 import type { RetryOptions } from "./retry.ts";
 import type { Message, Model, Tool } from "./types.ts";
 
-export type AgentOptions = {
+// The retry options (maxRetries, timeoutMs, firstWaitMs, onRetry) apply to a model id, not to a ready model.
+export type AgentOptions = RetryOptions & {
     // A model id, written provider:model. A ready model takes its place in tests.
     model: string | Model;
     // One API key per provider name; needed for a model id
@@ -11,12 +12,6 @@ export type AgentOptions = {
     tools: Tool[];
     // The system prompt. A function is called at the start of each turn.
     system?: string | (() => string);
-    // Called before each wait of a retry
-    onRetry?: RetryOptions["onRetry"];
-    // How the retry works; the defaults of withRetry when absent. They apply to a model id, not to a ready model.
-    maxRetries?: RetryOptions["maxRetries"];
-    timeoutMs?: RetryOptions["timeoutMs"];
-    firstWaitMs?: RetryOptions["firstWaitMs"];
     // Most model calls in one turn; the loop's default when absent
     maxRounds?: number;
     // Most characters one tool result may hold; the loop's default when absent
@@ -54,12 +49,7 @@ export function createAgent(options: AgentOptions) {
     const model = invalid
         ? broken(invalid)
         : typeof options.model === "string"
-            ? modelFor(options.model, options.keys ?? {}, {
-                  onRetry: options.onRetry,
-                  maxRetries: options.maxRetries,
-                  timeoutMs: options.timeoutMs,
-                  firstWaitMs: options.firstWaitMs,
-              })
+            ? modelFor(options.model, options.keys ?? {}, options)
             : options.model;
 
     return {
