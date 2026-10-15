@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { connectAbleton, disconnectAbleton } from "./ableton-commands.ts";
+import { pairAbleton, unpairAbleton } from "./pairing.ts";
 
 // Where Live loads Remote Scripts from on macOS, below the home folder.
 const REMOTE_SCRIPTS = join("Music", "Ableton", "User Library", "Remote Scripts");
@@ -19,7 +19,7 @@ async function setUp(t: TestContext, platform: NodeJS.Platform = "darwin") {
         envFile,
         installed: join(home, REMOTE_SCRIPTS, "MusicMentor"),
         // Runs a command and gives back what it printed.
-        async run(command: typeof connectAbleton) {
+        async run(command: typeof pairAbleton) {
             let said = "";
             await command({ platform, home, envFile, output: { write: (text) => (said += text) } });
             return said;
@@ -27,10 +27,10 @@ async function setUp(t: TestContext, platform: NodeJS.Platform = "darwin") {
     };
 }
 
-test("connect ableton installs the Remote Script as MusicMentor and says what to choose in Live", async (t) => {
+test("pair ableton installs the Remote Script as MusicMentor and says what to choose in Live", async (t) => {
     const { run, installed } = await setUp(t);
 
-    const said = await run(connectAbleton);
+    const said = await run(pairAbleton);
 
     assert.match(await readFile(join(installed, "version.py"), "utf8"), /version = "5\.0\.4"/);
     assert.match(await readFile(join(installed, "LICENSE"), "utf8"), /^MIT License/);
@@ -38,11 +38,11 @@ test("connect ableton installs the Remote Script as MusicMentor and says what to
     assert.match(said, /choose MusicMentor as a Control Surface/);
 });
 
-test("connect ableton puts the same new password in the script and the app's .env, and never prints it", async (t) => {
+test("pair ableton puts the same new password in the script and the app's .env, and never prints it", async (t) => {
     const { run, installed, envFile } = await setUp(t);
     await writeFile(envFile, "GEMINI_API_KEY=not-a-real-key\nABLETON_ADDRESS=ws://127.0.0.1:39031\n");
 
-    const said = await run(connectAbleton);
+    const said = await run(pairAbleton);
 
     const env = await readFile(envFile, "utf8");
     const password = env.match(/^ABLETON_PASSWORD=(.+)$/m)?.[1] ?? "";
@@ -53,14 +53,14 @@ test("connect ableton puts the same new password in the script and the app's .en
     assert.ok(!said.includes(password), "the password is not printed");
 });
 
-test("connect ableton again replaces the installed folder and the password", async (t) => {
+test("pair ableton again replaces the installed folder and the password", async (t) => {
     const { run, installed, envFile } = await setUp(t);
-    await run(connectAbleton);
+    await run(pairAbleton);
     const first = await readFile(envFile, "utf8");
     // Left over from an earlier version of the script.
     await writeFile(join(installed, "Old.py"), "");
 
-    await run(connectAbleton);
+    await run(pairAbleton);
 
     const env = await readFile(envFile, "utf8");
     const passwords = [...env.matchAll(/^ABLETON_PASSWORD=(.+)$/gm)].map((match) => match[1]);
@@ -70,38 +70,38 @@ test("connect ableton again replaces the installed folder and the password", asy
     assert.ok(!existsSync(join(installed, "Old.py")));
 });
 
-test("disconnect ableton removes the MusicMentor folder and the password, and says what to do in Live", async (t) => {
+test("unpair ableton removes the MusicMentor folder and the password, and says what to do in Live", async (t) => {
     const { run, installed, envFile } = await setUp(t);
     await writeFile(envFile, "GEMINI_API_KEY=not-a-real-key\n");
-    await run(connectAbleton);
+    await run(pairAbleton);
 
-    const said = await run(disconnectAbleton);
+    const said = await run(unpairAbleton);
 
     assert.ok(!existsSync(installed));
     assert.equal(await readFile(envFile, "utf8"), "GEMINI_API_KEY=not-a-real-key\n");
     assert.match(said, /set that Control Surface to None/);
 });
 
-test("disconnect ableton leaves another app's AbletonJS folder alone", async (t) => {
+test("unpair ableton leaves another app's AbletonJS folder alone", async (t) => {
     const { run, home } = await setUp(t);
     const theirs = join(home, REMOTE_SCRIPTS, "AbletonJS");
     await mkdir(theirs, { recursive: true });
     await writeFile(join(theirs, "Config.py"), "PASSWORD = None\n");
-    await run(connectAbleton);
+    await run(pairAbleton);
 
-    await run(disconnectAbleton);
+    await run(unpairAbleton);
 
     assert.equal(await readFile(join(theirs, "Config.py"), "utf8"), "PASSWORD = None\n");
 });
 
-test("disconnect ableton with nothing installed says so and changes nothing", async (t) => {
+test("unpair ableton with nothing installed says so and changes nothing", async (t) => {
     const { run, home, envFile } = await setUp(t);
     // Written by hand, without a last newline.
     await writeFile(envFile, "GEMINI_API_KEY=not-a-real-key");
 
-    const said = await run(disconnectAbleton);
+    const said = await run(unpairAbleton);
 
-    assert.match(said, /not connected/);
+    assert.match(said, /not paired/);
     assert.equal(await readFile(envFile, "utf8"), "GEMINI_API_KEY=not-a-real-key");
     assert.ok(!existsSync(join(home, "Music")));
 });
@@ -110,7 +110,7 @@ test("on Windows, both commands say the platform is not supported yet and change
     const { run, home, envFile } = await setUp(t, "win32");
     await writeFile(envFile, "ABLETON_PASSWORD=from-before\n");
 
-    for (const command of [connectAbleton, disconnectAbleton]) {
+    for (const command of [pairAbleton, unpairAbleton]) {
         assert.match(await run(command), /not supported on this platform yet/);
     }
 

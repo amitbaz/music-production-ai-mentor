@@ -10,12 +10,15 @@ type Waiting = { resolve: (results: Result[]) => void; reject: (error: Error) =>
 
 export type Client = ReturnType<typeof createClient>;
 
-// What the user is told when the password does not open Live: connecting again writes a new one
-// into both places, and Live reads its copy when it starts.
-const FIX = "Connect Ableton again (connect ableton), then restart Live.";
+// What the user is told when Live cannot be used. Without a password Ableton was never paired;
+// with one, pairing again writes a new one into both places, and Live reads its copy when it starts.
+const CONTROL_SURFACE = "MusicMentor as a Control Surface in Settings → Link, Tempo & MIDI";
+const NOT_PAIRED = `Ableton Live is not paired with the mentor yet. Run pnpm pair ableton, restart Live, and choose ${CONTROL_SURFACE}.`;
+const REFUSED = "Ableton Live refused the password. Pair Ableton again with pnpm pair ableton, then restart Live.";
+const UNREACHABLE = `Could not reach Ableton Live. Is it open, with ${CONTROL_SURFACE}?`;
 
 // The address is the script's WebSocket, such as ws://127.0.0.1:39031, and the password the one
-// connecting Ableton wrote into the installed script. The app gives both.
+// pairing Ableton wrote into the installed script. The app gives both.
 export function createClient(address: string | undefined, password?: string) {
     // Opened on the first send, not before.
     let connection: Promise<WebSocket> | undefined;
@@ -39,11 +42,11 @@ export function createClient(address: string | undefined, password?: string) {
                 if (reply.event === "connect") {
                     const { requiresAuth, salt } = (reply.data ?? {}) as { requiresAuth?: boolean; salt?: string };
                     if (!requiresAuth) return resolve(socket);
-                    if (!password) return fail(`Ableton Live asks for a password, and none is set. ${FIX}`);
+                    if (!password) return fail(NOT_PAIRED);
                     const uuid = String(nextUuid++);
                     waiting.set(uuid, {
                         resolve: () => resolve(socket),
-                        reject: () => fail(`Ableton Live refused the password. ${FIX}`),
+                        reject: () => fail(REFUSED),
                     });
                     const hash = createHmac("sha256", password).update(salt ?? "").digest("hex");
                     socket.send(JSON.stringify({ uuid, commands: [{ ns: "internal", name: "authenticate", args: { hash } }] }));
@@ -62,7 +65,7 @@ export function createClient(address: string | undefined, password?: string) {
                 const error = new Error("The connection to Ableton Live was lost");
                 for (const wait of waiting.values()) wait.reject(error);
                 waiting.clear();
-                reject(new Error("Could not reach Ableton Live"));
+                reject(new Error(password ? UNREACHABLE : NOT_PAIRED));
             });
         });
     }

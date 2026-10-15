@@ -11,8 +11,8 @@ export type CommandOptions = {
     output: Output;
 };
 
-// connect ableton: installs the Remote Script and says what the user must choose in Live.
-export async function connectAbleton({ platform, home, envFile, output }: CommandOptions) {
+// pnpm pair ableton: installs the Remote Script and says what the user must choose in Live.
+export async function pairAbleton({ platform, home, envFile, output }: CommandOptions) {
     const remoteScripts = remoteScriptsFolder(platform, home);
     if (!remoteScripts) {
         output.write(NOT_SUPPORTED);
@@ -21,13 +21,13 @@ export async function connectAbleton({ platform, home, envFile, output }: Comman
     const { folder, password } = await installRemoteScript(remoteScripts);
     await setEnv(envFile, PASSWORD_LINE, password);
     output.write(
-        `Installed the ${REMOTE_SCRIPT_NAME} Remote Script in\n  ${folder}\n` +
+        `Paired with Ableton Live: installed the ${REMOTE_SCRIPT_NAME} Remote Script in\n  ${folder}\n` +
             `Next: restart Live, then in Settings → Link, Tempo & MIDI choose ${REMOTE_SCRIPT_NAME} as a Control Surface.\n`,
     );
 }
 
-// disconnect ableton: removes what connect ableton installed and wrote, and says what to undo in Live.
-export async function disconnectAbleton({ platform, home, envFile, output }: CommandOptions) {
+// pnpm unpair ableton: removes what pairing installed and wrote, and says what to undo in Live.
+export async function unpairAbleton({ platform, home, envFile, output }: CommandOptions) {
     const remoteScripts = remoteScriptsFolder(platform, home);
     if (!remoteScripts) {
         output.write(NOT_SUPPORTED);
@@ -36,16 +36,16 @@ export async function disconnectAbleton({ platform, home, envFile, output }: Com
     const { folder, removed } = await removeRemoteScript(remoteScripts);
     await setEnv(envFile, PASSWORD_LINE, undefined);
     if (!removed) {
-        output.write(`Ableton is not connected: there is no ${REMOTE_SCRIPT_NAME} folder in\n  ${remoteScripts}\n`);
+        output.write(`Ableton Live is not paired: there is no ${REMOTE_SCRIPT_NAME} folder in\n  ${remoteScripts}\n`);
         return;
     }
     output.write(
-        `Removed the ${REMOTE_SCRIPT_NAME} Remote Script from\n  ${folder}\n` +
+        `Unpaired from Ableton Live: removed the ${REMOTE_SCRIPT_NAME} Remote Script from\n  ${folder}\n` +
             "Next: in Live's Settings → Link, Tempo & MIDI, set that Control Surface to None, then restart Live.\n",
     );
 }
 
-const NOT_SUPPORTED = "Connecting Ableton Live is not supported on this platform yet, only on macOS. Nothing was changed.\n";
+const NOT_SUPPORTED = "Pairing Ableton Live is not supported on this platform yet, only on macOS. Nothing was changed.\n";
 
 // The .env line the client reads the password for Live from.
 const PASSWORD_LINE = "ABLETON_PASSWORD";

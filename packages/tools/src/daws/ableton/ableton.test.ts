@@ -102,20 +102,38 @@ test("read_set works when Live asks for the password the app gives", async (t) =
     assert.equal(result.tempo, 120);
 });
 
-test("a wrong password fails with an error that says to connect Ableton again", async (t) => {
+test("a wrong password fails with an error that says to pair Ableton again", async (t) => {
     useStandIn(t, emptySet(), { locked: true });
 
     await assert.rejects(
         async () => findTool(createAbleton({ address: ADDRESS, password: "a-wrong-one" }), "read_set").run({}),
-        /refused the password.*connect Ableton again/i,
+        /refused the password.*pnpm pair ableton/i,
     );
 });
 
-test("Live asking for a password when the app gives none fails with the same advice", async (t) => {
+test("Live asking for a password when the app gives none says Ableton is not paired", async (t) => {
     useStandIn(t, emptySet(), { locked: true });
 
     await assert.rejects(
         async () => findTool(createAbleton({ address: ADDRESS }), "read_set").run({}),
-        /asks for a password.*connect Ableton again/i,
+        /not paired.*pnpm pair ableton/i,
+    );
+});
+
+test("with nothing answering and no password, read_set says Ableton is not paired and how to pair it", async (t) => {
+    useStandIn(t, new Map(), { closed: true });
+
+    await assert.rejects(
+        async () => findTool(createAbleton({ address: ADDRESS }), "read_set").run({}),
+        /not paired.*pnpm pair ableton/i,
+    );
+});
+
+test("with nothing answering once paired, read_set asks whether Live is open with MusicMentor chosen", async (t) => {
+    useStandIn(t, new Map(), { closed: true });
+
+    await assert.rejects(
+        async () => findTool(createAbleton({ address: ADDRESS, password: PASSWORD }), "read_set").run({}),
+        /Could not reach Ableton Live.*open.*MusicMentor/i,
     );
 });

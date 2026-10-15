@@ -24,6 +24,8 @@ export class StandInSocket extends EventTarget {
     static live: LiveSet = new Map();
     // Whether Live asks for PASSWORD before it takes commands.
     static locked = false;
+    // Whether nothing listens at the address, as when Live is closed or the script is not chosen.
+    static closed = false;
 
     url: string;
     sent: Request[] = [];
@@ -33,6 +35,10 @@ export class StandInSocket extends EventTarget {
         super();
         this.url = url;
         StandInSocket.opened.push(this);
+        if (StandInSocket.closed) {
+            this.close();
+            return;
+        }
         setTimeout(() => {
             this.dispatchEvent(new Event("open"));
             const auth = StandInSocket.locked ? { requiresAuth: true, salt: SALT } : {};
@@ -91,11 +97,12 @@ const realWebSocket = globalThis.WebSocket;
 export const ADDRESS = "ws://127.0.0.1:40123";
 
 // Puts the stand-in in place of the global WebSocket for one test. `locked` makes Live ask
-// for PASSWORD, as the installed script does.
-export function useStandIn(t: TestContext, live: LiveSet, { locked = false } = {}) {
+// for PASSWORD, as the installed script does; `closed` makes nothing answer at all.
+export function useStandIn(t: TestContext, live: LiveSet, { locked = false, closed = false } = {}) {
     StandInSocket.opened = [];
     StandInSocket.live = live;
     StandInSocket.locked = locked;
+    StandInSocket.closed = closed;
     globalThis.WebSocket = StandInSocket as unknown as typeof WebSocket;
     t.after(() => {
         globalThis.WebSocket = realWebSocket;
