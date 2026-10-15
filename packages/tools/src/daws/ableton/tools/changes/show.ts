@@ -45,7 +45,7 @@ async function run(client: Client, args: Record<string, unknown>) {
     }
 
     const select = {
-        t: { ns: "song-view", name: "set_prop", args: { prop: "selected_track", value: scriptId } },
+        t: setProp("song-view", "selected_track", scriptId),
         d: { ns: "song-view", name: "select_device", args: { device_id: scriptId } },
         c: setProp("song-view", "detail_clip", scriptId),
     }[letter];

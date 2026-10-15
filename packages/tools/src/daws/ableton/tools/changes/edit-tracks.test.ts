@@ -78,6 +78,15 @@ test("edit_tracks duplicates a track, with a new name if one is given", async (t
     assert.deepEqual(read, ["t1", "t5", "t2", "t6", "t3", "t4"]);
 });
 
+test("edit_tracks duplicates a track after creating one in the same call, and finds the copy, not the new track", async (t) => {
+    const { song, editTracks } = await withTracks(t);
+
+    const changes = await edit(editTracks, { action: "create", kind: "midi", name: "Lead" }, { action: "duplicate", track: "t2" });
+
+    assert.equal(changes[1].track, "t6");
+    assert.deepEqual(song.tracks.map((track) => track.name), ["Kick", "Bass", "Bass", "Lead"]);
+});
+
 test("edit_tracks refuses to duplicate a return track or Main", async (t) => {
     const { song, editTracks } = await withTracks(t);
 

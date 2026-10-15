@@ -108,7 +108,7 @@ async function apply(client: Client, change: unknown, known: Known) {
         throw new Error('Each change is an object with an action, such as {"action": "edit", "track": "t1", "mute": true}');
     }
     const { action } = change as Change;
-    if (action === "create") return create(client, change as Change);
+    if (action === "create") return create(client, change as Change, known);
     if (action === "duplicate") return duplicate(client, change as Change, known);
     if (action === "edit") return edit(client, change as Change, known);
     throw new Error(`action must be ${ACTIONS.slice(0, -1).join(", ")} or ${ACTIONS.at(-1)}, not ${String(action)}. edit_tracks cannot delete a track.`);
@@ -142,7 +142,7 @@ async function rename(client: Client, scriptId: string, name: string | undefined
     return results.at(-1) as string;
 }
 
-async function create(client: Client, change: Change) {
+async function create(client: Client, change: Change, known: Known) {
     const { kind } = change;
     if (!KINDS.includes(kind as (typeof KINDS)[number])) throw new Error(`kind must be audio, midi or return, not ${String(kind)}`);
     const name = nameArg(change);
@@ -152,6 +152,8 @@ async function create(client: Client, change: Change) {
             ? { ns: "song", name: "create_return_track" }
             : { ns: "song", name: `create_${kind as "audio" | "midi"}_track`, args: { index: -1 } },
     ])) as [LiveTrack];
+    // The Live Set has a track more, which a later duplicate must not take for its copy.
+    Object.assign(known, await readKnown(client));
     return { action: "create", track: client.objectId("t", created.id), kind, name: await rename(client, created.id, name) };
 }
 
@@ -189,6 +191,8 @@ const noChannel = (direction: Direction, type: string, channel: string, channels
 
 const names = (list: unknown) => (list as { display_name: string }[]).map((item) => item.display_name);
 
+type RouteState = Awaited<ReturnType<typeof readRouting>>;
+
 // Reads the routing of a track in one direction: where it is now, and what Live offers.
 async function readRouting(client: Client, scriptId: string, direction: Direction) {
     const [type, channel, types, channels] = await client.send(
@@ -223,7 +227,7 @@ async function edit(client: Client, change: Change, known: Known) {
     const fields = ["name", ...flags];
     const beforeValues = await client.send(fields.map((field) => getProp("track", field, scriptId)));
     const before = Object.fromEntries(fields.map((field, index) => [field, beforeValues[index]]));
-    const routes = new Map<Direction, Awaited<ReturnType<typeof readRouting>>>();
+    const routes = new Map<Direction, RouteState>();
     for (const [direction, want] of wanted) {
         const route = await readRouting(client, scriptId, direction);
         routes.set(direction, route);
@@ -265,7 +269,7 @@ async function setRouting(
     scriptId: string,
     direction: Direction,
     want: Wanted,
-    route: Awaited<ReturnType<typeof readRouting>>,
+    route: RouteState,
     changed: Record<string, unknown>,
 ) {
     if (want.type !== undefined && want.type !== route.now.type) {
