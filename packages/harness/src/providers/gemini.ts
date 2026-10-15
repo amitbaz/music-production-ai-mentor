@@ -100,6 +100,10 @@ type GeminiResponse = {
         // Sent on the last piece of a reply; MAX_TOKENS means the output limit cut it off
         finishReason?: string;
     }[];
+    // Token counts, on the last piece of a streamed reply or on every one, as a running total.
+    // The prompt count already holds the cached tokens. Thinking has its own count, left out
+    // because Gemini does not send it back on the next call.
+    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
     // Present instead of candidates when Gemini refuses the prompt
     promptFeedback?: { blockReason?: string };
     // Present instead of candidates when the request itself was rejected
@@ -181,6 +185,7 @@ async function readReply(
     const messages: Message[] = [];
     let piece: GeminiResponse = {};
     let replied = false;
+    let usage: GeminiResponse["usageMetadata"];
     let cutOff = false;
     // The end of what was read so far, when it stops in the middle of a line
     let rest = "";
@@ -192,6 +197,7 @@ async function readReply(
         for (const line of lines) {
             if (!line.startsWith("data:")) continue;
             piece = JSON.parse(line.slice("data:".length));
+            usage = { ...usage, ...piece.usageMetadata };
             const candidate = piece.candidates?.[0];
             if (!candidate) continue;
             replied = true;
@@ -204,8 +210,11 @@ async function readReply(
         // Happens when Gemini refuses the prompt; the reply then says why.
         throw new Error(`Gemini returned no reply: ${JSON.stringify(piece)}`);
     }
-    // Token counts are not read yet.
-    return { messages, cutOff };
+    const tokens =
+        usage?.promptTokenCount === undefined
+            ? {}
+            : { tokens: usage.promptTokenCount + (usage.candidatesTokenCount ?? 0) };
+    return { messages, ...tokens, cutOff };
 }
 
 // Every window is at least 1,000,000 tokens (ADR 0019). Add a model after checking its docs page.
@@ -214,6 +223,8 @@ export const geminiModels: SupportedModel[] = [
         name: "gemini-3.5-flash-lite",
         contextWindow: 1_048_576,
         docs: "https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite",
+        // Google's own rule of thumb for English text, not measured on our content
+        charsPerToken: 4,
     },
 ];
 

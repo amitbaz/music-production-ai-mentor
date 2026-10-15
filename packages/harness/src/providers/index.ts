@@ -35,14 +35,18 @@ export function modelFor(
         return broken(`Unknown provider "${provider}" in model id "${modelId}"`);
     }
 
-    if (!adapter.models.some((model) => model.name === name)) {
+    const supported = adapter.models.find((model) => model.name === name);
+    if (!supported) {
         return broken(`Model "${name}" is not supported by provider "${provider}"`);
     }
 
     const key = Object.hasOwn(keys, provider) ? keys[provider] : undefined;
     if (!key) return broken(`No API key for provider "${provider}"`);
 
-    return withRetry(adapter.create(key, name), retry);
+    return {
+        ...withRetry(adapter.create(key, name), retry),
+        charsPerToken: supported.charsPerToken,
+    };
 }
 
 // A model whose every call fails with a plain Error, so it is never retried.

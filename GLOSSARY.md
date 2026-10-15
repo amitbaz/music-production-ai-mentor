@@ -26,6 +26,7 @@
 - **Tool result** — what the harness sends back after running a tool call, including errors.
 - **Result limit** — the most characters one tool result may hold. Past it, the harness keeps the start and adds a note saying how much was cut. A tool whose answer grows with the Live Set keeps itself under the limit, so the cut is only a safety net.
 - **Conversation size** — how many tokens the conversation takes when sent to the model, as best the harness knows: the count the provider gave on the last model call, plus an estimate for what was added since. Reported with each turn's result.
+- **Characters per token** — how many characters of text one token takes for a supported model, used to estimate the size of text no provider has counted yet. Each supported model has its own number. Today each is an estimate, not a measurement, and a model that gives none is taken as four.
 - **Live Set** — the project open in Ableton Live: its tracks, devices, clips and settings, whether saved to a file or not.
 - **Remote Script** — code that runs inside Ableton Live and lets an outside program read and change the Live Set. The Ableton tools reach Live through one.
 - **Client** — the part of a tool set that talks to an outside program for its tools, such as the one that connects to the Remote Script in Live. It connects when a tool first needs it and gives out the object ids.

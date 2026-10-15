@@ -45,6 +45,8 @@ export type ModelReply = {
 
 // A model API. Takes the whole conversation and returns the model's reply.
 export type Model = {
+    // How many characters one token takes, for the estimate of text no provider has counted. 4 when absent.
+    charsPerToken?: number;
     call: (
         conversation: Message[],
         tools: Tool[],
@@ -80,5 +82,11 @@ export type CallOptions = {
 };
 
 // A model a provider adapter supports: its name at the provider, its context window
-// in tokens, and the provider's documentation page that states the window.
-export type SupportedModel = { name: string; contextWindow: number; docs: string };
+// in tokens, the provider's documentation page that states the window, and its
+// characters per token. That number is an estimate until it is measured.
+export type SupportedModel = {
+    name: string;
+    contextWindow: number;
+    docs: string;
+    charsPerToken: number;
+};
