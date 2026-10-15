@@ -137,3 +137,22 @@ test("with nothing answering once paired, read_set asks whether Live is open wit
         /Could not reach Ableton Live.*open.*MusicMentor/i,
     );
 });
+
+test("when Live accepts the connection but never answers, read_set gives up after 5 seconds and says so", async (t) => {
+    useStandIn(t, new Map(), { silent: true });
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+
+    let finished = false;
+    const run = findTool(createAbleton({ address: ADDRESS, password: PASSWORD }), "read_set")
+        .run({})
+        .finally(() => (finished = true));
+    const turn = () => new Promise((resolve) => setImmediate(resolve));
+
+    await turn();
+    t.mock.timers.tick(4999);
+    await turn();
+    assert.equal(finished, false);
+    t.mock.timers.tick(1);
+
+    await assert.rejects(run, /did not answer/);
+});
