@@ -170,8 +170,13 @@ async function writeChoice(client: Client, parameter: Parameter, name: string, v
     if (typeof value !== "string") throw new Error(`${name} is a list: give the name of a choice, one of: ${items.join(", ")}`);
     const index = items.findIndex((item) => item.toLowerCase() === value.trim().toLowerCase());
     if (index < 0) throw new Error(`"${value}" is not a choice of ${name}. The choices are: ${items.join(", ")}`);
-    await client.send([setProp("device-parameter", "value", index, parameter.id)]);
-    return { before: items[parameter.value] as string, after: items[index] as string };
+    const [, kept] = (await client.send([
+        setProp("device-parameter", "value", index, parameter.id),
+        getProp("device-parameter", "value", parameter.id),
+    ])) as [unknown, number];
+    // A parameter Live holds still, such as one an automation drives, takes the write and keeps its value.
+    if (kept !== index) throw new Error(`${name} is still ${items[kept]}: Live did not take "${items[index]}".`);
+    return { before: items[parameter.value] as string, after: items[kept] as string };
 }
 
 // A number is written through display_value, in the units Live shows. Live clamps a number outside
@@ -201,8 +206,8 @@ async function writeNumber(client: Client, parameter: Parameter, name: string, v
         throw error;
     }
 
-    // A little room for the rounding Live does, such as 120.5 Hz kept as 121.
-    const clamped = (kept <= min || kept >= max) && Math.abs(shown - value) > 0.005 * Math.abs(shown) + 1e-9;
+    // A little room for the rounding Live does, such as 15.004 kept as 15.0, but not for 15.05.
+    const clamped = (kept <= min || kept >= max) && Math.abs(shown - value) > 0.001 * Math.abs(shown) + 1e-9;
     if (clamped) {
         const [, low, high] = (await client.send([
             setProp("device-parameter", "value", parameter.value, parameter.id),

@@ -112,6 +112,16 @@ test("set_parameters refuses a choice the list does not have, and names the choi
     assert.equal((await read("t1"))[0].devices[0].parameters[0].value, "High Pass");
 });
 
+test("set_parameters reports a list parameter that kept its choice, as not changed", async (t) => {
+    const { setParameters } = await open(t, (track) => [
+        bass(track, [{ name: "Auto Filter", class_name: "AutoFilter", parameters: [{ ...filterType, ignoresWrites: true }] }]),
+    ]);
+
+    const result = await run(setParameters, change("d1", "Filter Type", "Band Pass"));
+
+    assert.match(result.changes[0] as string, /Filter Type.*not changed.*still High Pass.*Band Pass/);
+});
+
 test("set_parameters refuses a number for a list and a choice for a number", async (t) => {
     const { setParameters } = await open(t, (track) => [
         bass(track, [{ name: "Auto Filter", class_name: "AutoFilter", parameters: [filterType, gain(0)] }]),
@@ -165,6 +175,17 @@ test("set_parameters takes a value at either end of the range, and one outside t
     assert.equal(result.changes[0], "Bass / EQ Eight / Gain: 0.0 dB → 15.0 dB");
     assert.equal(result.changes[1], "Bass / EQ Eight / Gain: 15.0 dB → -15.0 dB");
     assert.match(result.changes[2] as string, /not changed.*-70\.0 dB to 6\.0 dB/);
+    assert.equal((await readSet())[0].volume, "-3.0 dB");
+});
+
+test("set_parameters refuses a value just past an end of the range, and takes one within rounding of it", async (t) => {
+    const { setParameters, readSet } = await open(t, (track) => [bass(track, [{ name: "EQ Eight", class_name: "Eq8", parameters: [gain(0)] }])]);
+
+    const result = await run(setParameters, change("d1", "Gain", 15.05), change("d1", "Gain", 15.01), change("t1", "volume", -70.2));
+
+    assert.match(result.changes[0] as string, /not changed.*15\.05.*-15\.0 dB to 15\.0 dB/);
+    assert.equal(result.changes[1], "Bass / EQ Eight / Gain: 0.0 dB → 15.0 dB");
+    assert.match(result.changes[2] as string, /not changed.*-70\.2.*-70\.0 dB to 6\.0 dB/);
     assert.equal((await readSet())[0].volume, "-3.0 dB");
 });
 

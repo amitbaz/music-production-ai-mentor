@@ -144,6 +144,8 @@ function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
 function setParameter(parameter: Record<string, unknown>, prop: string, value: unknown) {
     const items = parameter.value_items as string[] | undefined;
     const refuse = (error: string) => ({ ok: false, error, errorType: "Exception" });
+    // As a parameter Live holds still does: the write is taken without an error and changes nothing.
+    if (parameter.ignoresWrites) return { ok: true, data: null };
     if (typeof value !== "number") return refuse("Python argument types in DeviceParameter.value: the value must be a float");
     const min = items ? 0 : (parameter.min as number);
     const max = items ? items.length - 1 : (parameter.max as number);
@@ -194,8 +196,8 @@ export function useStandIn(
 // Live's own units; `scale` is the shown units per own unit, 1 unless given, as Utility's Output
 // runs from -1 to 1 and shows -35 to 35 dB.
 export type ParameterSpec =
-    | { name: string; value: number; min: number; max: number; shown: (value: number) => string; scale?: number }
-    | { name: string; items: string[]; value: number };
+    | { name: string; value: number; min: number; max: number; shown: (value: number) => string; scale?: number; ignoresWrites?: true }
+    | { name: string; items: string[]; value: number; ignoresWrites?: true };
 
 // A number of a track's mixer, as a device parameter without a name; a text stands for one that
 // is only read, with the text Live shows.
@@ -301,7 +303,7 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
 
     function deviceParameter(spec: ParameterSpec) {
         const paramId = id();
-        const common = { ns: "device-parameter", value: spec.value };
+        const common = { ns: "device-parameter", value: spec.value, ignoresWrites: spec.ignoresWrites };
         if ("items" in spec) live.set(paramId, { ...common, value_items: spec.items, shown: (value: number) => spec.items[value] });
         else live.set(paramId, { ...common, min: spec.min, max: spec.max, shown: spec.shown, scale: spec.scale });
         return serialized(paramId, spec.name, "items" in spec);
