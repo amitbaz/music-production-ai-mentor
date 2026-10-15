@@ -8,7 +8,7 @@ from .Namespaces.Track import Track
 
 # The version of this file, which the client checks on connect. Raise it with every change here,
 # and the client's MENTOR_VERSION with it, so a copy installed earlier is told to pair again.
-VERSION = "1"
+VERSION = "2"
 
 
 class Mentor(Interface):
@@ -56,3 +56,35 @@ class Mentor(Interface):
         device = Interface.get_obj(device_id)
         device.replace_sample(file_path)
         return device.sample.file_path
+
+    def delete(self, ns, object_id):
+        """Deletes a track, device or clip, found where it is at the moment of deleting through its
+        parent in Live. Gives its name."""
+        obj = Interface.get_obj(object_id)
+        try:
+            name = obj.name
+            parent = obj.canonical_parent
+        except Exception:
+            # Deleted in Live since its id was given, as with the track or rack that held it.
+            raise Exception(f"Unknown object id: {object_id}")
+        song = self.ableton.song()
+        if isinstance(obj, Live.Track.Track):
+            if obj in song.tracks:
+                song.delete_track(list(song.tracks).index(obj))
+            elif obj in song.return_tracks:
+                song.delete_return_track(list(song.return_tracks).index(obj))
+            else:
+                raise Exception("Main cannot be deleted")
+        elif isinstance(obj, Live.Device.Device):
+            # A track or a rack chain.
+            parent.delete_device(list(parent.devices).index(obj))
+        elif isinstance(obj, Live.Clip.Clip):
+            # A Session clip is held by its slot, an arrangement clip by its track.
+            if isinstance(parent, Live.ClipSlot.ClipSlot):
+                parent.delete_clip()
+            else:
+                parent.delete_clip(obj)
+        else:
+            raise Exception(f"{name} is not a track, device or clip")
+        Interface.obj_ids.pop(object_id, None)
+        return name

@@ -9,6 +9,15 @@ export function isGone(error: unknown) {
 
 export const goneMessage = (id: string) => `${id} is no longer in the Live Set. Read again with read_set to get current ids.`;
 
+// Asks Live about an object by its id, and reports one the user deleted in Live meanwhile as gone.
+export async function reportingGone<T>(id: string, ask: () => Promise<T>) {
+    try {
+        return await ask();
+    } catch (error) {
+        throw isGone(error) ? new Error(goneMessage(id)) : error;
+    }
+}
+
 // The panel at the bottom of Live that shows the devices of the selected track.
 export const DEVICE_VIEW = "Detail/DeviceChain";
 

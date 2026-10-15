@@ -19,3 +19,6 @@ export const beatsPerBar = (numerator: number, denominator: number) => (numerato
 export function barOf(beats: number, beatsInBar: number) {
     return Math.round((beats / beatsInBar + 1) * 1000) / 1000;
 }
+
+// Beats to four decimals, enough for a sixty-fourth note.
+export const roundBeats = (beats: number) => Math.round(beats * 10000) / 10000;

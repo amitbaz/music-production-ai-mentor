@@ -14,7 +14,7 @@ export type Client = ReturnType<typeof createClient>;
 const SCRIPT_VERSION = "5.0.4";
 // The version of our own file in that script, VERSION in remote-scripts/ableton-js/Mentor.py. It is
 // asked for apart from the script's, so the script's files stay as they are upstream.
-const MENTOR_VERSION = "1";
+const MENTOR_VERSION = "2";
 
 // How long Live has to greet a new connection, accept the password and give its versions, so a
 // stalled Live, or another program on the port, cannot hang a tool.
@@ -37,6 +37,7 @@ const LOST =
 const NO_REPLY = `Ableton Live did not answer within ${COMMAND_MS / 1000} seconds. It may be busy. What was asked may still happen, so read again before trying again.`;
 const UNKNOWN_ID = (objectId: string) =>
     `${objectId} is not an object id from the current connection to Ableton Live. Read again with read_set to get current ids.`;
+const DELETED = (objectId: string) => `${objectId} was deleted. Read again with read_set to get current ids.`;
 const NO_ANSWER = "Ableton Live did not answer. If it is busy, try again; if this keeps happening, restart Live.";
 
 // The address is the script's WebSocket, such as ws://127.0.0.1:39031, and the password the one
@@ -51,6 +52,8 @@ export function createClient(address: string | undefined, password?: string) {
     const objectIds = new Map<string, string>();
     const scriptIds = new Map<string, string>();
     const counts = new Map<string, number>();
+    // Ids of objects the tools deleted, refused from then on. Ids are never given twice, so it outlives the connection.
+    const deleted = new Set<string>();
 
     function connect(address: string) {
         const opening = new Promise<WebSocket>((resolve, reject) => {
@@ -192,11 +195,19 @@ export function createClient(address: string | undefined, password?: string) {
         // The script's id for an object id this connection gave out. Any other id, such as one
         // from before the connection was lost, is refused with a message to read again.
         scriptId(objectId: string) {
+            if (deleted.has(objectId)) throw new Error(DELETED(objectId));
             const scriptId = scriptIds.get(objectId);
             if (!scriptId) {
                 throw new Error(UNKNOWN_ID(objectId));
             }
             return scriptId;
+        },
+
+        // Called once an object is deleted: its id is refused from then on, with a message to read again.
+        forget(objectId: string) {
+            objectIds.delete(scriptIds.get(objectId) ?? "");
+            scriptIds.delete(objectId);
+            deleted.add(objectId);
         },
     };
 }
