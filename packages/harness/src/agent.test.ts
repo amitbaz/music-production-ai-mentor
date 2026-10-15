@@ -335,3 +335,28 @@ test("an agent made with timeoutMs gives up on an attempt that sends nothing for
     assert.equal(result.stop, "error");
     assert.equal(result.stop === "error" && result.error.message, "The model sent nothing for 0.02s");
 });
+
+test("a number option that makes no sense ends the first turn with an error, without a model call", async () => {
+    const cases: [Partial<Parameters<typeof createAgent>[0]>, string][] = [
+        [{ resultLimit: -5 }, "resultLimit must be a whole number above 0, got -5"],
+        [{ resultLimit: 0 }, "resultLimit must be a whole number above 0, got 0"],
+        [{ resultLimit: Number.NaN }, "resultLimit must be a whole number above 0, got NaN"],
+        [{ maxRounds: 2.5 }, "maxRounds must be a whole number above 0, got 2.5"],
+        [{ maxRetries: -1 }, "maxRetries must be a whole number, 0 or more, got -1"],
+        [{ timeoutMs: 0 }, "timeoutMs must be a number above 0, got 0"],
+        [{ timeoutMs: Number.POSITIVE_INFINITY }, "timeoutMs must be a number above 0, got Infinity"],
+        [{ firstWaitMs: -1 }, "firstWaitMs must be a number, 0 or more, got -1"],
+    ];
+    for (const [bad, message] of cases) {
+        const { model, calls } = scriptedModel([[{ type: "assistant", text: "Hi" }]]);
+        // Creating the agent must not throw.
+        const agent = createAgent({ model, tools, ...bad });
+
+        const result = await agent.generate([], "Hi");
+
+        assert.equal(result.stop, "error");
+        assert.equal(result.stop === "error" && result.error.message, message);
+        assert.deepEqual(result.messages, [{ type: "user", text: "Hi" }]);
+        assert.equal(calls.length, 0);
+    }
+});
