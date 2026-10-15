@@ -93,7 +93,7 @@ async function run(client: Client, args: Record<string, unknown>) {
             });
         }
     }
-    return JSON.stringify({ changes: results });
+    return JSON.stringify({ changes: results, ...(reveal.problems.length > 0 && { view_problems: reveal.problems }) });
 }
 
 async function readKnown(client: Client): Promise<Known> {
@@ -157,7 +157,7 @@ async function create(client: Client, change: Change, known: Known, reveal: Reve
     // The Live Set has a track more, which a later duplicate must not take for its copy.
     Object.assign(known, await readKnown(client));
     const track = client.objectId("t", created.id);
-    await reveal.track(created.id);
+    await reveal.track(created.id, track);
     try {
         return { action: "create", track, kind, name: await rename(client, created.id, name) };
     } catch (error) {
@@ -179,7 +179,7 @@ async function duplicate(client: Client, change: Change, known: Known, reveal: R
     Object.assign(known, now);
     if (!copy) throw new Error(`Ableton Live did not make a copy of ${id}. Read again with read_set to see the Live Set.`);
     const copyId = client.objectId("t", copy.id);
-    await reveal.track(copy.id);
+    await reveal.track(copy.id, copyId);
     try {
         return { action: "duplicate", from: id, track: copyId, name: await rename(client, copy.id, name) };
     } catch (error) {
@@ -254,7 +254,7 @@ async function edit(client: Client, change: Change, known: Known, reveal: Reveal
     }
 
     // Shown before the first change, so the user sees it happen.
-    await reveal.track(scriptId);
+    await reveal.track(scriptId, id);
     const changed: Record<string, unknown> = {};
     try {
         const set = [name === undefined ? undefined : "name", ...flags].filter((field) => field !== undefined);

@@ -119,11 +119,11 @@ test("show opens the folded group of a track it selects, and of the track of a d
     const show = findTool(tools, "show");
 
     await show.run({ object: "t2" });
-    assert.equal(live.get(synths.id)?.fold_state, 0);
+    assert.equal(live.get(synths.id)?.fold_state, false);
     assert.equal((live.get("song-view") as Record<string, unknown>).selected_track, lead.id);
 
-    (live.get(synths.id) as Record<string, unknown>).fold_state = 1;
+    (live.get(synths.id) as Record<string, unknown>).fold_state = true;
     await show.run({ object: "d1" });
-    assert.equal(live.get(synths.id)?.fold_state, 0);
+    assert.equal(live.get(synths.id)?.fold_state, false);
     assert.equal((live.get("song-view") as Record<string, unknown>).selected_track, lead.id);
 });

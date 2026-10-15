@@ -66,7 +66,7 @@ async function run(client: Client, args: Record<string, unknown>) {
             lines.push(`${label.text}: not changed. ${reason}`);
         }
     }
-    return JSON.stringify({ changes: lines });
+    return JSON.stringify({ changes: lines, ...(reveal.problems.length > 0 && { view_problems: reveal.problems }) });
 }
 
 type Reveal = ReturnType<typeof revealer>;
@@ -109,7 +109,7 @@ async function changeMixer(client: Client, { target, parameter, value }: Change,
         throw new Error(`${name} has no parameter ${parameter}. The parameters are: ${names.join(", ")}`);
     }
     label.text = `${name} / ${option.label}`;
-    await reveal.track(trackId);
+    await reveal.track(trackId, target);
     return write(client, option.parameter, option.label, value);
 }
 
@@ -134,7 +134,7 @@ async function changeDevice(client: Client, { target, parameter, value }: Change
     if (found.length > 1) throw new Error(`More than one parameter of ${name} is named ${parameter}, so the mentor cannot tell which one is meant.`);
     const [chosen] = found as [LiveDeviceParameter];
     label.text = `${track.name} / ${name} / ${chosen.name}`;
-    await reveal.device(deviceId, track.id);
+    await reveal.device(deviceId, target, track.id);
     return write(client, chosen, chosen.name, value);
 }
 

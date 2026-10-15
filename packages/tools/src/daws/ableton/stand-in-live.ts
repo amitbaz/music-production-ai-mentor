@@ -157,6 +157,10 @@ function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
     if (name === "set_prop") {
         const { prop, value } = args as { prop: string; value: unknown };
         if (object.ns === "device-parameter") return setParameter(object, prop, value);
+        // Live's own bool properties take a bool, not 0 or 1.
+        if (prop === "fold_state" && typeof value !== "boolean") {
+            return { ok: false, error: "Python argument types in Track.fold_state: bool expected", errorType: "ArgumentError" };
+        }
         // A property Live refuses to set, as when it is busy.
         if (object.refuses === prop) return { ok: false, error: `${prop} could not be set`, errorType: "Exception" };
         try {
@@ -409,7 +413,7 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
             mute: spec.mute ?? false,
             solo: spec.solo ?? false,
             arm: spec.arm ?? false,
-            fold_state: spec.folded ? 1 : 0,
+            fold_state: spec.folded ?? false,
             routing: spec.routing,
             clipless: spec.type === "return" || spec.type === "main",
             group: spec.type === "group",
@@ -488,13 +492,20 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
     // The scrolls Live was asked for, as { direction, view }. Live scrolls to what an arrow key
     // selects, so the stand-in moves nothing and only keeps them.
     const scrolls: { direction: string; view: string }[] = [];
+    const focused: string[] = [];
     live.set("application-view", {
         ns: "application-view",
         focused_document_view: "Arranger",
         views,
         scrolls,
+        focused,
+        focus_view: (args: unknown) => {
+            if (!Array.isArray(args)) throw new Error("focus_view takes its view name as a list of arguments");
+            focused.push(args[0] as string);
+        },
         scroll_view: (args: unknown) => {
             const { direction, view } = (args ?? {}) as { direction?: string; view?: string };
+            if ((live.get("application-view") as Record<string, unknown>).scrollFails) throw new Error("scroll_view failed");
             if (!direction || !view) throw new Error("scroll_view takes its direction and view as named arguments");
             scrolls.push({ direction, view });
         },

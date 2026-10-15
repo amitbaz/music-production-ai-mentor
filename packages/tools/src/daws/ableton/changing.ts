@@ -46,7 +46,8 @@ async function unfoldGroups(client: Client, trackId: string) {
     const groupOf = async (id: string) => ((await client.send([getProp("track", "group_track", id)])) as [LiveTrack | null])[0];
     for (let group = await groupOf(trackId); group; group = await groupOf(group.id)) {
         const [fold] = await client.send([getProp("track", "fold_state", group.id)]);
-        if (fold) await client.send([setProp("track", "fold_state", 0, group.id)]);
+        // Live takes a bool here, not 0.
+        if (fold) await client.send([setProp("track", "fold_state", false, group.id)]);
     }
 }
 
@@ -74,7 +75,10 @@ export async function revealTrack(client: Client, trackId: string) {
     // The tracks are one under another in the Arrangement View, and side by side in the Session View.
     const [visible, tracks] = (await client.send([getProp("application-view", "focused_document_view"), getProp("song", "tracks")])) as [string, LiveTrack[]];
     const session = visible === "Session";
-    await scrollTo(client, session ? "Session" : "Arranger", session ? ["left", "right"] : ["up", "down"], tracks[0]?.id === trackId, select);
+    const view = session ? "Session" : "Arranger";
+    // The scroll goes to the focused view, and Live may not be where the user is looking.
+    await client.send([{ ns: "application-view", name: "focus_view", args: [view] }]);
+    await scrollTo(client, view, session ? ["left", "right"] : ["up", "down"], tracks[0]?.id === trackId, select);
 }
 
 // Brings a device into view: its track first, then the device in the device view, scrolled to. A
@@ -88,17 +92,21 @@ export async function revealDevice(client: Client, deviceId: string, trackId?: s
 }
 
 // For a tool that changes the Live Set, so the user sees what it changes. The change matters more
-// than the view, so a view that fails to move is not an error, and one track or device is shown
-// once for a call, however many changes it gets.
+// than the view, so a view that fails to move is not an error but a problem the result reports, and
+// one track or device is shown once for a call, however many changes it gets.
 export function revealer(client: Client) {
     const shown = new Set<string>();
-    const once = async (id: string, reveal: () => Promise<void>) => {
+    const problems: string[] = [];
+    const once = async (id: string, label: string, reveal: () => Promise<void>) => {
         if (shown.has(id)) return;
         shown.add(id);
-        await reveal().catch(() => {});
+        await reveal().catch((error: Error) => {
+            problems.push(`Live could not be scrolled to ${label}: ${error.message}`);
+        });
     };
     return {
-        track: (trackId: string) => once(trackId, () => revealTrack(client, trackId)),
-        device: (deviceId: string, trackId?: string) => once(deviceId, () => revealDevice(client, deviceId, trackId)),
+        problems,
+        track: (trackId: string, label: string) => once(trackId, label, () => revealTrack(client, trackId)),
+        device: (deviceId: string, label: string, trackId?: string) => once(deviceId, label, () => revealDevice(client, deviceId, trackId)),
     };
 }

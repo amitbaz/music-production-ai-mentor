@@ -335,13 +335,14 @@ test("edit_tracks shows the track it changes: the folded groups it is in are ope
 
     await edit(editTracks, { action: "edit", track: "t3", mute: true });
 
-    assert.deepEqual(folded(live, drums, kicks), [0, 0]);
+    assert.deepEqual(folded(live, drums, kicks), [false, false]);
     assert.equal(view.selected_track, kick.id);
     // The track is selected, scrolled to, and selected again where the scroll left the selection.
-    assert.deepEqual(written("fold_state", "selected_track", "scroll_view", "mute"), [
+    assert.deepEqual(written("fold_state", "focus_view", "selected_track", "scroll_view", "mute"), [
         "fold_state",
         "fold_state",
         "selected_track",
+        "focus_view",
         "scroll_view",
         "scroll_view",
         "selected_track",
@@ -372,7 +373,7 @@ test("edit_tracks leaves a group that is open alone, and selects the track", asy
 
     await edit(editTracks, { action: "edit", track: "t5", solo: true });
 
-    assert.deepEqual(folded(live, open), [0]);
+    assert.deepEqual(folded(live, open), [false]);
     assert.equal(view.selected_track, snare.id);
     assert.deepEqual(written("fold_state"), []);
 });
@@ -391,4 +392,27 @@ test("edit_tracks selects a track it made or duplicated, and does not move the v
     const copied = song.tracks.find((track) => track.id !== kick.id && live.get(track.id)?.name === "Kick");
     assert.equal(copy.track, "t8");
     assert.equal(view.selected_track, copied?.id);
+});
+
+test("edit_tracks focuses the view that shows the tracks before it scrolls, since Live may not be where the user is looking", async (t) => {
+    const { live, editTracks } = await withFoldedGroups(t);
+    const application = live.get("application-view") as { focused: string[]; focused_document_view: string };
+
+    await edit(editTracks, { action: "edit", track: "t3", mute: true });
+    assert.deepEqual(application.focused.splice(0), ["Arranger"]);
+
+    application.focused_document_view = "Session";
+    await edit(editTracks, { action: "edit", track: "t3", mute: true });
+    assert.deepEqual(application.focused.splice(0), ["Session"]);
+});
+
+test("edit_tracks makes the change and says so when Live could not be scrolled", async (t) => {
+    const { live, kick, editTracks } = await withFoldedGroups(t);
+    (live.get("application-view") as Record<string, unknown>).scrollFails = true;
+
+    const output = JSON.parse(await editTracks.run({ changes: [{ action: "edit", track: "t3", mute: true }] }));
+
+    assert.equal(live.get(kick.id)?.mute, true);
+    assert.equal(output.changes[0].error, undefined);
+    assert.match(output.view_problems[0], /Live could not be scrolled to t3: scroll_view failed/);
 });

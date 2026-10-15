@@ -352,15 +352,16 @@ test("set_parameters shows the track of a device first: the group is opened, the
 
     await run(setParameters, change("d1", "Gain", 2));
 
-    assert.equal(live.get(group.id)?.fold_state, 0);
+    assert.equal(live.get(group.id)?.fold_state, false);
     assert.equal(view.selected_track, bassTrack.id);
     assert.equal(view.selected_device, deviceId);
     assert.deepEqual(views, ["Detail/DeviceChain"]);
     // The device is shown before its parameter changes.
     // Shown and scrolled to, track first, and selected again where the scroll left the selection.
-    assert.deepEqual(written("fold_state", "selected_track", "select_device", "scroll_view", "display_value"), [
+    assert.deepEqual(written("fold_state", "focus_view", "selected_track", "select_device", "scroll_view", "display_value"), [
         "fold_state",
         "selected_track",
+        "focus_view",
         "scroll_view",
         "scroll_view",
         "selected_track",
@@ -390,7 +391,7 @@ test("set_parameters shows the track of a mixer change, and shows a device once 
     const { setParameters, group, bassTrack, view, live, scrolls } = await openInFoldedGroup(t);
 
     await run(setParameters, change("t2", "volume", -6));
-    assert.equal(live.get(group.id)?.fold_state, 0);
+    assert.equal(live.get(group.id)?.fold_state, false);
     assert.equal(view.selected_track, bassTrack.id);
 
     scrolls.length = 0;
