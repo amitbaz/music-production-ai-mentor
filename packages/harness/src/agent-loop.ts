@@ -1,4 +1,11 @@
 import { estimateTokens, fixedChars, messagesChars } from "./conversation-size.ts";
+import {
+    keptStart,
+    SUMMARY_INSTRUCTIONS,
+    SUMMARY_REQUEST,
+    SUMMARY_THRESHOLD,
+    summaryText,
+} from "./summary.ts";
 import type { Message, Model, ModelReply, Tool, ToolCall } from "./types.ts";
 
 // Defaults, each replaceable through LoopOptions
@@ -19,7 +26,9 @@ export type Update =
     // A piece of assistant text that has just arrived
     | { type: "text"; text: string }
     // A whole message, as it was added to the conversation
-    | { type: "message"; message: Message };
+    | { type: "message"; message: Message }
+    // The harness has started to summarise the older part of the conversation (ADR 0018)
+    | { type: "summarising" };
 
 export type LoopOptions = {
     // Called with each update as soon as it exists
@@ -71,7 +80,43 @@ export async function runAgentLoop(
         options.onUpdate?.({ type: "message", message });
     };
 
+    // A summary that failed is not tried again in this turn
+    let summaryFailed = false;
+
+    // Past the summary threshold, replaces the older part of the conversation with a summary written by the model (ADR 0018).
+    // Returns whether the turn was cancelled meanwhile. A summary that cannot be made adds nothing.
+    async function summarise(): Promise<boolean> {
+        if (summaryFailed || conversationSize() <= SUMMARY_THRESHOLD) return false;
+        const cut = keptStart(messages, model.charsPerToken);
+        if (cut === undefined) return false;
+
+        options.onUpdate?.({ type: "summarising" });
+        // The previous summary, if any, and everything after it up to the kept part
+        const request: Message[] = [...messages.slice(latestSummaryIndex(messages), cut), { type: "user", text: SUMMARY_REQUEST }];
+        let text: string | undefined;
+        try {
+            // No tools, and no onText: the summary is never streamed.
+            text = summaryText(await model.call(request, [], { system: SUMMARY_INSTRUCTIONS, signal: options.signal }));
+        } catch {
+            // A failed request is handled below, like an unusable summary.
+        }
+        if (options.signal?.aborted) return true;
+        if (text === undefined) {
+            summaryFailed = true;
+            return false;
+        }
+
+        const summary: Message = { type: "summary", text };
+        messages.splice(cut, 0, summary);
+        options.onUpdate?.({ type: "message", message: summary });
+        // The last count was of a conversation that no longer exists.
+        counted = undefined;
+        return false;
+    }
+
     for (let round = 0; round < (options.maxRounds ?? MAX_ROUNDS); round++) {
+        if (await summarise()) return stopWith("cancelled");
+
         // Send the conversation from the latest summary on (ADR 0018); get back the model's next messages.
         let reply: ModelReply;
         // The text of the reply so far, in case the call stops before it is whole
@@ -144,7 +189,12 @@ export async function runAgentLoop(
 
 // The latest summary and everything after it; the whole list when there is no summary (ADR 0018)
 function fromLatestSummary(messages: Message[]): Message[] {
-    return messages.slice(Math.max(0, messages.findLastIndex((m) => m.type === "summary")));
+    return messages.slice(latestSummaryIndex(messages));
+}
+
+// Where the latest summary is; 0 when there is none
+function latestSummaryIndex(messages: Message[]): number {
+    return Math.max(0, messages.findLastIndex((m) => m.type === "summary"));
 }
 
 // Runs one tool call. Never throws: any failure becomes an error result for the model.

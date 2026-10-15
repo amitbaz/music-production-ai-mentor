@@ -33,6 +33,22 @@ test("the summary line is dimmed when the terminal shows colour", () => {
     assert.equal(s.text(), "\n\x1b[2m(earlier conversation summarised)\x1b[22m\n");
 });
 
+test("the notice that summarising has started is shown as a short line", () => {
+    const s = screen();
+
+    s.show({ type: "summarising" });
+
+    assert.equal(s.text(), "\n(summarising the earlier conversation…)\n");
+});
+
+test("the summarising notice is dimmed when the terminal shows colour", () => {
+    const s = screen({ color: true });
+
+    s.show({ type: "summarising" });
+
+    assert.equal(s.text(), "\n\x1b[2m(summarising the earlier conversation…)\x1b[22m\n");
+});
+
 test("an assistant message that was not streamed is written whole", () => {
     const s = screen();
 

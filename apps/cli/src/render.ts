@@ -42,7 +42,9 @@ export function createScreen(output: Output, options: ScreenOptions = {}) {
 
     return {
         show(update: Update) {
-            if (update.type === "text") {
+            if (update.type === "summarising") {
+                line(`\n${style("dim", "(summarising the earlier conversation…)")}`);
+            } else if (update.type === "text") {
                 // The first piece of a message opens its line.
                 if (!writing) output.write("\nmentor> ");
                 writing = true;
