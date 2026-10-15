@@ -40,7 +40,7 @@ A tool whose answer grows with its source, such as one that reads the whole Live
 
 - **Ableton Live**, in `ableton/`. Its tools reach the Live Set open in Live through the ableton-js Remote Script.
   - `ableton.ts` makes the client and lists the tools; `ableton.test.ts` tests what belongs to the whole tool set (the connection, object ids, batching) through a tool.
-  - `client.ts` is the connection to the Remote Script; `live.ts` holds what Live sends back; `stand-in-live.ts` is the stand-in WebSocket the tests use.
+  - `client.ts` is the connection to the Remote Script; `live.ts` holds what Live sends back; `stand-in-live.ts` is the stand-in WebSocket the tests use, which can also replay replies recorded from a real Live; `recorded-live.test.ts` runs the reads against `recorded-reads.json`, replies recorded from a real Live; its header says how they were recorded.
   - `remote-script.ts` installs and removes the Remote Script; the pinned ableton-js copy it installs lives outside `src`, in `packages/tools/remote-scripts/ableton-js/`.
   - Each group folder has an `index.ts` exporting its tools, and `tools/index.ts` re-exports the groups, for `ableton.ts` to import every tool in one line.
   - Each tool has one file and its test under `tools/`, in the folder of its group from ADR 0013: `reads/`, `changes/`, `removals/` or `general/`. The file exports a function that takes the client and returns the tool.

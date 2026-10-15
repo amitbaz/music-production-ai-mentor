@@ -47,6 +47,10 @@ export class StandInSocket extends EventTarget {
     // The version our own file reports, or null for a copy of the script that does not have it.
     static mentorVersion = MENTOR_VERSION as string | null;
     static liveVersion: readonly [number, number] = [12, 4];
+    // Replies recorded from a real Live, in the order they were sent: each message's commands, as
+    // recorded() writes them, and the results Live gave. While set, they answer in place of the
+    // stand-in Live Set.
+    static recorded: Recorded[] | null = null;
 
     url: string;
     sent: Request[] = [];
@@ -73,6 +77,21 @@ export class StandInSocket extends EventTarget {
         const request = JSON.parse(text) as Request;
         this.sent.push(request);
         if (StandInSocket.stalled) return;
+        if (StandInSocket.recorded) {
+            // A message that sends other commands than the next recorded one is refused and takes no
+            // reply, so the test names the first command that changed.
+            const [next] = StandInSocket.recorded;
+            const sent = request.commands.map(recorded);
+            const longest = Math.max(sent.length, next?.sent.length ?? 0);
+            const changed = Array.from({ length: longest }, (_, index) => index).find((index) => sent[index] !== next?.sent[index]);
+            if (!next || changed !== undefined) {
+                const at = changed ?? 0;
+                const error = `The recording has no reply for this message: it sends ${sent[at] ?? "no more commands"}, where the recording has ${next?.sent[at] ?? "no more commands"}. Record the reads again.`;
+                return this.later({ event: "result", data: request.commands.map(() => ({ ok: false, error, errorType: "Exception" })), uuid: request.uuid });
+            }
+            StandInSocket.recorded.shift();
+            return this.later({ event: "result", data: next.results, uuid: request.uuid });
+        }
         const [first] = request.commands;
         const authenticating = first?.ns === "internal" && first.name === "authenticate";
         if (StandInSocket.locked && !this.authenticated) {
@@ -312,10 +331,36 @@ export function useStandIn(
     StandInSocket.scriptVersion = scriptVersion;
     StandInSocket.mentorVersion = mentorVersion;
     StandInSocket.liveVersion = liveVersion;
+    StandInSocket.recorded = null;
     globalThis.WebSocket = StandInSocket as unknown as typeof WebSocket;
     t.after(() => {
         globalThis.WebSocket = realWebSocket;
     });
+}
+
+// A message recorded from a real Live: its commands, each written as recorded() writes it, and the
+// results Live gave, one per command.
+type Recorded = { sent: string[]; results: unknown[] };
+
+// A command as a recording keeps it, such as `song get_prop {"prop":"tempo"}`.
+export function recorded({ ns, nsid, name, args }: Command) {
+    return [ns, nsid, name, args === undefined ? undefined : JSON.stringify(args)].filter((part) => part !== undefined).join(" ");
+}
+
+// Puts the stand-in in place of the global WebSocket for one test, answering with the replies
+// recorded from a real Live in a JSON file next to this one. The stand-in Live Set stays empty, unused.
+// The function it returns fails if a recorded reply was not asked for, as when the reads now send
+// fewer messages; the test calls it last.
+export function useRecording(t: TestContext, file: string) {
+    useStandIn(t, new Map());
+    StandInSocket.recorded = JSON.parse(readFileSync(new URL(file, import.meta.url), "utf8")) as Recorded[];
+    t.after(() => {
+        StandInSocket.recorded = null;
+    });
+    return () => {
+        const left = StandInSocket.recorded?.length ?? 0;
+        if (left > 0) throw new Error(`${left} recorded replies were not asked for. Record the reads again.`);
+    };
 }
 
 // A device parameter as Live would describe it: a number with a range and the text Live shows for
