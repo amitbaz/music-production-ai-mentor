@@ -60,6 +60,16 @@ function idList(value: unknown, name: string, required: boolean): string[] | und
 // level of racks inside racks.
 async function read(client: Client, args: Record<string, unknown>) {
     const trackIds = idList(args.tracks, "tracks", true) as string[];
+    try {
+        return await readIds(client, trackIds, args);
+    } catch (error) {
+        // An object the user deleted in Live since the ids were given fails in the script like this.
+        if (!(error instanceof Error) || !error.message.includes("Unknown object id")) throw error;
+        throw new Error(`One of ${trackIds.join(", ")}, or something inside it, is no longer in the Live Set. Read again with read_set to get current ids.`);
+    }
+}
+
+async function readIds(client: Client, trackIds: string[], args: Record<string, unknown>) {
     const deviceIds = idList(args.devices, "devices", false);
     const wanted = deviceIds && new Set(deviceIds);
     for (const id of trackIds) {

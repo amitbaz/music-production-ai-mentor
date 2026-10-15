@@ -20,7 +20,7 @@ async function open(t: TestContext, build: (track: ReturnType<typeof liveSet>["t
     const tools = createAbleton({ address: ADDRESS });
     const find = (name: string): Tool => tools.find((tool) => tool.name === name) as Tool;
     await find("read_set").run({});
-    return { readTracks: find("read_tracks"), readSet: find("read_set") };
+    return { readTracks: find("read_tracks"), readSet: find("read_set"), live };
 }
 
 const reverb = (track: ReturnType<typeof liveSet>["track"]) =>
@@ -178,6 +178,14 @@ test("read_tracks refuses an object id it never gave out, and says to read again
     const { readTracks } = await open(t, (track) => [bass(track)]);
 
     await assert.rejects(async () => readTracks.run({ tracks: ["t1", "t99"] }), /t99.*read again/i);
+});
+
+test("read_tracks refuses a track deleted in Live since it was read, and says to read again", async (t) => {
+    const { readTracks, live } = await open(t, (track) => [bass(track)]);
+    // The first object the stand-in made is the track; Live no longer knows it.
+    live.delete("live_1");
+
+    await assert.rejects(async () => readTracks.run({ tracks: ["t1"] }), /t1.*no longer.*read again/i);
 });
 
 test("read_tracks refuses an id that is not a track, and asks for no track ids that are missing", async (t) => {
