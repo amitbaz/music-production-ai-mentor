@@ -143,9 +143,9 @@ test("when Live accepts the connection but never answers, read_set gives up afte
     t.mock.timers.enable({ apis: ["setTimeout"] });
 
     let finished = false;
-    const run = findTool(createAbleton({ address: ADDRESS, password: PASSWORD }), "read_set")
-        .run({})
-        .finally(() => (finished = true));
+    const run = Promise.resolve(findTool(createAbleton({ address: ADDRESS, password: PASSWORD }), "read_set").run({})).finally(
+        () => (finished = true),
+    );
     const turn = () => new Promise((resolve) => setImmediate(resolve));
 
     await turn();
