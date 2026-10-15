@@ -18,9 +18,10 @@ type LiveSet = Map<string, Record<string, unknown>>;
 export const PASSWORD = "the-right-password";
 
 // The version of the pinned script the repo installs, read from its own file.
-const PINNED_VERSION = String(
-    readFileSync(new URL("../../../remote-scripts/ableton-js/version.py", import.meta.url)).toString().match(/"(.+)"/)?.[1],
-);
+const PINNED_VERSION = readFileSync(new URL("../../../remote-scripts/ableton-js/version.py", import.meta.url), "utf8").match(
+    /"(.+)"/,
+)?.[1];
+if (!PINNED_VERSION) throw new Error("No version found in the pinned script's version.py");
 const SALT = "a1b2c3d4";
 const HASH = "4c780e169dbefc73d44e402a05c72ee2bcde8596208b31b37e317902a5baa169";
 

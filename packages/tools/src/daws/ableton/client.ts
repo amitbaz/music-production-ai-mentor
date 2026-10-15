@@ -32,6 +32,8 @@ const OLD_LIVE = (version: string) => `Ableton Live ${version} is too old: the m
 const LOST =
     "The connection to Ableton Live was lost, as when Live is closed or another Live Set is opened. Try again; object ids from before must be read again.";
 const NO_REPLY = `Ableton Live did not answer within ${COMMAND_MS / 1000} seconds. It may be busy. What was asked may still happen, so read again before trying again.`;
+const UNKNOWN_ID = (objectId: string) =>
+    `${objectId} is not an object id from the current connection to Ableton Live. Read again with read_set to get current ids.`;
 const NO_ANSWER = "Ableton Live did not answer. If it is busy, try again; if this keeps happening, restart Live.";
 
 // The address is the script's WebSocket, such as ws://127.0.0.1:39031, and the password the one
@@ -92,9 +94,12 @@ export function createClient(address: string | undefined, password?: string) {
                     const uuid = String(nextUuid++);
                     waiting.set(uuid, {
                         resolve: (results) => {
+                            // The versions are the last three results, after the password's if there is one.
                             const [script, major, minor] = results.slice(-3).map((result) => (result.ok ? result.data : undefined));
                             if (script !== SCRIPT_VERSION) return fail(WRONG_SCRIPT(String(script)));
-                            if (Number(major) < 12 || (Number(major) === 12 && Number(minor) < 4)) return fail(OLD_LIVE(`${major}.${minor}`));
+                            // A version that could not be read counts as too old.
+                            const newEnough = Number(major) > 12 || (Number(major) === 12 && Number(minor) >= 4);
+                            if (!newEnough) return fail(OLD_LIVE(`${major}.${minor}`));
                             ready();
                         },
                         reject: (error) => fail(requiresAuth ? REFUSED : error.message),
@@ -109,11 +114,13 @@ export function createClient(address: string | undefined, password?: string) {
                 else wait.reject(new Error(String(reply.data)));
             });
             // When nothing listens, Node's WebSocket sends only an error, with no close after it.
-            // A socket can also send both.
+            // A socket can also send both; drop() ignores the second. The connection is refused
+            // before drop() rejects the handshake, so a Live that quits mid-handshake is reported
+            // as not reachable, not as a refused password.
             const lost = () => {
                 clearTimeout(timer);
-                drop();
                 reject(new Error(password ? UNREACHABLE : NOT_PAIRED));
+                drop();
             };
             socket.addEventListener("error", lost);
             socket.addEventListener("close", lost);
@@ -178,9 +185,7 @@ export function createClient(address: string | undefined, password?: string) {
         scriptId(objectId: string) {
             const scriptId = scriptIds.get(objectId);
             if (!scriptId) {
-                throw new Error(
-                    `${objectId} is not an object id from the current connection to Ableton Live. Read again with read_set to get current ids.`,
-                );
+                throw new Error(UNKNOWN_ID(objectId));
             }
             return scriptId;
         },

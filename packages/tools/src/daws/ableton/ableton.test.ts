@@ -300,3 +300,16 @@ test("a command in flight when the connection is lost gives a result saying to t
 
     await run;
 });
+
+test("when Live quits before it answers the password, the result asks whether Live is open, not to pair again", async (t) => {
+    useStandIn(t, emptySet(), { locked: true });
+    StandInSocket.stalled = true;
+
+    const run = assert.rejects(
+        async () => findTool(createAbleton({ address: ADDRESS, password: PASSWORD }), "read_set").run({}),
+        /Could not reach Ableton Live/,
+    );
+    await loseConnection();
+
+    await run;
+});
