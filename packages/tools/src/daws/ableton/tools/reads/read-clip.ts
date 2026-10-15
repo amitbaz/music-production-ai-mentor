@@ -1,6 +1,6 @@
 import type { Tool } from "@mentor/harness";
 import { type Client, getProp } from "../../client.ts";
-import { RESULT_LIMIT } from "../../result-limit.ts";
+import { numberArg, RESULT_LIMIT } from "../../reading.ts";
 
 type LiveNote = { pitch: number; start_time: number; duration: number; velocity: number; probability: number };
 
@@ -23,13 +23,6 @@ export function readClip(client: Client): Tool {
     };
 }
 
-function beatArg(args: Record<string, unknown>, name: string) {
-    const value = args[name];
-    if (value === undefined) return undefined;
-    if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`${name} must be a number`);
-    return value;
-}
-
 // Beats to four decimals, enough for a sixty-fourth note.
 const round = (beats: number) => Math.round(beats * 10000) / 10000;
 
@@ -38,8 +31,8 @@ async function read(client: Client, args: Record<string, unknown>) {
     const { clip: id } = args;
     if (typeof id !== "string") throw new Error("clip is needed: the object id of a clip, such as c3, from read_arrangement");
     if (!/^c\d+$/.test(id)) throw new Error(`${id} is not a clip. Use an object id such as c3 from read_arrangement.`);
-    const fromBeat = beatArg(args, "from_beat") ?? 0;
-    const toBeat = beatArg(args, "to_beat");
+    const fromBeat = numberArg(args, "from_beat") ?? 0;
+    const toBeat = numberArg(args, "to_beat");
     const clipId = client.scriptId(id);
 
     const [name, isMidi] = await client.send([getProp("clip", "name", clipId), getProp("clip", "is_midi_clip", clipId)]);
