@@ -82,6 +82,17 @@ test("unpair ableton removes the MusicMentor folder and the password, and says w
     assert.match(said, /set that Control Surface to None/);
 });
 
+test("pair ableton replaces a password line written by hand with export or spaces", async (t) => {
+    const { run, envFile } = await setUp(t);
+    await writeFile(envFile, "export ABLETON_PASSWORD=old\nABLETON_PASSWORD = older\n");
+
+    await run(pairAbleton);
+
+    const env = await readFile(envFile, "utf8");
+    assert.equal([...env.matchAll(/ABLETON_PASSWORD/g)].length, 1);
+    assert.ok(!env.includes("old"));
+});
+
 test("unpair ableton leaves another app's AbletonJS folder alone", async (t) => {
     const { run, home } = await setUp(t);
     const theirs = join(home, REMOTE_SCRIPTS, "AbletonJS");

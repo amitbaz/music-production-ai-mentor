@@ -59,7 +59,12 @@ export function createClient(address: string | undefined, password?: string) {
                 else wait.reject(new Error(String(reply.data)));
             });
             // When nothing listens, Node's WebSocket sends only an error, with no close after it.
+            // A socket can also send both; only the first counts, so a late one from an old socket
+            // cannot drop a newer connection.
+            let gone = false;
             const lost = () => {
+                if (gone) return;
+                gone = true;
                 connection = undefined;
                 objectIds.clear();
                 counts.clear();

@@ -49,7 +49,7 @@ For the Ableton tools you also need Ableton Live 12.4 or newer on macOS. Pair it
 pnpm pair ableton
 ```
 
-This copies the [ableton-js](https://github.com/leolabs/ableton-js) 5.0.4 Remote Script, kept unchanged in `packages/tools/remote-scripts/ableton-js/`, to `~/Music/Ableton/User Library/Remote Scripts/MusicMentor`. It also writes a new password into the script and into `apps/cli/.env`. Then restart Live and choose `MusicMentor` as a Control Surface in Settings → Link, Tempo & MIDI. `ABLETON_ADDRESS` in `apps/cli/.env` says where the script listens; `.env.example` has its default, `ws://127.0.0.1:39031`.
+This copies the [ableton-js](https://github.com/leolabs/ableton-js) 5.0.4 Remote Script, kept unchanged in `packages/tools/remote-scripts/ableton-js/`, to `~/Music/Ableton/User Library/Remote Scripts/MusicMentor`. It also writes a new password into the script and into `apps/cli/.env`. Then restart Live and choose `MusicMentor` as a Control Surface in Settings → Link, Tempo & MIDI. If you installed `AbletonJS` by hand before, choose `MusicMentor` in its slot instead, so `AbletonJS` is chosen nowhere: both listen on the same port, and `AbletonJS` has no password. `ABLETON_ADDRESS` in `apps/cli/.env` says where the script listens; `.env.example` has its default, `ws://127.0.0.1:39031`.
 
 ## Uninstall
 

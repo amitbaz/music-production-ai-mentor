@@ -53,7 +53,8 @@ const PASSWORD_LINE = "ABLETON_PASSWORD";
 // Sets one line of a .env file, or removes it when the value is undefined, keeping the other lines.
 async function setEnv(envFile: string, name: string, value: string | undefined) {
     const lines = existsSync(envFile) ? (await readFile(envFile, "utf8")).split("\n") : [];
-    const kept = lines.filter((line) => !line.startsWith(`${name}=`));
+    // Also matches `export NAME=` and spaces around `=`, which Node's .env reader accepts.
+    const kept = lines.filter((line) => !new RegExp(`^\\s*(export\\s+)?${name}\\s*=`).test(line));
     if (value === undefined && kept.length === lines.length) return;
     if (kept.at(-1) === "") kept.pop();
     if (value !== undefined) kept.push(`${name}=${value}`);
