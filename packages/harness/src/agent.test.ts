@@ -216,3 +216,156 @@ test("a model id with no provider or no model name ends the first turn with an e
     }
     assert.equal(fetchMock.mock.callCount(), 0);
 });
+
+// Runs one turn in which the model calls a tool that runs `run`,
+// and returns the tool result the model was sent back.
+async function toolResultFor(run: Tool["run"]) {
+    const { model } = scriptedModel([
+        [{ type: "tool_call", id: "1", name: "big", args: {} }],
+        [{ type: "assistant", text: "ok" }],
+    ]);
+    const big: Tool = { name: "big", description: "", params: { type: "object" }, run };
+    const result = await createAgent({ model, tools: [big] }).generate([], "go");
+    const toolResult = result.messages.find((m) => m.type === "tool_result");
+    assert.ok(toolResult?.type === "tool_result");
+    return toolResult;
+}
+
+test("a tool result of 40,000 characters reaches the conversation unchanged", async () => {
+    const output = "a".repeat(40_000);
+    const result = await toolResultFor(() => output);
+    assert.equal(result.output, output);
+    assert.equal(result.isError, false);
+});
+
+test("a tool result past 40,000 characters keeps its first 40,000, then a note with both counts", async () => {
+    const result = await toolResultFor(() => "a".repeat(40_000) + "b".repeat(5_000));
+    assert.equal(
+        result.output,
+        `${"a".repeat(40_000)}\n\n[Cut: showing the first 40000 of 45000 characters. Ask the tool for less.]`,
+    );
+    // Being cut does not make it an error.
+    assert.equal(result.isError, false);
+});
+
+test("a cut never splits an emoji: the half at the limit is dropped, and the note counts what is shown", async () => {
+    // The emoji takes two characters, the 40,000th and the 40,001st.
+    const result = await toolResultFor(() => `${"a".repeat(39_999)}😀${"b".repeat(100)}`);
+    assert.equal(
+        result.output,
+        `${"a".repeat(39_999)}\n\n[Cut: showing the first 39999 of 40101 characters. Ask the tool for less.]`,
+    );
+});
+
+test("an error past 40,000 characters is cut, with a note that gives no advice, and stays an error", async () => {
+    const result = await toolResultFor(() => {
+        throw new Error("e".repeat(50_000));
+    });
+    assert.equal(
+        result.output,
+        `${"e".repeat(40_000)}\n\n[Cut: showing the first 40000 of 50000 characters.]`,
+    );
+    assert.equal(result.isError, true);
+});
+
+test("an agent made with a result limit cuts tool results at that limit", async () => {
+    const { model } = scriptedModel([
+        [{ type: "tool_call", id: "1", name: "shout", args: { text: "x".repeat(25) } }],
+        [{ type: "assistant", text: "ok" }],
+    ]);
+    const result = await createAgent({ model, tools, resultLimit: 10 }).generate([], "go");
+    const toolResult = result.messages.find((m) => m.type === "tool_result");
+    assert.ok(toolResult?.type === "tool_result");
+    assert.equal(
+        toolResult.output,
+        `${"X".repeat(10)}\n\n[Cut: showing the first 10 of 25 characters. Ask the tool for less.]`,
+    );
+});
+
+test("an agent made with a round limit stops after that many model calls", async () => {
+    const { model, calls } = scriptedModel(
+        Array.from({ length: 5 }, (_, i) => [
+            { type: "tool_call" as const, id: String(i), name: "shout", args: { text: "hi" } },
+        ]),
+    );
+    const result = await createAgent({ model, tools, maxRounds: 2 }).generate([], "go");
+    assert.equal(result.stop, "round_limit");
+    assert.equal(calls.length, 2);
+});
+
+const overloaded = { status: 503, body: { error: { message: "The model is overloaded" } } };
+
+test("an agent made with maxRetries 0 does not retry a failed model call", async (t) => {
+    const fetchMock = fakeFetch(t, [overloaded]);
+    const agent = createAgent({
+        model: "gemini:test-model",
+        keys: { gemini: "test-key" },
+        tools,
+        maxRetries: 0,
+    });
+    const result = await agent.generate([], "hi");
+    assert.equal(result.stop, "error");
+    assert.equal(fetchMock.mock.callCount(), 1);
+});
+
+test("an agent made with firstWaitMs waits that long before the first retry", async (t) => {
+    fakeFetch(t, [overloaded, hello]);
+    const waits: number[] = [];
+    const agent = createAgent({
+        model: "gemini:test-model",
+        keys: { gemini: "test-key" },
+        tools,
+        firstWaitMs: 7,
+        onRetry: (report) => waits.push(report.waitMs),
+    });
+    const result = await agent.generate([], "hi");
+    assert.equal(result.stop, "finished");
+    assert.deepEqual(waits, [7]);
+});
+
+test("an agent made with timeoutMs gives up on an attempt that sends nothing for that long", { timeout: 2000 }, async (t) => {
+    // Never replies; fails only when its signal fires, as fetch does.
+    t.mock.method(
+        globalThis,
+        "fetch",
+        (_url: unknown, init?: RequestInit) =>
+            new Promise((_resolve, reject) =>
+                init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+            ),
+    );
+    const agent = createAgent({
+        model: "gemini:test-model",
+        keys: { gemini: "test-key" },
+        tools,
+        maxRetries: 0,
+        timeoutMs: 20,
+    });
+    const result = await agent.generate([], "hi");
+    assert.equal(result.stop, "error");
+    assert.equal(result.stop === "error" && result.error.message, "The model sent nothing for 0.02s");
+});
+
+test("a number option that makes no sense ends the first turn with an error, without a model call", async () => {
+    const cases: [Partial<Parameters<typeof createAgent>[0]>, string][] = [
+        [{ resultLimit: -5 }, "resultLimit must be a whole number above 0, got -5"],
+        [{ resultLimit: 0 }, "resultLimit must be a whole number above 0, got 0"],
+        [{ resultLimit: Number.NaN }, "resultLimit must be a whole number above 0, got NaN"],
+        [{ maxRounds: 2.5 }, "maxRounds must be a whole number above 0, got 2.5"],
+        [{ maxRetries: -1 }, "maxRetries must be a whole number, 0 or more, got -1"],
+        [{ timeoutMs: 0 }, "timeoutMs must be a number above 0, got 0"],
+        [{ timeoutMs: Number.POSITIVE_INFINITY }, "timeoutMs must be a number above 0, got Infinity"],
+        [{ firstWaitMs: -1 }, "firstWaitMs must be a number, 0 or more, got -1"],
+    ];
+    for (const [bad, message] of cases) {
+        const { model, calls } = scriptedModel([[{ type: "assistant", text: "Hi" }]]);
+        // Creating the agent must not throw.
+        const agent = createAgent({ model, tools, ...bad });
+
+        const result = await agent.generate([], "Hi");
+
+        assert.equal(result.stop, "error");
+        assert.equal(result.stop === "error" && result.error.message, message);
+        assert.deepEqual(result.messages, [{ type: "user", text: "Hi" }]);
+        assert.equal(calls.length, 0);
+    }
+});

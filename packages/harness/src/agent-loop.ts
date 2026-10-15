@@ -1,6 +1,8 @@
 import type { Message, Model, ModelReply, Tool, ToolCall } from "./types.ts";
 
+// Defaults, each replaceable through LoopOptions
 const MAX_ROUNDS = 10; // Prevent infinite loops if the model keeps calling tools.
+const RESULT_LIMIT = 40_000; // Most characters one tool result may hold (ADR 0018).
 
 export type LoopResult =
     | {
@@ -27,6 +29,10 @@ export type LoopOptions = {
     system?: string;
     // Asked before running a tool marked needsApproval; true means go ahead
     approve?: (call: ToolCall) => boolean | Promise<boolean>;
+    // Most model calls in one turn
+    maxRounds?: number;
+    // Most characters one tool result may hold; past it the result is cut
+    resultLimit?: number;
 };
 
 // Never throws: a failed model call is returned as stop "error"
@@ -45,7 +51,7 @@ export async function runAgentLoop(
         options.onUpdate?.({ type: "message", message });
     };
 
-    for (let round = 0; round < MAX_ROUNDS; round++) {
+    for (let round = 0; round < (options.maxRounds ?? MAX_ROUNDS); round++) {
         // Send the whole conversation; get back the model's next messages.
         let reply: ModelReply;
         // The text of the reply so far, in case the call stops before it is whole
@@ -139,9 +145,20 @@ async function runToolCall(
     }
 
     try {
-        return { ...result, output: await tool.run(call.args), isError: false };
+        return { ...result, output: limit(await tool.run(call.args), options, false), isError: false };
     } catch (e) {
         const output = e instanceof Error ? e.message : String(e);
-        return { ...result, output, isError: true };
+        return { ...result, output: limit(output, options, true), isError: true };
     }
+}
+
+// Keeps the start of an output past the result limit and says how much was cut.
+// An error gets no advice to ask for less: the tool cannot make its error shorter.
+function limit(output: string, options: LoopOptions, isError: boolean): string {
+    const max = options.resultLimit ?? RESULT_LIMIT;
+    if (output.length <= max) return output;
+    // A character past U+FFFF takes two; a cut between them would leave half of one.
+    const code = output.charCodeAt(max - 1);
+    const end = code >= 0xd800 && code <= 0xdbff ? max - 1 : max;
+    return `${output.slice(0, end)}\n\n[Cut: showing the first ${end} of ${output.length} characters.${isError ? "" : " Ask the tool for less."}]`;
 }

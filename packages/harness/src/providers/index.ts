@@ -38,8 +38,8 @@ export function modelFor(
     return withRetry(adapter(key, name), retry);
 }
 
-// A plain Error, so it is never retried.
-function broken(reason: string): Model {
+// A model whose every call fails with a plain Error, so it is never retried.
+export function broken(reason: string): Model {
     return {
         call: async () => {
             throw new Error(reason);
