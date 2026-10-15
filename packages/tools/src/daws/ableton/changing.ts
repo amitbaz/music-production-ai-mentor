@@ -1,5 +1,5 @@
 // What the changing tools share.
-import { type Client, getProp, setProp } from "./client.ts";
+import { type Client, type Command, getProp, setProp } from "./client.ts";
 import { isPlugin, type LiveChain, type LiveDevice, type LiveTrack } from "./live.ts";
 
 // An object the user deleted in Live since its id was given fails in the script like this.
@@ -50,17 +50,41 @@ async function unfoldGroups(client: Client, trackId: string) {
     }
 }
 
-// Brings a track into view for the user: its groups are opened, and selecting it makes Live scroll to it.
-export async function revealTrack(client: Client, trackId: string) {
-    await unfoldGroups(client, trackId);
-    await client.send([setProp("song-view", "selected_track", trackId)]);
+const scroll = (view: string, direction: string) => ({
+    ns: "application-view",
+    name: "scroll_view",
+    args: { direction, view, modifier_pressed: false },
+});
+
+// Live scrolls to what an arrow key selects, not to what a script selects. So after a script
+// selects something, scroll_view moves the selection one step away and back, which makes Live
+// scroll to it, and the script selects it again in case the selection did not end there. The step
+// goes toward the thing that exists: a first track or device has nothing before it.
+async function scrollTo(client: Client, view: string, [before, after]: [string, string], first: boolean, select: Command) {
+    const steps = first ? [after, before] : [before, after];
+    await client.send([...steps.map((direction) => scroll(view, direction)), select]);
 }
 
-// Brings a device into view: its track first, then the device in the device view. Without its
-// track, only the device.
+// Brings a track into view for the user: its groups are opened, it is selected, and Live is made
+// to scroll to it.
+export async function revealTrack(client: Client, trackId: string) {
+    await unfoldGroups(client, trackId);
+    const select = setProp("song-view", "selected_track", trackId);
+    await client.send([select]);
+    // The tracks are one under another in the Arrangement View, and side by side in the Session View.
+    const [visible, tracks] = (await client.send([getProp("application-view", "focused_document_view"), getProp("song", "tracks")])) as [string, LiveTrack[]];
+    const session = visible === "Session";
+    await scrollTo(client, session ? "Session" : "Arranger", session ? ["left", "right"] : ["up", "down"], tracks[0]?.id === trackId, select);
+}
+
+// Brings a device into view: its track first, then the device in the device view, scrolled to. A
+// device inside a rack is taken for one that has others before it. Without its track, only the device.
 export async function revealDevice(client: Client, deviceId: string, trackId?: string) {
     if (trackId) await revealTrack(client, trackId);
-    await client.send([{ ns: "song-view", name: "select_device", args: { device_id: deviceId } }, showView(DEVICE_VIEW)]);
+    const select = { ns: "song-view", name: "select_device", args: { device_id: deviceId } };
+    await client.send([select, showView(DEVICE_VIEW)]);
+    const [devices] = trackId ? ((await client.send([getProp("track", "devices", trackId)])) as [LiveDevice[]]) : [[]];
+    await scrollTo(client, DEVICE_VIEW, ["left", "right"], devices[0]?.id === deviceId, select);
 }
 
 // For a tool that changes the Live Set, so the user sees what it changes. The change matters more

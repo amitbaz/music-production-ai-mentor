@@ -318,8 +318,8 @@ const written = (...props: string[]) =>
     StandInSocket.opened
         .flatMap((socket) => socket.sent.slice(1))
         .flatMap((request) => request.commands)
-        .filter((command) => ["set_prop", "select_device"].includes(command.name) && props.includes((command.args as { prop?: string }).prop ?? command.name))
-        .map((command) => (command.args as { prop?: string }).prop ?? command.name);
+        .map((command) => (command.name === "set_prop" ? (command.args as { prop: string }).prop : command.name))
+        .filter((name) => props.includes(name));
 
 // A Bass track in a folded group, with a device, read so that Bass is t2 and the device d1.
 async function openInFoldedGroup(t: TestContext) {
@@ -334,14 +334,17 @@ async function openInFoldedGroup(t: TestContext) {
             pan: pan(0),
             sends: [db(-12)],
             group,
-            devices: [{ name: "EQ Eight", class_name: "Eq8", parameters: [gain(0), { name: "Other", value: 1, min: 0, max: 2, shown: (v) => `${v}` }] }],
+            devices: [
+                { name: "EQ Eight", class_name: "Eq8", parameters: [gain(0), { name: "Other", value: 1, min: 0, max: 2, shown: (v) => `${v}` }] },
+                { name: "Utility", class_name: "StereoGain", parameters: [gain(0)] },
+            ],
         });
         return [group, inside];
     });
     const view = made.live.get("song-view") as Record<string, unknown>;
-    const application = made.live.get("application-view") as { views: string[] };
+    const application = made.live.get("application-view") as { views: string[]; scrolls: { direction: string; view: string }[] };
     const deviceId = [...made.live].find(([, object]) => object.ns === "device")?.[0];
-    return { ...made, group: group as Track, bassTrack: inside as Track, view, views: application.views, deviceId };
+    return { ...made, group: group as Track, bassTrack: inside as Track, view, views: application.views, scrolls: application.scrolls, deviceId };
 }
 
 test("set_parameters shows the track of a device first: the group is opened, then the track and the device are selected, and the device view opens", async (t) => {
@@ -354,18 +357,46 @@ test("set_parameters shows the track of a device first: the group is opened, the
     assert.equal(view.selected_device, deviceId);
     assert.deepEqual(views, ["Detail/DeviceChain"]);
     // The device is shown before its parameter changes.
-    assert.deepEqual(written("fold_state", "selected_track", "select_device", "display_value"), ["fold_state", "selected_track", "select_device", "display_value"]);
+    // Shown and scrolled to, track first, and selected again where the scroll left the selection.
+    assert.deepEqual(written("fold_state", "selected_track", "select_device", "scroll_view", "display_value"), [
+        "fold_state",
+        "selected_track",
+        "scroll_view",
+        "scroll_view",
+        "selected_track",
+        "select_device",
+        "scroll_view",
+        "scroll_view",
+        "select_device",
+        "display_value",
+    ]);
+});
+
+test("set_parameters scrolls the device chain to a device by moving the selection one device away and back", async (t) => {
+    const { setParameters, scrolls } = await openInFoldedGroup(t);
+    const chain = (...directions: string[]) => directions.map((direction) => ({ direction, view: "Detail/DeviceChain" }));
+    const inChain = () => scrolls.splice(0).filter((scroll) => scroll.view === "Detail/DeviceChain");
+
+    // A device with another before it: left, then right.
+    await run(setParameters, change("d2", "Gain", 1));
+    assert.deepEqual(inChain(), chain("left", "right"));
+
+    // The first device has none before it: right, then left.
+    await run(setParameters, change("d1", "Gain", 1));
+    assert.deepEqual(inChain(), chain("right", "left"));
 });
 
 test("set_parameters shows the track of a mixer change, and shows a device once however many of its parameters change", async (t) => {
-    const { setParameters, group, bassTrack, view, live } = await openInFoldedGroup(t);
+    const { setParameters, group, bassTrack, view, live, scrolls } = await openInFoldedGroup(t);
 
     await run(setParameters, change("t2", "volume", -6));
     assert.equal(live.get(group.id)?.fold_state, 0);
     assert.equal(view.selected_track, bassTrack.id);
 
+    scrolls.length = 0;
     await run(setParameters, change("d1", "Gain", 1), change("d1", "Other", 2), change("d1", "Gain", 3));
-    assert.deepEqual(written("select_device"), ["select_device"]);
+    // Shown once: a scroll away and back for the track and one for the device, not one for each change.
+    assert.equal(scrolls.length, 4);
 });
 
 test("set_parameters does not move the view for a change it refuses", async (t) => {

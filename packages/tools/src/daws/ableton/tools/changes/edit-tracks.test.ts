@@ -318,12 +318,15 @@ async function withFoldedGroups(t: Parameters<typeof useStandIn>[0]) {
 }
 
 // The writes of the properties asked for, in the order Live got them, such as "fold_state".
-const written = (...props: string[]) =>
+const written = (...props: string[]) => sent().filter((name) => props.includes(name));
+
+// What Live was asked to change, in order: a property by its name, a function by its own.
+const sent = () =>
     StandInSocket.opened
         .flatMap((socket) => socket.sent.slice(1))
         .flatMap((request) => request.commands)
-        .filter((command) => command.name === "set_prop" && props.includes((command.args as { prop: string }).prop))
-        .map((command) => (command.args as { prop: string }).prop);
+        .filter((command) => command.name !== "get_prop")
+        .map((command) => (command.name === "set_prop" ? (command.args as { prop: string }).prop : command.name));
 
 const folded = (live: Map<string, Record<string, unknown>>, ...tracks: { id: string }[]) => tracks.map((track) => live.get(track.id)?.fold_state);
 
@@ -334,7 +337,34 @@ test("edit_tracks shows the track it changes: the folded groups it is in are ope
 
     assert.deepEqual(folded(live, drums, kicks), [0, 0]);
     assert.equal(view.selected_track, kick.id);
-    assert.deepEqual(written("fold_state", "selected_track", "mute"), ["fold_state", "fold_state", "selected_track", "mute"]);
+    // The track is selected, scrolled to, and selected again where the scroll left the selection.
+    assert.deepEqual(written("fold_state", "selected_track", "scroll_view", "mute"), [
+        "fold_state",
+        "fold_state",
+        "selected_track",
+        "scroll_view",
+        "scroll_view",
+        "selected_track",
+        "mute",
+    ]);
+});
+
+test("edit_tracks scrolls to a track by moving the selection one track away and back, the way the view is laid out", async (t) => {
+    const { live, editTracks } = await withFoldedGroups(t);
+    const application = live.get("application-view") as { scrolls: { direction: string; view: string }[]; focused_document_view: string };
+
+    // A track with another above it: up, then down.
+    await edit(editTracks, { action: "edit", track: "t3", mute: true });
+    assert.deepEqual(application.scrolls.splice(0), [{ direction: "up", view: "Arranger" }, { direction: "down", view: "Arranger" }]);
+
+    // The first track has nothing above it to move to: down, then up.
+    await edit(editTracks, { action: "edit", track: "t1", mute: true });
+    assert.deepEqual(application.scrolls.splice(0), [{ direction: "down", view: "Arranger" }, { direction: "up", view: "Arranger" }]);
+
+    // In Session View the tracks are side by side.
+    application.focused_document_view = "Session";
+    await edit(editTracks, { action: "edit", track: "t5", mute: true });
+    assert.deepEqual(application.scrolls.splice(0), [{ direction: "left", view: "Session" }, { direction: "right", view: "Session" }]);
 });
 
 test("edit_tracks leaves a group that is open alone, and selects the track", async (t) => {

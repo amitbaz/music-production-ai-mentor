@@ -485,9 +485,19 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
         },
     });
     const views: string[] = [];
+    // The scrolls Live was asked for, as { direction, view }. Live scrolls to what an arrow key
+    // selects, so the stand-in moves nothing and only keeps them.
+    const scrolls: { direction: string; view: string }[] = [];
     live.set("application-view", {
         ns: "application-view",
+        focused_document_view: "Arranger",
         views,
+        scrolls,
+        scroll_view: (args: unknown) => {
+            const { direction, view } = (args ?? {}) as { direction?: string; view?: string };
+            if (!direction || !view) throw new Error("scroll_view takes its direction and view as named arguments");
+            scrolls.push({ direction, view });
+        },
         show_view: (args: unknown) => {
             if (!Array.isArray(args)) throw new Error("show_view takes its view name as a list of arguments");
             views.push(args[0] as string);
