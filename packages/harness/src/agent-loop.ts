@@ -157,5 +157,8 @@ async function runToolCall(
 function limit(output: string, options: LoopOptions, isError: boolean): string {
     const max = options.resultLimit ?? RESULT_LIMIT;
     if (output.length <= max) return output;
-    return `${output.slice(0, max)}\n\n[Cut: showing the first ${max} of ${output.length} characters.${isError ? "" : " Ask the tool for less."}]`;
+    // A character past U+FFFF takes two; a cut between them would leave half of one.
+    const code = output.charCodeAt(max - 1);
+    const end = code >= 0xd800 && code <= 0xdbff ? max - 1 : max;
+    return `${output.slice(0, end)}\n\n[Cut: showing the first ${end} of ${output.length} characters.${isError ? "" : " Ask the tool for less."}]`;
 }

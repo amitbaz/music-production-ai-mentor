@@ -248,6 +248,15 @@ test("a tool result past 40,000 characters keeps its first 40,000, then a note w
     assert.equal(result.isError, false);
 });
 
+test("a cut never splits an emoji: the half at the limit is dropped, and the note counts what is shown", async () => {
+    // The emoji takes two characters, the 40,000th and the 40,001st.
+    const result = await toolResultFor(() => `${"a".repeat(39_999)}😀${"b".repeat(100)}`);
+    assert.equal(
+        result.output,
+        `${"a".repeat(39_999)}\n\n[Cut: showing the first 39999 of 40101 characters. Ask the tool for less.]`,
+    );
+});
+
 test("an error past 40,000 characters is cut, with a note that gives no advice, and stays an error", async () => {
     const result = await toolResultFor(() => {
         throw new Error("e".repeat(50_000));
