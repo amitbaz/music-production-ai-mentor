@@ -130,6 +130,7 @@ export function createClient(address: string | undefined, password?: string) {
 
     // Sends several commands in one message and returns their results in order.
     async function send(commands: Command[]): Promise<unknown[]> {
+        if (commands.length === 0) return [];
         if (!address) throw new Error("No address for Ableton Live is set, so it cannot be reached");
         connection ??= connect(address);
         const socket = await connection;

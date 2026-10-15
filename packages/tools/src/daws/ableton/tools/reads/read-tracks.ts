@@ -151,6 +151,7 @@ function withinLimit(tracks: TrackDetail[]) {
             if (full && size + extra > budget) full = false;
             if (!full) {
                 devicesLeftOut.push(device.id);
+                size += device.id.length + 3; // its entry in left_out
                 continue;
             }
             size += extra;
