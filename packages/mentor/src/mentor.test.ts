@@ -53,10 +53,12 @@ class StandInSocket extends EventTarget {
             uuid: string;
             commands: { name: string; args?: { prop: string } }[];
         };
-        // A property comes from the table; a shown value is always 0.0 dB.
+        // A property comes from the table, the versions are ones the client accepts, and a shown
+        // value is always 0.0 dB.
+        const versions: Record<string, unknown> = { get_version: "5.0.4", get_major_version: 12, get_minor_version: 4 };
         const data = commands.map((command) => ({
             ok: true,
-            data: command.name === "get_prop" ? StandInSocket.props[command.args?.prop ?? ""] : "0.0 dB",
+            data: command.name === "get_prop" ? StandInSocket.props[command.args?.prop ?? ""] : (versions[command.name] ?? "0.0 dB"),
         }));
         setTimeout(() => this.reply({ event: "result", uuid, data }));
     }
