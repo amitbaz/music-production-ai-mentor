@@ -1,7 +1,7 @@
 import type { Tool } from "@mentor/harness";
 import { type Client, getProp } from "../../client.ts";
 import type { LiveClip, LiveCuePoint, LiveTrack } from "../../live.ts";
-import { numberArg, RESULT_LIMIT } from "../../reading.ts";
+import { barOf, beatsPerBar as beatsIn, numberArg, RESULT_LIMIT } from "../../reading.ts";
 
 // The Live Set along time: the locators, and where each track has clips in the Arrangement View.
 export function readArrangement(client: Client): Tool {
@@ -25,12 +25,6 @@ export function readArrangement(client: Client): Tool {
     };
 }
 
-// The bar number for a position in beats: bar 1 is the start, and a bar holds as many beats
-// as the time signature says (3 in 6/8, since a beat is a quarter note).
-function barOf(beats: number, beatsPerBar: number) {
-    return Math.round((beats / beatsPerBar + 1) * 1000) / 1000;
-}
-
 // Reads in two messages, whatever the size of the Live Set.
 async function read(client: Client, args: Record<string, unknown>) {
     if (args.tracks !== undefined && (!Array.isArray(args.tracks) || args.tracks.some((id) => typeof id !== "string"))) {
@@ -46,7 +40,7 @@ async function read(client: Client, args: Record<string, unknown>) {
         getProp("song", "tracks"),
         getProp("song", "cue_points"),
     ])) as [number, number, LiveTrack[], LiveCuePoint[]];
-    const beatsPerBar = (numerator * 4) / denominator;
+    const beatsPerBar = beatsIn(numerator, denominator);
     const bar = (beats: number) => barOf(beats, beatsPerBar);
 
     // Every track gets its id, in Live's order, so the ids match read_set; a group track holds

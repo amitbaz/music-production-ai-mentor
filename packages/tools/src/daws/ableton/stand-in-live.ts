@@ -96,11 +96,45 @@ export class StandInSocket extends EventTarget {
     }
 }
 
+// Namespaces the script answers for with no object id: there is one of each.
+const SINGLETONS = new Set(["song", "song-view", "application-view"]);
+
+// A track's routing as the script describes it: each type of routing with the channels it offers.
+export type RoutingSpec = { types: Record<string, string[]>; type: string; channel: string };
+
+const ROUTING = /^(available_)?(input|output)_routing_(type|channel)s?$/;
+
+// As the script does: a routing is found by the name Live shows, and a new type brings its own
+// channels, the first of them chosen.
+function routingProp(routing: Record<"input" | "output", RoutingSpec>, prop: string, value?: string) {
+    const [, available, direction, part] = prop.match(ROUTING) as RegExpMatchArray;
+    const spec = routing[direction as "input" | "output"];
+    if (value === undefined) {
+        const channels = spec.types[spec.type] ?? [];
+        if (available) {
+            return part === "type"
+                ? Object.keys(spec.types).map((display_name) => ({ display_name, category: "Normal" }))
+                : channels.map((display_name) => ({ display_name, layout: "Mono" }));
+        }
+        return part === "type" ? { display_name: spec.type, category: "Normal" } : { display_name: spec.channel, layout: "Mono" };
+    }
+    if (part === "type") {
+        if (!(value in spec.types)) throw new Error(`Routing type not found: ${value}`);
+        spec.type = value;
+        spec.channel = spec.types[value]?.[0] ?? "";
+    } else {
+        if (!spec.types[spec.type]?.includes(value)) throw new Error(`Routing channel not found: ${value}`);
+        spec.channel = value;
+    }
+    return null;
+}
+
 function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
     if (ns === "internal" && name === "get_version") return { ok: true, data: StandInSocket.scriptVersion };
     if (ns === "application" && name === "get_major_version") return { ok: true, data: StandInSocket.liveVersion[0] };
     if (ns === "application" && name === "get_minor_version") return { ok: true, data: StandInSocket.liveVersion[1] };
-    const object = live.get(ns === "song" ? "song" : (nsid ?? ""));
+    // A track's view is a part of the track, which the script reaches by the track's own id.
+    const object = ns === "track-view" ? (live.get(nsid ?? "")?.view as Record<string, unknown> | undefined) : live.get(SINGLETONS.has(ns) ? ns : (nsid ?? ""));
     if (!object) return { ok: false, error: `Unknown object id: ${nsid}`, errorType: "Exception" };
     // The script would look the name up on the wrong kind of object and fail.
     if (object.ns !== ns) return { ok: false, error: `${nsid} is not a ${ns}`, errorType: "Exception" };
@@ -116,12 +150,30 @@ function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
         }
         // The shown number of a parameter: its value times the shown units per internal unit.
         if (object.ns === "device-parameter" && prop === "display_value") return { ok: true, data: (object.value as number) * ((object.scale as number) ?? 1) };
+        if (object.routing && ROUTING.test(prop)) {
+            return { ok: true, data: routingProp(object.routing as Record<"input" | "output", RoutingSpec>, prop) };
+        }
         return { ok: true, data: object[prop] ?? null };
     }
     if (name === "set_prop") {
         const { prop, value } = args as { prop: string; value: unknown };
-        if (object.ns !== "device-parameter") return { ok: false, error: `${prop} cannot be set here`, errorType: "Exception" };
-        return setParameter(object, prop, value);
+        if (object.ns === "device-parameter") return setParameter(object, prop, value);
+        // Live's own bool properties take a bool, not 0 or 1.
+        if (prop === "fold_state" && typeof value !== "boolean") {
+            return { ok: false, error: "Python argument types in Track.fold_state: bool expected", errorType: "ArgumentError" };
+        }
+        // A property Live refuses to set, as when it is busy.
+        if (object.refuses === prop) return { ok: false, error: `${prop} could not be set`, errorType: "Exception" };
+        try {
+            if (object.routing && ROUTING.test(prop)) routingProp(object.routing as Record<"input" | "output", RoutingSpec>, prop, value as string);
+            else object[prop] = value;
+        } catch (error) {
+            return { ok: false, error: (error as Error).message, errorType: "Exception" };
+        }
+        // The track's entry in the song's list shows what the script would send for it next time.
+        const entry = object.serialized as Record<string, unknown> | undefined;
+        if (entry && prop in entry) entry[prop] = value;
+        return { ok: true, data: null };
     }
     if (name === "str_for_value") {
         const [value] = args as number[];
@@ -134,6 +186,16 @@ function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
             (note) => note.start_time >= from_time && note.start_time < from_time + time_span,
         );
         return { ok: true, data: notes };
+    }
+    // Functions the live set holds: the script gives its handlers a dict of arguments and calls a
+    // native function with a list, and so does the stand-in, so a call made the other way fails.
+    const run = object[name];
+    if (typeof run === "function" && name !== "shown") {
+        try {
+            return { ok: true, data: run(args ?? {}) ?? null };
+        } catch (error) {
+            return { ok: false, error: (error as Error).message, errorType: "Exception" };
+        }
     }
     return { ok: false, error: `Function call failed: ${name} doesn't exist`, errorType: "Exception" };
 }
@@ -242,6 +304,13 @@ type TrackSpec = {
     sends?: MixerSpec[];
     mute?: boolean;
     solo?: boolean;
+    arm?: boolean;
+    // Not on Main, which only has an output, or on a return track, which has no input.
+    routing?: { input: RoutingSpec; output: RoutingSpec };
+    // For a group track: whether its tracks are hidden. For another, the group it is in.
+    folded?: boolean;
+    // Whether the track is shown as a thin strip in the Arrangement View.
+    collapsed?: boolean;
     group?: { id: string };
     devices?: DeviceSpec[];
     // The Session slots from the top, null for an empty one.
@@ -341,7 +410,15 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
         };
         live.set(trackId, {
             ns: "track",
+            spec,
+            serialized,
             name: spec.name,
+            mute: spec.mute ?? false,
+            solo: spec.solo ?? false,
+            arm: spec.arm ?? false,
+            fold_state: spec.folded ?? false,
+            view: { ns: "track-view", is_collapsed: spec.collapsed ?? false },
+            routing: spec.routing,
             clipless: spec.type === "return" || spec.type === "main",
             group: spec.type === "group",
             devices: (spec.devices ?? []).map(device),
@@ -364,7 +441,82 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
         return serialized;
     }
 
-    const set = { ns: "song", tempo: song.tempo, signature_numerator: song.numerator, signature_denominator: song.denominator, cue_points: [] };
+    // The song's functions, as the script has them: it builds a track at the index given (-1 is the
+    // end) and answers with the new track; a copy of a track goes right after it.
+    const created = (type: TrackSpec["type"], name: string, list: "tracks" | "return_tracks", index: number) => {
+        const added = track({ name, type, volume: "0.0 dB", pan: "C" });
+        const tracks = set[list] as unknown[];
+        tracks.splice(index < 0 ? tracks.length : index, 0, added);
+        return added;
+    };
+    const set: Record<string, unknown> = {
+        ns: "song",
+        tempo: song.tempo,
+        signature_numerator: song.numerator,
+        signature_denominator: song.denominator,
+        cue_points: [],
+        tracks: [],
+        return_tracks: [],
+        loop: false,
+        loop_start: 0,
+        loop_length: 4,
+        current_song_time: 0,
+        is_playing: false,
+        create_audio_track: ({ index }: { index: number }) => created("audio", "Audio", "tracks", index),
+        create_midi_track: ({ index }: { index: number }) => created("midi", "MIDI", "tracks", index),
+        create_return_track: () => created("return", "Return", "return_tracks", -1),
+        duplicate_track: (args: unknown) => {
+            if (!Array.isArray(args)) throw new Error("duplicate_track takes its index as a list of arguments");
+            const [index] = args as [number];
+            const original = (set.tracks as { id: string }[])[index];
+            const spec = original && (live.get(original.id)?.spec as TrackSpec);
+            if (!spec) throw new Error(`No track at index ${index}`);
+            // The copy has a routing of its own.
+            (set.tracks as unknown[]).splice(index + 1, 0, track({ ...spec, routing: spec.routing && structuredClone(spec.routing) }));
+        },
+        continue_playing: () => {
+            set.is_playing = true;
+        },
+        stop_playing: () => {
+            set.is_playing = false;
+        },
+    };
     live.set("song", set);
+    // What Live is showing: the selection of the song view and the views the application shows.
+    live.set("song-view", {
+        ns: "song-view",
+        selected_track: null,
+        detail_clip: null,
+        selected_device: null,
+        select_device: ({ device_id }: { device_id: string }) => {
+            (live.get("song-view") as Record<string, unknown>).selected_device = device_id;
+        },
+    });
+    const views: string[] = [];
+    // The scrolls Live was asked for, as { direction, view }. Live scrolls to what an arrow key
+    // selects, so the stand-in moves nothing and only keeps them.
+    const scrolls: { direction: string; view: string }[] = [];
+    const focused: string[] = [];
+    live.set("application-view", {
+        ns: "application-view",
+        focused_document_view: "Arranger",
+        views,
+        scrolls,
+        focused,
+        focus_view: (args: unknown) => {
+            if (!Array.isArray(args)) throw new Error("focus_view takes its view name as a list of arguments");
+            focused.push(args[0] as string);
+        },
+        scroll_view: (args: unknown) => {
+            const { direction, view } = (args ?? {}) as { direction?: string; view?: string };
+            if ((live.get("application-view") as Record<string, unknown>).scrollFails) throw new Error("scroll_view failed");
+            if (!direction || !view) throw new Error("scroll_view takes its direction and view as named arguments");
+            scrolls.push({ direction, view });
+        },
+        show_view: (args: unknown) => {
+            if (!Array.isArray(args)) throw new Error("show_view takes its view name as a list of arguments");
+            views.push(args[0] as string);
+        },
+    });
     return { live, track, clip, set: (props: Record<string, unknown>) => Object.assign(set, props) };
 }

@@ -103,7 +103,7 @@ test("a turn sends the user text after the conversation, with the system prompt 
     assert.equal(calls[0]?.options?.system, systemPrompt);
     assert.deepEqual(
         calls[0]?.tools.map((tool) => tool.name),
-        ["read_set", "read_tracks", "read_arrangement", "read_clip", "set_parameters"],
+        ["read_set", "read_tracks", "read_arrangement", "read_clip", "set_parameters", "edit_tracks", "transport", "show"],
     );
     assert.equal(result.stop, "finished");
     assert.deepEqual(result.messages, [
