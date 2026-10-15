@@ -53,6 +53,24 @@ test("transport refuses a tempo outside Live's range, with the range in the mess
     assert.deepEqual(commandsSent(), []);
 });
 
+test("transport switches the metronome on and off, and reports it before and after", async (t) => {
+    const { song, transport } = withTransport(t);
+
+    assert.deepEqual(JSON.parse(await transport.run({ metronome: true })), { metronome: { before: false, after: true } });
+    assert.equal(song.metronome, true);
+    assert.deepEqual(JSON.parse(await transport.run({ metronome: false })), { metronome: { before: true, after: false } });
+    assert.equal(song.metronome, false);
+});
+
+test("transport refuses a metronome that is not true or false, and changes nothing", async (t) => {
+    const { song, transport } = withTransport(t);
+
+    await assert.rejects(async () => transport.run({ metronome: "on", tempo: 128 }), /metronome must be true or false/);
+
+    assert.equal(song.metronome, false);
+    assert.deepEqual(commandsSent(), []);
+});
+
 test("transport plays and stops, and reports whether it was playing", async (t) => {
     const { song, transport } = withTransport(t);
 
@@ -136,18 +154,19 @@ test("transport refuses a loop region that is not from one bar to a later one, a
     assert.equal(song.loop_start, 0);
 });
 
-test("transport does several things in one call, in the order tempo, loop, jump, play, and reports each", async (t) => {
+test("transport does several things in one call, in the order tempo, metronome, loop, jump, play, and reports each", async (t) => {
     const { song, transport } = withTransport(t);
 
-    const output = JSON.parse(await transport.run({ action: "play", jump_to_bar: 17, loop_from_bar: 17, loop_to_bar: 21, tempo: 126 }));
+    const output = JSON.parse(await transport.run({ action: "play", jump_to_bar: 17, loop_from_bar: 17, loop_to_bar: 21, tempo: 126, metronome: true }));
 
-    assert.deepEqual(Object.keys(output), ["tempo", "loop", "position", "playing"]);
+    assert.deepEqual(Object.keys(output), ["tempo", "metronome", "loop", "position", "playing"]);
     assert.deepEqual(output.playing, { before: false, after: true });
     assert.equal(song.current_song_time, 64);
     assert.equal(song.is_playing, true);
     // Playing comes last, so it starts from where it was sent.
     assert.deepEqual(commandsSent(), [
         "song.set_prop tempo",
+        "song.set_prop metronome",
         "song.set_prop loop_start",
         "song.set_prop loop_length",
         "song.set_prop loop",
@@ -159,7 +178,7 @@ test("transport does several things in one call, in the order tempo, loop, jump,
 test("transport with nothing to do says what it can do", async (t) => {
     const { transport } = withTransport(t);
 
-    await assert.rejects(async () => transport.run({}), /Nothing to do.*action, jump_to_bar, loop_from_bar and loop_to_bar, loop, tempo/);
+    await assert.rejects(async () => transport.run({}), /Nothing to do.*action, jump_to_bar, loop_from_bar and loop_to_bar, loop, tempo, metronome/);
     await assert.rejects(async () => transport.run({ action: "pause" }), /action must be play or stop, not pause/);
 });
 
