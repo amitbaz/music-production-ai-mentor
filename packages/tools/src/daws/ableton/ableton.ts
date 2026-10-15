@@ -1,9 +1,12 @@
 import type { Tool } from "@mentor/harness";
 import { createClient } from "./client.ts";
 import {
+    deleteTool,
     editDevices,
     editTracks,
     findInBrowser,
+    liveChange,
+    liveGet,
     readArrangement,
     readClip,
     readSet,
@@ -28,6 +31,9 @@ export function createAbleton(options: { address?: string; password?: string }):
         show(client),
         editDevices(client),
         findInBrowser(client),
+        deleteTool(client),
+        liveGet(client),
+        liveChange(client),
     ];
 }
 

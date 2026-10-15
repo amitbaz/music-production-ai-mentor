@@ -2,12 +2,24 @@
 import { type Client, type Command, getProp, setProp } from "./client.ts";
 import { isPlugin, type LiveChain, type LiveDevice, type LiveTrack } from "./live.ts";
 
-// An object the user deleted in Live since its id was given fails in the script like this.
+// An object deleted since its id was given fails in one of two ways: the script no longer knows the
+// id, or it still holds the object and Live refuses it as a dead handle (seen in Live 12.4.6, for
+// what was inside a deleted track or rack, or for a track deleted through live_change).
 export function isGone(error: unknown) {
-    return error instanceof Error && error.message.includes("Unknown object id");
+    return error instanceof Error && (error.message.includes("Unknown object id") || error.message.includes("None.None("));
 }
 
-export const goneMessage = (id: string) => `${id} is no longer in the Live Set. Read again with read_set to get current ids.`;
+// `read` names the tool that gives current ids for this kind of object.
+export const goneMessage = (id: string, read = "read_set") => `${id} is no longer in the Live Set. Read again with ${read} to get current ids.`;
+
+// Asks Live about an object by its id, and reports one deleted meanwhile as gone.
+export async function reportingGone<T>(id: string, ask: () => Promise<T>, read = "read_set") {
+    try {
+        return await ask();
+    } catch (error) {
+        throw isGone(error) ? new Error(goneMessage(id, read)) : error;
+    }
+}
 
 // The panel at the bottom of Live that shows the devices of the selected track.
 export const DEVICE_VIEW = "Detail/DeviceChain";

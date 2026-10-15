@@ -1,6 +1,7 @@
 import type { Tool } from "@mentor/harness";
+import { reportingGone } from "../../changing.ts";
 import { type Client, getProp } from "../../client.ts";
-import { numberArg, RESULT_LIMIT } from "../../reading.ts";
+import { numberArg, RESULT_LIMIT, roundBeats } from "../../reading.ts";
 
 type LiveNote = { pitch: number; start_time: number; duration: number; velocity: number; probability: number };
 
@@ -23,19 +24,9 @@ export function readClip(client: Client): Tool {
     };
 }
 
-// Beats to four decimals, enough for a sixty-fourth note.
-const round = (beats: number) => Math.round(beats * 10000) / 10000;
 
 // Reads in two messages: what kind of clip it is, then what is inside.
-async function read(client: Client, args: Record<string, unknown>) {
-    try {
-        return await readIt(client, args);
-    } catch (error) {
-        // A clip the user deleted in Live since the id was given fails in the script like this.
-        if (!(error instanceof Error) || !error.message.includes("Unknown object id")) throw error;
-        throw new Error(`${args.clip} is no longer in the Live Set. Read again with read_arrangement to get current ids.`);
-    }
-}
+const read = (client: Client, args: Record<string, unknown>) => reportingGone(String(args.clip), () => readIt(client, args), "read_arrangement");
 
 async function readIt(client: Client, args: Record<string, unknown>) {
     const { clip: id } = args;
@@ -76,7 +67,7 @@ async function readIt(client: Client, args: Record<string, unknown>) {
     ])) as [LiveNote[]];
     const rows = notes
         .toSorted((a, b) => a.start_time - b.start_time || a.pitch - b.pitch)
-        .map((note) => [note.pitch, round(note.start_time), round(note.duration), note.velocity, note.probability]);
+        .map((note) => [note.pitch, roundBeats(note.start_time), roundBeats(note.duration), note.velocity, note.probability]);
     const listed = JSON.stringify({ id, name, kind: "midi", notes: rows });
     if (listed.length <= RESULT_LIMIT) return listed;
 

@@ -346,3 +346,12 @@ test("when Live quits before it answers the password, the result asks whether Li
 
     await run;
 });
+
+test("across the tool set, delete and live_change are the only tools marked as needing approval", () => {
+    const asking = createAbleton({ address: ADDRESS }).filter((tool) => tool.needsApproval);
+
+    assert.deepEqual(
+        asking.map((tool) => tool.name),
+        ["delete", "live_change"],
+    );
+});

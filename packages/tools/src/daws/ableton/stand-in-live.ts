@@ -136,6 +136,9 @@ function routingProp(routing: Record<"input" | "output", RoutingSpec>, prop: str
     return null;
 }
 
+// What Live 12.4.6 answers for any use of an object deleted since the script took its id.
+const DEAD = "Python argument types in\n    None.None(MaxDevice)\ndid not match C++ signature:\n    None(TPyHandle<ADevice>)";
+
 // A script function that raises is a failed command, not a failed message.
 function attempt(run: () => unknown) {
     try {
@@ -161,6 +164,7 @@ function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
     // A track's view is a part of the track, which the script reaches by the track's own id.
     const object = ns === "track-view" ? (live.get(nsid ?? "")?.view as Record<string, unknown> | undefined) : live.get(SINGLETONS.has(ns) ? ns : (nsid ?? ""));
     if (!object) return { ok: false, error: `Unknown object id: ${nsid}`, errorType: "Exception" };
+    if (object.dead) return { ok: false, error: DEAD, errorType: "ArgumentError" };
     // The script would look the name up on the wrong kind of object and fail.
     if (object.ns !== ns) return { ok: false, error: `${nsid} is not a ${ns}`, errorType: "Exception" };
     if (name === "get_prop") {
@@ -311,7 +315,8 @@ export type DeviceSpec = {
     chains?: { name: string; mute?: boolean; solo?: boolean; devices?: DeviceSpec[] }[];
 };
 
-type NoteSpec = { pitch: number; start_time: number; duration: number; velocity: number; probability: number };
+// Live gives each note of a clip an id of its own, note_id; the stand-in numbers them from 1 unless given.
+type NoteSpec = { pitch: number; start_time: number; duration: number; velocity: number; probability: number; note_id?: number };
 
 type AudioSpec = {
     warping: boolean;
@@ -384,11 +389,11 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
     // A clip as the script serializes it; the object behind it holds what a read of the clip asks for.
     function clip(spec: ClipSpec) {
         const clipId = id();
-        live.set(clipId, {
+        const object: Record<string, unknown> = {
             ns: "clip",
             name: spec.name,
             is_midi_clip: spec.kind === "midi",
-            notes: spec.notes ?? [],
+            notes: (spec.notes ?? []).map((note, index) => ({ note_id: index + 1, ...note })),
             warping: true,
             warp_mode: "beats",
             gain_display_string: "0.0 dB",
@@ -396,7 +401,14 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
             pitch_fine: 0,
             file_path: "/Samples/loop.wav",
             ...spec.audio,
-        });
+            // Live's own function, which the script calls with a list of arguments: the note ids.
+            remove_notes_by_id: (args: unknown) => {
+                if (!Array.isArray(args)) throw new Error("remove_notes_by_id takes its note ids as a list of arguments");
+                const [ids] = args as [number[]];
+                object.notes = (object.notes as { note_id: number }[]).filter((note) => !ids.includes(note.note_id));
+            },
+        };
+        live.set(clipId, object);
         return {
             id: clipId,
             name: spec.name,
@@ -499,7 +511,13 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
                 const slotId = id();
                 const clipData = spec ? clip(spec) : null;
                 live.set(slotId, { ns: "clip_slot", clip: clipData });
-                return { id: slotId, has_clip: spec !== null };
+                // Read from the slot, so a deleted clip shows.
+                return {
+                    id: slotId,
+                    get has_clip() {
+                        return live.get(slotId)?.clip != null;
+                    },
+                };
             }),
             arrangement_clips: (spec.arrangement ?? []).map(clip),
             mixer_device: { id: mixerId },
@@ -538,6 +556,13 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
         create_audio_track: ({ index }: { index: number }) => created("audio", "Audio", "tracks", index),
         create_midi_track: ({ index }: { index: number }) => created("midi", "MIDI", "tracks", index),
         create_return_track: () => created("return", "Return", "return_tracks", -1),
+        // Live's own function: the track and what is in it are deleted, and the script keeps their ids.
+        delete_track: (args: unknown) => {
+            if (!Array.isArray(args)) throw new Error("delete_track takes its index as a list of arguments");
+            const [deleted] = (set.tracks as { id: string }[]).splice(args[0] as number, 1);
+            if (!deleted) throw new Error(`No track at index ${args[0]}`);
+            kill(deleted.id);
+        },
         duplicate_track: (args: unknown) => {
             if (!Array.isArray(args)) throw new Error("duplicate_track takes its index as a list of arguments");
             const [index] = args as [number];
@@ -591,7 +616,42 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
             views.push(args[0] as string);
         },
     });
-    live.set("mentor", { ns: "mentor", moveDevice: mover() });
+    // Marks an object and everything inside it as deleted in Live. The script still holds them by
+    // their ids, so each fails as a dead object does in Live.
+    function kill(objectId: string) {
+        const object = live.get(objectId);
+        if (!object) return;
+        object.dead = true;
+        for (const key of ["devices", "chains", "arrangement_clips", "clip_slots"]) {
+            for (const entry of (object[key] as { id: string }[] | undefined) ?? []) kill(entry.id);
+        }
+        const clip = object.clip as { id: string } | null | undefined;
+        if (clip) kill(clip.id);
+    }
+
+    // Deletes a track, device or clip by the script's id, as our Mentor.py does, and answers its name.
+    // An object whose track or rack was deleted before it is unknown, as in Live.
+    function deleter() {
+        return ({ object_id }: { object_id: string }) => {
+            const object = live.get(object_id);
+            if (!object || object.dead) throw new Error(`Unknown object id: ${object_id}`);
+            if ((set.master_track as { id: string }).id === object_id) throw new Error("Main cannot be deleted");
+            // The song's lists of tracks, and the devices and clips of each track and chain.
+            const lists = [...live.values()].flatMap((holder) =>
+                [holder.tracks, holder.return_tracks, holder.devices, holder.arrangement_clips].filter(Array.isArray),
+            ) as { id: string }[][];
+            const list = lists.find((candidate) => candidate.some((entry) => entry.id === object_id));
+            const slot = [...live.values()].find((holder) => holder.ns === "clip_slot" && (holder.clip as { id: string } | null)?.id === object_id);
+            if (list) list.splice(list.findIndex((entry) => entry.id === object_id), 1);
+            else if (slot) slot.clip = null;
+            else throw new Error(`${object_id} cannot be deleted`);
+            // Our file forgets the object itself, so only what was inside it stays behind, dead.
+            kill(object_id);
+            live.delete(object_id);
+            return object.name as string;
+        };
+    }
+    live.set("mentor", { ns: "mentor", moveDevice: mover(), delete: deleter() });
 
     // The browser as Live's script describes it: root items that hold their children, where a
     // folder has `children`, a device is_device, and anything else loadable is a preset or sample.

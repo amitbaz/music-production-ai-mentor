@@ -1,4 +1,5 @@
 import type { Tool } from "@mentor/harness";
+import { goneMessage, isGone } from "../../changing.ts";
 import { type Client, type Command, getProp, setProp } from "../../client.ts";
 import type { LiveDevice, LiveDeviceParameter } from "../../live.ts";
 
@@ -49,7 +50,10 @@ async function run(client: Client, args: Record<string, unknown>) {
         try {
             results.push(await apply(client, edit));
         } catch (error) {
-            results.push({ action: typeof edit.action === "string" ? edit.action : undefined, error: error instanceof Error ? error.message : String(error) });
+            // Either object of the edit may be the one deleted meanwhile, so both are named.
+            const ids = [edit.device, edit.to].filter((id) => typeof id === "string").join(" or ");
+            const message = isGone(error) ? goneMessage(ids) : error instanceof Error ? error.message : String(error);
+            results.push({ action: typeof edit.action === "string" ? edit.action : undefined, error: message });
         }
     }
     return JSON.stringify({ edits: results });
@@ -79,7 +83,7 @@ function position(value: unknown, last: number, required: boolean) {
     if (value === undefined && !required) return undefined;
     if (value === undefined) throw new Error(`position is needed, from 1 to ${last}`);
     if (typeof value !== "number" || !Number.isInteger(value) || value < 1) throw new Error("position must be a whole number from 1");
-    if (value > last) throw new Error(`position must be from 1 to ${last}, as the chain has ${last - 1} devices`);
+    if (value > last) throw new Error(`position must be from 1 to ${last}`);
     return value;
 }
 
@@ -116,7 +120,10 @@ async function move(client: Client, edit: Edit) {
     const device = deviceId(edit);
     const into = target(client, edit);
     const scriptId = client.scriptId(device);
-    const place = position(edit.position, (await devicesOf(client, into)).length + 1, true) as number;
+    // A device moved within its own chain is already one of its devices, so the chain has no extra place for it.
+    const devices = await devicesOf(client, into);
+    const last = devices.length + (devices.some((candidate) => candidate.id === scriptId) ? 0 : 1);
+    const place = position(edit.position, last, true) as number;
 
     await client.send([{ ns: "mentor", name: "move_device", args: { device_id: scriptId, target_id: into.scriptId, position: place - 1 } }]);
 

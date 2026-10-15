@@ -1,6 +1,6 @@
 import type { Tool } from "@mentor/harness";
 import { type Client, getProp, setProp, strForValue } from "../../client.ts";
-import { findTracksOfDevices, revealer } from "../../changing.ts";
+import { findTracksOfDevices, goneMessage, isGone, revealer } from "../../changing.ts";
 import { isPlugin, type LiveDeviceParameter, type LiveParameter, type LiveTrack } from "../../live.ts";
 
 // A parameter of a device or of a track's mixer, as the script describes it.
@@ -61,8 +61,7 @@ async function run(client: Client, args: Record<string, unknown>) {
             lines.push(`${label.text}: ${before} → ${after}`);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            // An object the user deleted in Live since the ids were given fails in the script like this.
-            const reason = message.includes("Unknown object id") ? `${target} is no longer in the Live Set. Read again with read_set to get current ids.` : message;
+            const reason = isGone(error) ? goneMessage(String(target)) : message;
             lines.push(`${label.text}: not changed. ${reason}`);
         }
     }
