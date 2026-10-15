@@ -13,6 +13,10 @@ export type AgentOptions = {
     system?: string | (() => string);
     // Called before each wait of a retry
     onRetry?: RetryOptions["onRetry"];
+    // How the retry works; the defaults of withRetry when absent. They apply to a model id, not to a ready model.
+    maxRetries?: RetryOptions["maxRetries"];
+    timeoutMs?: RetryOptions["timeoutMs"];
+    firstWaitMs?: RetryOptions["firstWaitMs"];
     // Most model calls in one turn; the loop's default when absent
     maxRounds?: number;
     // Most characters one tool result may hold; the loop's default when absent
@@ -29,6 +33,9 @@ export function createAgent(options: AgentOptions) {
         typeof options.model === "string"
             ? modelFor(options.model, options.keys ?? {}, {
                   onRetry: options.onRetry,
+                  maxRetries: options.maxRetries,
+                  timeoutMs: options.timeoutMs,
+                  firstWaitMs: options.firstWaitMs,
               })
             : options.model;
 

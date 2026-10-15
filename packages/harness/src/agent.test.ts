@@ -283,3 +283,55 @@ test("an agent made with a round limit stops after that many model calls", async
     assert.equal(result.stop, "round_limit");
     assert.equal(calls.length, 2);
 });
+
+const overloaded = { status: 503, body: { error: { message: "The model is overloaded" } } };
+
+test("an agent made with maxRetries 0 does not retry a failed model call", async (t) => {
+    const fetchMock = fakeFetch(t, [overloaded]);
+    const agent = createAgent({
+        model: "gemini:test-model",
+        keys: { gemini: "test-key" },
+        tools,
+        maxRetries: 0,
+    });
+    const result = await agent.generate([], "hi");
+    assert.equal(result.stop, "error");
+    assert.equal(fetchMock.mock.callCount(), 1);
+});
+
+test("an agent made with firstWaitMs waits that long before the first retry", async (t) => {
+    fakeFetch(t, [overloaded, hello]);
+    const waits: number[] = [];
+    const agent = createAgent({
+        model: "gemini:test-model",
+        keys: { gemini: "test-key" },
+        tools,
+        firstWaitMs: 7,
+        onRetry: (report) => waits.push(report.waitMs),
+    });
+    const result = await agent.generate([], "hi");
+    assert.equal(result.stop, "finished");
+    assert.deepEqual(waits, [7]);
+});
+
+test("an agent made with timeoutMs gives up on an attempt that sends nothing for that long", { timeout: 2000 }, async (t) => {
+    // Never replies; fails only when its signal fires, as fetch does.
+    t.mock.method(
+        globalThis,
+        "fetch",
+        (_url: unknown, init?: RequestInit) =>
+            new Promise((_resolve, reject) =>
+                init?.signal?.addEventListener("abort", () => reject(init.signal?.reason)),
+            ),
+    );
+    const agent = createAgent({
+        model: "gemini:test-model",
+        keys: { gemini: "test-key" },
+        tools,
+        maxRetries: 0,
+        timeoutMs: 20,
+    });
+    const result = await agent.generate([], "hi");
+    assert.equal(result.stop, "error");
+    assert.equal(result.stop === "error" && result.error.message, "The model sent nothing for 0.02s");
+});
