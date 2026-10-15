@@ -49,3 +49,9 @@
 - **Stop reason** — why a turn ended: the model finished, the model replied with nothing, the model's reply was cut off by its output limit, the round limit was hit, a model call failed, or the user cancelled. It is reported next to the conversation, never as a message inside it.
 - **Cancel** — the user stopping a turn before it ends. What already happened stays in the conversation, including the text of a reply the model was still writing; a tool that is running finishes, and tool calls that had not started get a tool result saying so.
 - **Approval** — the user's yes or no to one tool call, asked before it runs. Only tools marked as needing approval are asked about. A refusal becomes the tool result, and the turn continues.
+- **Eval** — a check of what the model decides, such as which tool it picks or whether it follows the system prompt. It calls the real model, so it runs on demand and never in `pnpm test`, and its result is a rate over several runs, not a yes or no. A scripted model cannot stand in for the model here, because the decision is the thing being checked.
+- **Case** — one eval: a plant and a user message. The runner applies the plant, gives the mentor the message, and grades what the Live Set looks like afterwards.
+- **Run** — one execution of a case, from plant to verdict. A case is run several times and reported as how many runs passed.
+- **Base Set** — a Live Set with no faults, made and mixed by a person, that plants are applied to. Patience is the first. It is never built through the tools and never saved over.
+- **Plant** — one known change to a base Set that creates one fault, named so it can be applied and reverted. A plant is made through the tools and is never saved.
+- **Answer key** — the plant's before values: what the Live Set looks like with the fault fixed. It is the difference between the base Set and the planted copy, so nobody has to decide what a good mix is; the base Set already is one.
