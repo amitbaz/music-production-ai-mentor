@@ -130,6 +130,7 @@ export function createClient(address: string | undefined, password?: string) {
 
     // Sends several commands in one message and returns their results in order.
     async function send(commands: Command[]): Promise<unknown[]> {
+        if (commands.length === 0) return [];
         if (!address) throw new Error("No address for Ableton Live is set, so it cannot be reached");
         connection ??= connect(address);
         const socket = await connection;
@@ -194,4 +195,9 @@ export function createClient(address: string | undefined, password?: string) {
 
 export function getProp(ns: string, prop: string, nsid?: string): Command {
     return { ns, nsid, name: "get_prop", args: { prop } };
+}
+
+// Asks Live for the text it shows for a value of a parameter, such as "-3.0 dB" or "12L".
+export function strForValue(parameterId: string, value: unknown): Command {
+    return { ns: "device-parameter", nsid: parameterId, name: "str_for_value", args: [value] };
 }

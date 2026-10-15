@@ -1,5 +1,5 @@
 import type { Tool } from "@mentor/harness";
-import { type Client, getProp } from "../../client.ts";
+import { type Client, getProp, strForValue } from "../../client.ts";
 import { isPlugin, type LiveDevice, type LiveParameter, type LiveTrack } from "../../live.ts";
 
 // The overview of the Live Set: enough for the mentor to know where to look next.
@@ -42,12 +42,7 @@ async function read(client: Client) {
 
     // Values as Live shows them, such as "-3.0 dB" or "12L".
     const shownValues = (await client.sendEach(mixerParameters, ([volume, pan, sends]) =>
-        [volume, pan, ...sends].map((parameter) => ({
-            ns: "device-parameter",
-            nsid: parameter.id,
-            name: "str_for_value",
-            args: [parameter.value],
-        })),
+        [volume, pan, ...sends].map((parameter) => strForValue(parameter.id, parameter.value)),
     )) as string[][];
 
     const overview = allTracks.map((track, index) => {
