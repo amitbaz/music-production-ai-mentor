@@ -8,7 +8,7 @@ export function readArrangement(client: Client): Tool {
     return {
         name: "read_arrangement",
         description:
-            "The Arrangement View of the Live Set open in Ableton Live: the locators, and for each track its arrangement clips as rows [object id, name, start, end]. Positions are bar numbers as Live's ruler shows them, counted from 1 by the Live Set's time signature; 17.5 is halfway through bar 17, and a clip's end is where the next bar after it begins. Bars are counted by the time signature the Live Set has now; a change of time signature along the arrangement cannot be read. Tracks with no arrangement clips are left out, and so are Session View clips, group tracks (the clips are on the tracks inside), return tracks and Main. If the clips would be too many to list, it gives only the number of clips and the first and last bar for each track, and says to ask again for less. Use tracks (object ids from read_set) and from_bar and to_bar to ask for less.",
+            "The Arrangement View of the Live Set open in Ableton Live: the locators with their object ids, and for each track its arrangement clips as rows [object id, name, start, end]. Positions are bar numbers as Live's ruler shows them, counted from 1 by the Live Set's time signature; 17.5 is halfway through bar 17, and a clip's end is where the next bar after it begins. Bars are counted by the time signature the Live Set has now; a change of time signature along the arrangement cannot be read. Tracks with no arrangement clips are left out, and so are Session View clips, group tracks (the clips are on the tracks inside), return tracks and Main. If the clips would be too many to list, it gives only the number of clips and the first and last bar for each track, and says to ask again for less. Use tracks (object ids from read_set) and from_bar and to_bar to ask for less.",
         params: {
             type: "object",
             properties: {
@@ -69,7 +69,7 @@ async function read(client: Client, args: Record<string, unknown>) {
         }))
         .filter(({ clips }) => clips.length > 0);
 
-    const locators = cuePoints.map((cue) => ({ name: cue.name, bar: bar(cue.time) }));
+    const locators = cuePoints.map((cue) => ({ id: client.objectId("l", cue.id), name: cue.name, bar: bar(cue.time) }));
     const listed = JSON.stringify({
         locators,
         tracks: withClips.map(({ track, id, clips }) => ({

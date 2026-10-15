@@ -34,7 +34,7 @@ function withClips(t: Parameters<typeof useStandIn>[0], clips: ClipSpec[]) {
     };
 }
 
-test("read_clip gives the notes of a MIDI clip, by the object id read_arrangement gave", async (t) => {
+test("read_clip gives the notes of a MIDI clip with an object id each, by the object id read_arrangement gave", async (t) => {
     const { readArrangement, readClip } = withClips(t, [
         {
             name: "Bass line",
@@ -55,16 +55,32 @@ test("read_clip gives the notes of a MIDI clip, by the object id read_arrangemen
         name: "Bass line",
         kind: "midi",
         notes: [
-            [36, 0, 1, 112, 0.5],
-            [43, 1, 0.5, 90, 1],
-            [48, 1, 0.25, 100, 1],
+            ["n1", 36, 0, 1, 112, 0.5],
+            ["n2", 43, 1, 0.5, 90, 1],
+            ["n3", 48, 1, 0.25, 100, 1],
         ],
     });
 });
 
-test("read_clip gives the warp, gain, pitch and sample file of an audio clip", async (t) => {
+test("read_clip gives a note the same object id on every read, and a note of another clip its own", async (t) => {
+    // Live numbers the notes of each clip from 1, so both clips have a note 1.
     const { readArrangement, readClip } = withClips(t, [
-        { name: "Loop", kind: "audio", start: 0, end: 16, audio: { ...audio, warp_mode: "complex", pitch_coarse: -2, pitch_fine: 15 } },
+        { name: "A", kind: "midi", start: 0, end: 16, notes: [note(36, 0, 1)] },
+        { name: "B", kind: "midi", start: 16, end: 32, notes: [note(36, 0, 1)] },
+    ]);
+    await readArrangement.run({});
+    const firstId = async (clip: string) => JSON.parse(await readClip.run({ clip })).notes[0][0];
+
+    const first = await firstId("c1");
+
+    assert.equal(await firstId("c1"), first);
+    assert.notEqual(await firstId("c2"), first);
+});
+
+test("read_clip gives the warp mode by name, the gain, pitch and sample file of an audio clip", async (t) => {
+    // Live 12.4.6 gives the warp mode as its number: 4 is Complex.
+    const { readArrangement, readClip } = withClips(t, [
+        { name: "Loop", kind: "audio", start: 0, end: 16, audio: { ...audio, warp_mode: "4", pitch_coarse: -2, pitch_fine: 15 } },
         { name: "Unwarped", kind: "audio", start: 16, end: 32, audio: { ...audio, warping: false } },
     ]);
     await readArrangement.run({});
@@ -100,7 +116,7 @@ test("read_clip refuses an id that is not a clip, or that Live never gave", asyn
 
     await assert.rejects(async () => readClip.run({ clip: "t1" }), /t1 is not a clip.*read_arrangement/);
     await assert.rejects(async () => readClip.run({}), /clip is needed/);
-    await assert.rejects(async () => readClip.run({ clip: "c9" }), /c9 is not an object id from the current connection/);
+    await assert.rejects(async () => readClip.run({ clip: "c9" }), /c9 is not an object id from the current connection.*read_arrangement/);
 });
 
 test("read_clip sends the same number of messages whatever the clip", async (t) => {
@@ -169,7 +185,7 @@ test("read_clip lists only the notes that start inside the beats asked for", asy
 
     // 3000 notes over 60 beats: one every 0.02 beat.
     assert.deepEqual(
-        result.notes.map((row: number[]) => row[1]),
+        result.notes.map((row: unknown[]) => row[2]),
         [1, 1.02, 1.04, 1.06, 1.08],
     );
 });

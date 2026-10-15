@@ -35,9 +35,11 @@ const OLD_LIVE = (version: string) => `Ableton Live ${version} is too old: the m
 const LOST =
     "The connection to Ableton Live was lost, as when Live is closed or another Live Set is opened. Try again; object ids from before must be read again.";
 const NO_REPLY = `Ableton Live did not answer within ${COMMAND_MS / 1000} seconds. It may be busy. What was asked may still happen, so read again before trying again.`;
+// The read that gives each kind of object id, by its letters.
+const READ_FOR: Record<string, string> = { t: "read_set", d: "read_set", ch: "read_tracks", c: "read_arrangement", l: "read_arrangement", n: "read_clip" };
 const UNKNOWN_ID = (objectId: string) =>
-    `${objectId} is not an object id from the current connection to Ableton Live. Read again with read_set to get current ids.`;
-const DELETED = (objectId: string) => `${objectId} was deleted. Read again with read_set to get current ids.`;
+    `${objectId} is not an object id from the current connection to Ableton Live. Read again with ${READ_FOR[objectId.replace(/\d+$/, "")] ?? "read_set"} to get current ids.`;
+const DELETED = (objectId: string) => `${objectId} was deleted. Read again with ${READ_FOR[objectId.replace(/\d+$/, "")] ?? "read_set"} to get current ids.`;
 const NO_ANSWER = "Ableton Live did not answer. If it is busy, try again; if this keeps happening, restart Live.";
 
 // The address is the script's WebSocket, such as ws://127.0.0.1:39031, and the password the one

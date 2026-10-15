@@ -122,6 +122,8 @@ test("a turn sends the user text after the conversation, with the system prompt 
             "delete",
             "live_get",
             "live_change",
+            "edit_arrangement",
+            "write_notes",
         ],
     );
     assert.equal(result.stop, "finished");

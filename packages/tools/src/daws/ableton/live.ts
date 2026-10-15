@@ -13,3 +13,8 @@ export function isPlugin(device: LiveDevice) {
 }
 export type LiveBrowserItem = { id: string; name: string; is_loadable: boolean; is_device: boolean; is_folder: boolean };
 export type LiveCuePoint = { id: string; name: string; time: number };
+export type LiveNote = { note_id: number; pitch: number; start_time: number; duration: number; velocity: number; probability: number };
+
+// Live gives a clip's warp mode as its number, and takes it by its name in Live's Python API.
+// Number 5 is REX, which Live sets only for a REX file.
+export const WARP_MODES: Record<string, string> = { 0: "beats", 1: "tones", 2: "texture", 3: "repitch", 4: "complex", 5: "rex", 6: "complex_pro" };

@@ -15,7 +15,7 @@ Set up once: `pnpm pair ableton`, restart Live, choose `MusicMentor` as a Contro
 
 ## Our file's functions (`Mentor.py`)
 
-Each is called with `ns: "mentor"` and the script's own ids for Live objects, such as `live_123`: a script returns them for tracks, devices and clips. The mentor's tools do not call items 9 to 11 yet.
+Each is called with `ns: "mentor"` and the script's own ids for Live objects, such as `live_123`: a script returns them for tracks, devices and clips. The mentor's tools do not call items 10 and 11 yet.
 
 7. **`get_version`** gives the `VERSION` string of the file.
 8. **`move_device`**, with a device, a target track or rack chain and a position counted from 0.
@@ -36,3 +36,8 @@ Each is called with `ns: "mentor"` and the script's own ids for Live objects, su
 17. **`find_in_browser`.** Look for `compressor`, `808` and `bass` with each `kind`: matches have the right kind (a device is `device`, a `.adv` or `.adg` is `preset`, a `.wav` is `sample`), and the path is where the item is in Live's browser. Write down how long the first search of a large library takes, and whether it stops at 5000 items.
 18. **`delete` through the tool.** Ask the mentor to delete a track: the terminal asks first, and a no leaves the track. A yes removes it and the result names it; Cmd+Z in Live brings it back. Delete two notes of a MIDI clip by the ids `read_clip` gives: only those two go.
 19. **`live_get` and `live_change`.** `live_get` `song` `available_properties`, then a property it lists; a track's `devices` gives object ids. `live_change` `song` `groove_amount` asks first and gives before and after; a function such as `tap_tempo` runs. A property that does not exist gives Live's own error.
+20. **`write_notes`.** Add two notes, one with `probability: 0.5`: both appear, the note's chance shows 50% in the clip view, and `read_clip` gives both with the ids the result gave. Change one note's start, velocity and probability: Live shows the change and the result gives before and after. `{remove: [...]}` is refused and the notes stay.
+21. **`edit_arrangement` clips.** Create a MIDI clip at a bar with a length; duplicate it to another bar and to another MIDI track; move it, and see the original gone and the playback position where it was; move a MIDI clip to an audio track and see it refused with the original kept. Duplicate a clip onto bars that hold another and see it refused with nothing changed. Move a clip two bars along its own track, onto bars it covers itself: one clip remains, at the new place, whole. Write down whether Live really cuts a clip under a new one, which is why the overlap is refused.
+22. **`edit_arrangement` clip settings.** On a MIDI clip change name, mute and loop. On an audio clip set warp to each mode and to off, gain to −12, 0 and 12 dB (Live shows those exact texts), and pitch; the loop of an unwarped clip is refused.
+23. **`edit_arrangement` locators.** Add a locator at a bar with a name and without, rename it, remove it; the playback position stays where it was each time. A bar with a locator, a bar past the end of the arrangement and a bar like 9.5 are refused. Try once while Live plays, and write down whether the locator lands on the bar.
+24. **`edit_arrangement` refusals.** `split`, `insert_time`, `cut_time` and `automation` give steps that work when done by hand in Live; `delete` is refused and the clip stays.

@@ -438,6 +438,17 @@ On 2026-10-14 a throwaway script, kept outside the repo, tried the facts that [#
 - Copy then delete, which is the planned way to move a clip, works as two calls.
 - `Track.insert_device(name)` with no index added the device at the end of the chain. A new MIDI track is created from the user's default MIDI track, devices included: on this machine, Pitch, Velocity and FabFilter Pro-Q 3.
 
+**Arrangement clips, notes and locators, for `edit_arrangement` and `write_notes` ([#12](https://github.com/amitbaz/music-production-ai-mentor/issues/12)).** Tried on 2026-10-15 on scratch tracks, deleted afterwards.
+
+- A clip made by `create_midi_clip` or copied by `duplicate_clip_to_arrangement` moves the playback position to the clip's start. A copy onto a track of the other kind fails with "Incompatible track types for clip duplication". The copy keeps the notes and their `note_id`s, which Live numbers per clip from 1.
+- `Clip.gain` runs 0 to 1. 0 dB is 0.4, and above it the text rises 2.0 dB per 0.05 to 24.0 dB at 1. Below it the curve is steeper: 0.3 is −6.20 dB, 0.2 is −16.4, 0.1 is −30.6, 0.05 is −39.2, 0.005 is −61.6, 0 is −inf. Written through the measured points, −12 and −40 dB read back as "-12.0 dB" and "-40.0 dB".
+- `warp_mode` reads as its number in text, such as "4". It is set by name: `beats` 0, `tones` 1, `texture` 2, `repitch` 3, `complex` 4, `complex_pro` 6. `rex` is refused as "Invalid warp mode", and `re_pitch` or `Beats` as no such attribute.
+- A MIDI clip refuses `warping`, `warp_mode`, `gain`, `gain_display_string`, `pitch_coarse` and `file_path`: "Warping is only available for Audio Clips", and so on for Gain, Pitch and FilePath. `looping` and the loop positions work. A loop start at or after the loop end is refused: "Cannot set LoopStart behind LoopEnd". Changing a clip's loop end does not change its length in the arrangement.
+- An unwarped audio clip counts its loop in seconds.
+- `set_or_delete_cue` at playback position 201.3 beats put the locator at 200, the start of the bar. `CuePoint.name` can be set, and a cue point keeps its id across reads. The playback position cannot be set past `song_length`: "Cannot set the Songtime behind the Songlength".
+- **Every command of a message runs, even after one fails.** A move of the playback position that failed, followed in the same message by `set_or_delete_cue`, added a locator at the old position. A command that must not run after a failure goes in a message of its own.
+- `Clip.apply_note_modifications` changed a note's start, velocity and probability by `note_id`. Our `add_notes` added notes with probability and answered their `note_id`s.
+
 **Arrangement automation through a Session View clip does not work.**
 
 - A Session clip got an envelope for Utility `Output` with `create_automation_envelope` and two `insert_step` calls. `value_at_time` read it back. Envelope values are internal units and are clamped to `min`–`max`: steps of −12 and 6 read back as −1 and 1.
