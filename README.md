@@ -4,7 +4,7 @@ An AI mentor for music producers. You talk to it in plain language: it explains 
 
 ## Status
 
-Early. The mentor runs in the terminal on Gemini and reads the Live Set open in Ableton Live, so far only as an overview. `pnpm pair ableton` installs the Remote Script it reaches Live through. Reading the rest of the Live Set and changing it are next ([#2](https://github.com/amitbaz/music-production-ai-mentor/issues/2)).
+Early. The mentor runs in the terminal on Gemini and reads the Live Set open in Ableton Live: an overview, and the detail of the tracks it chooses. `pnpm pair ableton` installs the Remote Script it reaches Live through. Reading the arrangement and clips, and changing the Live Set, are next ([#2](https://github.com/amitbaz/music-production-ai-mentor/issues/2)).
 
 ## What it does today
 
@@ -13,6 +13,7 @@ Early. The mentor runs in the terminal on Gemini and reads the Live Set open in 
 - `pnpm pair ableton` pairs the mentor with Ableton Live on macOS: it installs the Remote Script with a new random password that only the mentor knows, and says which Control Surface to choose in Live. Running it again replaces both. `pnpm unpair ableton` removes them again. The mentor can be talked to whether Live is paired or not, and when it cannot reach Live it says whether Live is not paired or not answering.
 - `read_set` gives the mentor an overview of the Live Set open in Ableton Live, saved or not: tempo, time signature, and each track with its kind, group, volume, pan, sends, mute and solo, and its devices. It connects to Live the first time it is used.
 - When Live cannot be used, the mentor is told what is wrong and what to do, and can pass it on: Live not answering or MusicMentor not chosen, the wrong password, an installed script of another version (pair again and restart Live), a Live older than 12.4 (update it), or a command Live did not answer within 10 seconds. After Live is restarted, the next tool call connects again without restarting the mentor; object ids from before are refused with a message to read again, and never given out again.
+- `read_tracks` gives the mentor the detail of the tracks it chooses by object id: every parameter of each native device with its value in the units Live shows and its range (a list parameter gives its current choice and its choices), the chains of a rack with their devices, and the track's Session and Arrangement clips, each with an object id. A third-party plug-in is named and marked, without parameters. A result past 40,000 characters is cut at a whole device, and says which devices it left out; the mentor reads those with the `devices` argument.
 - Ctrl+C cancels a turn. What already happened stays in the conversation.
 - A failed model call is retried after a growing wait, and an attempt that hangs is timed out.
 - A reply cut off by the model's output limit is kept as far as it got, and none of its tool calls run. The terminal shows "(reply cut off)". See [ADR 0018](docs/adr/0018-a-long-conversation-is-summarised.md).
@@ -21,7 +22,7 @@ Early. The mentor runs in the terminal on Gemini and reads the Live Set open in 
 
 ## Planned
 
-- **The real Ableton Live** ([#2](https://github.com/amitbaz/music-production-ai-mentor/issues/2)): read device parameters, clips and the arrangement, and change tracks, native devices, clips and the arrangement. Approval comes back with `delete`.
+- **The real Ableton Live** ([#2](https://github.com/amitbaz/music-production-ai-mentor/issues/2)): read the arrangement along time with its locators, the notes of a MIDI clip and the settings of an audio clip, and change tracks, native devices, clips and the arrangement. Approval comes back with `delete`.
 - **A `mentor` command** ([#37](https://github.com/amitbaz/music-production-ai-mentor/issues/37)): type `mentor`, `mentor auth gemini` or `mentor pair ableton` from any folder.
 - **Load a tool set only when the mentor needs it** ([#1](https://github.com/amitbaz/music-production-ai-mentor/issues/1)).
 - **Evals** for what the model decides: which tool it picks, whether it follows the system prompt, which format tool results should use ([#16](https://github.com/amitbaz/music-production-ai-mentor/issues/16)), and what a summary of a long conversation keeps ([#18](https://github.com/amitbaz/music-production-ai-mentor/issues/18)).

@@ -10,7 +10,7 @@ type Request = { uuid: string; commands: Command[] };
 // A stand-in Live Set: the objects the script would answer for, keyed by the script's own ids.
 // The song is under "song". Each object holds the namespace it belongs to and maps a
 // property to its value; a parameter also holds the text Live shows for it, which is
-// what str_for_value answers.
+// what str_for_value answers: a text, or a function from a value to its text.
 type LiveSet = Map<string, Record<string, unknown>>;
 
 // The password a stand-in Live can ask for, the salt it sends, and the hash the script would
@@ -106,9 +106,16 @@ function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
     if (object.ns !== ns) return { ok: false, error: `${nsid} is not a ${ns}`, errorType: "Exception" };
     if (name === "get_prop") {
         const { prop } = args as { prop: string };
+        // Live may refuse a return track or Main its clips, and a refused command fails the whole message.
+        if (object.clipless && (prop === "clip_slots" || prop === "arrangement_clips")) {
+            return { ok: false, error: `${prop} is not available on this track`, errorType: "Exception" };
+        }
         return { ok: true, data: object[prop] ?? null };
     }
-    if (name === "str_for_value") return { ok: true, data: object.shown };
+    if (name === "str_for_value") {
+        const [value] = args as number[];
+        return { ok: true, data: typeof object.shown === "function" ? object.shown(value) : object.shown };
+    }
     return { ok: false, error: `Function call failed: ${name} doesn't exist`, errorType: "Exception" };
 }
 
@@ -144,6 +151,22 @@ export function useStandIn(
     });
 }
 
+// A device parameter as Live would describe it: a number with a range and the text Live shows for
+// a value, or a list of choices, where the value is the index of the current choice.
+export type ParameterSpec =
+    | { name: string; value: number; min: number; max: number; shown: (value: number) => string }
+    | { name: string; items: string[]; value: number };
+
+export type DeviceSpec = {
+    name: string;
+    class_name: string;
+    parameters?: ParameterSpec[];
+    // A rack's chains, each with its own devices.
+    chains?: { name: string; mute?: boolean; solo?: boolean; devices?: DeviceSpec[] }[];
+};
+
+export type ClipSpec = { name: string; kind: "midi" | "audio"; muted?: boolean; start?: number; end?: number };
+
 type TrackSpec = {
     name: string;
     type: "audio" | "midi" | "group" | "return" | "main";
@@ -153,7 +176,10 @@ type TrackSpec = {
     mute?: boolean;
     solo?: boolean;
     group?: { id: string };
-    devices?: { name: string; class_name: string }[];
+    devices?: DeviceSpec[];
+    // The Session slots from the top, null for an empty one.
+    session?: (ClipSpec | null)[];
+    arrangement?: ClipSpec[];
 };
 
 // Builds a stand-in Live Set the way the script describes one.
@@ -166,6 +192,43 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
         const paramId = id();
         live.set(paramId, { ns: "device-parameter", shown });
         return { id: paramId, name: "", value: 0, is_quantized: false };
+    }
+
+    function clip(spec: ClipSpec) {
+        const clipId = id();
+        live.set(clipId, { ns: "clip" });
+        return {
+            id: clipId,
+            name: spec.name,
+            is_audio_clip: spec.kind === "audio",
+            is_midi_clip: spec.kind === "midi",
+            start_time: spec.start ?? 0,
+            end_time: spec.end ?? 4,
+            muted: spec.muted ?? false,
+        };
+    }
+
+    function deviceParameter(spec: ParameterSpec) {
+        const paramId = id();
+        const common = { ns: "device-parameter" };
+        if ("items" in spec) live.set(paramId, { ...common, value_items: spec.items, shown: (value: number) => spec.items[value] });
+        else live.set(paramId, { ...common, min: spec.min, max: spec.max, shown: spec.shown });
+        return { id: paramId, name: spec.name, value: spec.value, is_quantized: "items" in spec };
+    }
+
+    function device(spec: DeviceSpec): { id: string; name: string; type: string; class_name: string } {
+        const deviceId = id();
+        live.set(deviceId, {
+            ns: "device",
+            parameters: (spec.parameters ?? []).map(deviceParameter),
+            can_have_chains: spec.chains !== undefined,
+            chains: (spec.chains ?? []).map((chain) => {
+                const chainId = id();
+                live.set(chainId, { ns: "chain", devices: (chain.devices ?? []).map(device) });
+                return { id: chainId, name: chain.name, color: 0, mute: chain.mute ?? false, solo: chain.solo ?? false };
+            }),
+        });
+        return { id: deviceId, name: spec.name, type: "audio_effect", class_name: spec.class_name };
     }
 
     function track(spec: TrackSpec) {
@@ -184,11 +247,15 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
         live.set(trackId, {
             ns: "track",
             name: spec.name,
-            devices: (spec.devices ?? []).map((device) => {
-                const deviceId = id();
-                live.set(deviceId, { ns: "device" });
-                return { id: deviceId, name: device.name, type: "audio_effect", class_name: device.class_name };
+            clipless: spec.type === "return" || spec.type === "main",
+            devices: (spec.devices ?? []).map(device),
+            clip_slots: (spec.session ?? []).map((spec) => {
+                const slotId = id();
+                const clipData = spec ? clip(spec) : null;
+                live.set(slotId, { ns: "clip_slot", clip: clipData });
+                return { id: slotId, has_clip: spec !== null };
             }),
+            arrangement_clips: (spec.arrangement ?? []).map(clip),
             mixer_device: { id: mixerId },
             group_track: spec.group ?? null,
         });
