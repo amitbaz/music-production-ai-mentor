@@ -56,6 +56,9 @@
 - **Eval** — a check of what the model decides, such as which tool it picks or whether it follows the system prompt. It calls the real model, so it runs on demand and never in `pnpm test`, and its result is a rate over several runs, not a yes or no. A scripted model cannot stand in for the model here, because the decision is the thing being checked.
 - **Case** — one eval: a plant and a user message. The runner applies the plant, gives the mentor the message, and grades what the Live Set looks like afterwards.
 - **Run** — one execution of a case, from plant to verdict. A case is run several times and reported as how many runs passed.
+- **Series** — a case run several times on one model, in one go, reported as runs passed out of runs made.
+- **Sandbox** — a throwaway virtual Mac where a series runs, so the user's own Live is never touched. It holds Ableton Live, paired, and opens the base Set fresh before every run. It is deleted after the series, or kept for a look when it gets stuck.
+- **Sandbox image** — the prepared virtual Mac every sandbox is copied from: macOS with Live installed, authorized and paired. It never leaves the computer it was made on, because it holds a Live licence.
 - **Panel** — the supported models a case is run on. A change is kept when it lifts the panel, not one model; a case low on one model is a model problem, low on all a product problem.
 - **Base Set** — a Live Set with no faults, made and mixed by a person, that plants are applied to. Patience is the first. It is never built through the tools and never saved over.
 - **Plant** — one known change to a base Set that creates one fault, named so it can be applied and reverted. A plant is made through the tools and is never saved.
