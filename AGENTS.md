@@ -48,7 +48,7 @@ A tool whose answer grows with its source, such as one that reads the whole Live
 
 ## Constraints
 
-- The project has no runtime dependencies, and provider adapters call the HTTP API with `fetch`. Raise a new dependency with the maintainer as a decision.
+- A dependency is allowed when it saves real code that would teach nothing (ADR 0021). Raise it with the maintainer first, and say in the pull request what it buys. The agent loop, the message format, summarising and retry stay hand-written.
 - `pnpm check` runs the type check, the linter and the tests in every package. It passes before every commit.
 - API keys and any other sensitive values live in a `.env` file inside each app (`apps/cli/.env`), which is not committed. Keep their values out of output, logs, tests and commits.
 - When a change adds, removes or replaces something a user can do, or starts or finishes an item under Planned, update the Status, What it does today and Planned sections of `README.md` in the same commit.
@@ -75,7 +75,8 @@ There are three kinds of test. Choose by what could be wrong: our code, our read
 - They call the real API, so they run on demand, apart from `pnpm test`, and a commit never depends on them.
 - Each case states a request and an expectation that can be checked: for a fault planted on a base Set, that the Set read back equals its base (ADR 0020); for a case about process, which tools were called and in what order.
 - Run each case several times and report how many passed. One passing run proves little, because the model varies.
-- `pnpm eval <case>` runs a case on the base Set open in Live, ten times unless `--runs` says otherwise, on the mentor's model unless `--model` names another, and prints the rate. Every run is saved in full under `~/.mentor/evals/runs/`, outside the repo so it outlasts the worktree; read the failing ones before changing anything.
+- `pnpm eval <case>` runs a case on the base Set open in Live, 30 times unless `--runs` says otherwise, on the mentor's model unless `--model` names another, and prints the rate. Every run is saved in full under `~/.mentor/evals/runs/`, outside the repo so it outlasts the worktree; read the failing ones before changing anything.
+- The score of every series goes in `evals/scores.md`. When it is not clear what to work on, run the loop in `evals/README.md`: lowest-scoring case, read the failing runs, change one thing, run again on every supported model, keep it only if the panel goes up.
 - A behaviour no case covers yet is checked with a throwaway script outside the repo, and reported as observed, with the number of runs.
 
 ## Before changing a design
