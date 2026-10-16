@@ -4,7 +4,7 @@ An AI mentor for music producers. You talk to it in plain language: it explains 
 
 ## Status
 
-Early. The mentor runs in the terminal on Gemini and reads the Live Set open in Ableton Live: an overview, the detail of the tracks it chooses, the arrangement and the inside of a clip. `pnpm pair ableton` installs the Remote Script it reaches Live through. It changes device parameters and the mixer, tracks, effect chains, arrangement clips and locators, the notes of MIDI clips, the transport and what is selected in Live, finds devices, presets and samples by name, deletes tracks, devices, clips and notes after asking, and reaches anything else Live offers to scripts through two general tools. Its system prompt tells the model how to work in Live: read first, give each change before → after, and say it cannot hear the audio.
+Early. The mentor runs in the terminal on Gemini, and on Gemini or Claude in the evals (`pnpm eval <case> --model claude:claude-haiku-5-5`). It reads the Live Set open in Ableton Live: an overview, the detail of the tracks it chooses, the arrangement and the inside of a clip. `pnpm pair ableton` installs the Remote Script it reaches Live through. It changes device parameters and the mixer, tracks, effect chains, arrangement clips and locators, the notes of MIDI clips, the transport and what is selected in Live, finds devices, presets and samples by name, deletes tracks, devices, clips and notes after asking, and reaches anything else Live offers to scripts through two general tools. Its system prompt tells the model how to work in Live: read first, give each change before → after, and say it cannot hear the audio.
 
 ## What it does today
 
@@ -33,7 +33,7 @@ Early. The mentor runs in the terminal on Gemini and reads the Live Set open in 
 - A reply cut off by the model's output limit is kept as far as it got, and none of its tool calls run. The terminal shows "(reply cut off)". See [ADR 0018](docs/adr/0018-a-long-conversation-is-summarised.md).
 - A model that declines a request on safety grounds ends the turn as "refused", with the category and the model's explanation. What arrived is kept, none of its tool calls run, and the terminal shows "refused (category): explanation". Gemini's prompt block ends a turn the same way, and an eval run that is refused counts as failed. See [ADR 0023](docs/adr/0023-the-second-provider-is-claude.md).
 - A long conversation is summarised: past 100,000 tokens, before a model call (also in the middle of a turn), the mentor's model writes a summary of everything except the newest ~20,000 tokens, and is sent only that summary and what follows from then on. The terminal shows "(summarising the earlier conversation…)" and then "(earlier conversation summarised)". A summary that fails adds nothing: the terminal shows "(could not summarise, carrying on with the full conversation)" and the turn carries on. See [ADR 0018](docs/adr/0018-a-long-conversation-is-summarised.md).
-- Only supported models run: a model with a context window of at least 1,000,000 tokens, from a fixed list per provider (today `gemini-3.5-flash-lite` and `claude:claude-haiku-5-5`; the terminal takes the Claude key in [#91](https://github.com/amitbaz/music-production-ai-mentor/issues/91)). Any other model name is refused with a plain error. See [ADR 0019](docs/adr/0019-only-supported-models-with-a-1m-window.md).
+- Only supported models run: a model with a context window of at least 1,000,000 tokens, from a fixed list per provider (today `gemini-3.5-flash-lite` and `claude:claude-haiku-5-5`). The Claude key is read from `ANTHROPIC_API_KEY` in `apps/cli/.env`, next to `GEMINI_API_KEY`; the first Claude score is open in [#91](https://github.com/amitbaz/music-production-ai-mentor/issues/91). Any other model name is refused with a plain error. See [ADR 0019](docs/adr/0019-only-supported-models-with-a-1m-window.md).
 
 ## Planned
 
@@ -51,13 +51,13 @@ Early. The mentor runs in the terminal on Gemini and reads the Live Set open in 
 
 ## Quick start
 
-You need Node 22.18 or newer, pnpm, and a Gemini API key (free from [Google AI Studio](https://aistudio.google.com/apikey)).
+You need Node 22.18 or newer, pnpm, and a Gemini API key (free from [Google AI Studio](https://aistudio.google.com/apikey)). To run on Claude too, add an Anthropic API key from the [Anthropic Console](https://console.anthropic.com/settings/keys) as `ANTHROPIC_API_KEY`.
 
 ```sh
 git clone https://github.com/amitbaz/music-production-ai-mentor.git
 cd music-production-ai-mentor
 pnpm install
-cp apps/cli/.env.example apps/cli/.env   # then set GEMINI_API_KEY in it
+cp apps/cli/.env.example apps/cli/.env   # then set GEMINI_API_KEY (and ANTHROPIC_API_KEY for Claude) in it
 pnpm start
 ```
 
