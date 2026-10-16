@@ -39,6 +39,7 @@ SANDBOX_HOME=$HOME/.mentor/sandbox
 KEY=$SANDBOX_HOME/id_ed25519
 PASSWORD_FILE=$SANDBOX_HOME/pairing-password
 BASE=${SANDBOX_BASE:-ghcr.io/cirruslabs/macos-tahoe-base:latest}
+# GUEST_USER, LIVE_APP, PATIENCE and REMOTE_SCRIPT_PORT are also in evals/src/sandbox.ts: change them together.
 GUEST_USER="admin"
 # The Cirrus base images ship with this user and password, and ssh on.
 GUEST_PASSWORD="admin"

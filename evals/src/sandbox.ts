@@ -23,6 +23,7 @@ export type Host = {
     sleep: (ms: number) => Promise<void>;
 };
 
+// These four are also in scripts/build-sandbox-image.sh (REMOTE_SCRIPT_PORT, GUEST_USER, LIVE_APP, PATIENCE): change them together.
 const REMOTE_SCRIPT_PORT = 39031;
 const USER = "admin";
 const LIVE_APP = "/Applications/Ableton Live 12 Suite.app";
@@ -30,32 +31,86 @@ const PATIENCE = `${LIVE_APP}/Contents/App-Resources/Core Library/Lessons/Demo S
 const BUILD = "scripts/build-sandbox-image.sh <live-installer.dmg> <licence.auz>";
 const SHOT = "/private/tmp/mentor-eval-screen.png";
 
-// Runs in the VM before every run. Reopens Patience, answers Live's "Save changes?" with "Don't Save",
-// and waits until Live shows Patience and the Remote Script's port answers. Exits 1, saying why, if not.
+// Runs in the VM before every run. Reopens Patience, answers Live's "Save changes?" with "Don't Save", and
+// waits until Live shows Patience and the Remote Script's port answers. Exits 1, saying why, if not.
+//
+// Opening a Set that is already open does not prove that it was read again: if Live has unsaved changes and
+// the script returned as soon as the title and the port looked right, the run would grade the old Set. So
+// the script asks, before `open`, whether Live has unsaved changes (File > Save Live Set is enabled), and
+// then waits for proof that the Set was read from disk:
+//   - Live was not running: it starts on Patience, which is read from disk.
+//   - the "Save changes?" sheet was answered, and then Live went busy (no window title, or the port down)
+//     and came back, or 20 s passed since the answer. Don't Save makes Live load the file, so 20 s without a
+//     visible gap is taken as a load too fast to see.
+//   - Live says nothing is unsaved: the Set on screen is the file.
+// Unsaved changes with no sheet and no gap fail. When the question gets no answer, the script waits 20 s for
+// a sheet or a gap and then goes on, as an unsaved Set that never asks would have gone on before.
+//
+// Not checked without a real Live: that File > Save Live Set is enabled exactly when the Set has unsaved
+// changes (if Live leaves it enabled on a clean Set, a clean Set with no sheet fails here), that the
+// sheet's button is named as the script expects, and that a load shows as a gap. The script's logic is
+// tested against stand-ins in sandbox.test.ts.
 const REOPEN = `set -u
 app=${shellQuote(LIVE_APP)}
 patience=${shellQuote(PATIENCE)}
-open -a "$app" "$patience" || { echo "open failed" >&2; exit 1; }
-# Live asks whether to save the Set it has open, unless nothing changed; then there is nothing to click.
-for _ in $(seq 1 10); do
-    osascript <<'AS' >/dev/null 2>&1 && break
-tell application "System Events" to tell process "Live"
-    try
-        click (first button of sheet 1 of window 1 whose name ends with "t Save")
-    on error
-        click (first button of window 1 whose name ends with "t Save")
-    end try
-end tell
+# Asks System Events something about Live, giving up after 3 s: a Live that is loading does not answer.
+ui() { osascript -e 'with timeout of 3 seconds' -e 'tell application "System Events"' -e 'tell process "Live"' -e "$1" -e 'end tell' -e 'end tell' -e 'end timeout' 2>/dev/null; }
+# Clicks "Don't Save" on the sheet if there is one; fails if not.
+answer() {
+    osascript >/dev/null 2>&1 <<'AS'
+with timeout of 3 seconds
+    tell application "System Events" to tell process "Live"
+        try
+            click (first button of sheet 1 of window 1 whose name ends with "t Save")
+        on error
+            click (first button of window 1 whose name ends with "t Save")
+        end try
+    end tell
+end timeout
 AS
+}
+dirty=no
+if pgrep -x Live >/dev/null; then
+    case $(ui 'get enabled of menu item "Save Live Set" of menu 1 of menu bar item "File" of menu bar 1' || echo unknown) in
+        true) dirty=yes ;;
+        false) dirty=no ;;
+        *) dirty=unknown ;;
+    esac
+fi
+open -a "$app" "$patience" || { echo "open failed" >&2; exit 1; }
+answered=0
+gap=0
+at=0
+title=
+for i in $(seq 1 90); do
+    if answer; then
+        answered=1
+        gap=0
+        at=$i
+    fi
+    title=$(ui 'get name of window 1' || true)
+    up=0
+    nc -z 127.0.0.1 ${REMOTE_SCRIPT_PORT} && up=1
+    shown=0
+    case "$title" in *Patience*) shown=1 ;; esac
+    if [ "$up" = 1 ] && [ "$shown" = 1 ]; then
+        if [ "$answered" = 1 ]; then
+            if [ "$gap" = 1 ] || [ $((i - at)) -ge 20 ]; then exit 0; fi
+        elif [ "$gap" = 1 ] || { [ "$dirty" = no ] && [ "$i" -ge 3 ]; }; then
+            exit 0
+        elif [ "$dirty" = unknown ] && [ "$i" -ge 20 ]; then
+            exit 0
+        fi
+    else
+        gap=1
+    fi
     sleep 1
 done
-sleep 3
-for _ in $(seq 1 90); do
-    title=$(osascript -e 'tell application "System Events" to tell process "Live" to get name of window 1' 2>/dev/null || true)
-    case "$title" in *Patience*) nc -z 127.0.0.1 ${REMOTE_SCRIPT_PORT} && exit 0 ;; esac
-    sleep 2
-done
-echo "Live did not show Patience with the Remote Script answering within 3 minutes (window: \${title:-none})" >&2
+if [ "$answered" = 0 ] && [ "$dirty" != no ]; then
+    echo "Live has unsaved changes but never asked 'Save changes?' and never reloaded, so it may still show the old Set (window: \${title:-none})" >&2
+else
+    echo "Live did not show Patience with the Remote Script answering in time (window: \${title:-none})" >&2
+fi
 exit 1
 `;
 
@@ -113,9 +168,13 @@ const realHost: Host = {
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 
+// The text of Tart's own refusal when macOS will not run another VM.
+const VM_LIMIT = /number of VMs exceeds the system limit/i;
+
 // Copies the image under a new name, starts the copy, waits for ssh and opens the tunnel to its Live.
-// Throws, saying what to do, when the Mac, Tart or the image is not ready or the VM will not start.
-export async function startSandbox({ host = realHost, image = "mentor-sandbox" }: { host?: Host; image?: string } = {}): Promise<Sandbox & { address: string; password: string }> {
+// Throws, saying what to do, when the Mac, Tart or the image is not ready or the VM will not start. When
+// it throws, or `signal` aborts the start (Ctrl-C), the VM is stopped and the copy deleted, so nothing is left.
+export async function startSandbox({ host = realHost, image = "mentor-sandbox", signal }: { host?: Host; image?: string; signal?: AbortSignal } = {}): Promise<Sandbox & { address: string; password: string }> {
     if (host.platform !== "darwin" || host.arch !== "arm64") throw new Error("pnpm eval needs a Mac with Apple Silicon: Tart runs macOS VMs only there.");
     const tart = host.env.TART || "tart";
     if ((await host.run(tart, ["--version"])).code !== 0) {
@@ -131,18 +190,17 @@ export async function startSandbox({ host = realHost, image = "mentor-sandbox" }
         readFileSync(key);
     } catch {}
     if (!password) throw new Error(`The pairing password or the ssh key is missing from ${dir}. ${build}`);
+    if (signal?.aborted) throw new Error("Interrupted.");
 
     const name = `mentor-eval-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    const clone = await host.run(tart, ["clone", image, name]);
-    if (clone.code !== 0) throw new Error(`Could not copy the sandbox image ${image} (about 60 GB of free disk are needed): ${clone.stderr.trim()}`);
-
     const sshOptions = ["-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=15"];
-    const vm = host.start(tart, ["run", "--no-graphics", "--no-audio", name]);
+    let vm: Process | undefined;
     let tunnel: Process | undefined;
     let tunnelExited = false;
     let closed = false;
     const stop = async () => {
         tunnel?.kill();
+        if (!vm) return;
         await host.run(tart, ["stop", name]);
         vm.kill();
         await Promise.race([vm.exited, host.sleep(30_000)]);
@@ -153,22 +211,31 @@ export async function startSandbox({ host = realHost, image = "mentor-sandbox" }
     };
 
     try {
-        // Whichever comes first: what a step waits for, or the VM stopping under it.
-        const died = vm.exited.then((code) => {
-            throw new Error(`The VM stopped (exit ${code}).`);
+        // Whichever comes first: what a step waits for, or the start being aborted or the VM stopping under it.
+        let fail: (error: Error) => void = () => {};
+        const failed = new Promise<never>((_, reject) => {
+            fail = reject;
         });
-        died.catch(() => {});
-        const guard = <T>(promise: Promise<T>) => Promise.race([promise, died]);
+        failed.catch(() => {});
+        signal?.addEventListener("abort", () => fail(new Error("Interrupted.")), { once: true });
+        const guard = <T>(promise: Promise<T>) => Promise.race([promise, failed]);
+
+        // The copy is made inside the try: one that fails or is interrupted may be left half made, and is deleted below.
+        const clone = await guard(host.run(tart, ["clone", image, name]));
+        if (clone.code !== 0) throw new Error(`Could not copy the sandbox image ${image} (about 60 GB of free disk are needed): ${clone.stderr.trim()}`);
+        const started = host.start(tart, ["run", "--no-graphics", "--no-audio", name]);
+        vm = started;
+        void started.exited.then((code) => fail(new Error(`The VM stopped (exit ${code}).`)));
 
         const ip = (await guard(host.run(tart, ["ip", name, "--wait", "180"]))).stdout.trim();
         if (!ip) throw new Error("The VM got no IP address.");
         const target = `${USER}@${ip}`;
-        const ssh = (...command: string[]) => host.run("ssh", [...sshOptions, target, ...command]);
+        const ssh = (command: string[], options?: { input?: string }) => host.run("ssh", [...sshOptions, target, ...command], options);
 
         // Up, with auto-login done: open, osascript and System Events need the desktop session.
         let ready = false;
         for (let attempt = 0; attempt < 90 && !ready; attempt++) {
-            ready = (await guard(ssh('[ "$(stat -f %Su /dev/console)" = admin ]'))).code === 0;
+            ready = (await guard(ssh(['[ "$(stat -f %Su /dev/console)" = admin ]']))).code === 0;
             if (!ready) await guard(host.sleep(2000));
         }
         if (!ready) throw new Error("The VM did not take ssh within 3 minutes.");
@@ -185,12 +252,12 @@ export async function startSandbox({ host = realHost, image = "mentor-sandbox" }
             address: `ws://127.0.0.1:${port}`,
             password,
             reopenBase: async () => {
-                const result = await host.run("ssh", [...sshOptions, target, "bash", "-s"], { input: REOPEN });
+                const result = await ssh(["bash", "-s"], { input: REOPEN });
                 if (result.code !== 0) throw new Error(result.stderr.trim() || `the reopen script failed (exit ${result.code})`);
                 if (tunnelExited) throw new Error("The tunnel to the VM's Live is down.");
             },
             screenshot: async (file) => {
-                const shot = await ssh("screencapture", "-x", SHOT);
+                const shot = await ssh(["screencapture", "-x", SHOT]);
                 if (shot.code !== 0) throw new Error(shot.stderr.trim() || "screencapture failed");
                 const copy = await host.run("scp", [...sshOptions, `${target}:${SHOT}`, file]);
                 if (copy.code !== 0) throw new Error(copy.stderr.trim() || "could not copy the screenshot");
@@ -205,12 +272,11 @@ export async function startSandbox({ host = realHost, image = "mentor-sandbox" }
     } catch (error) {
         // Give the VM's exit a moment to register: then its output says why it stopped.
         await new Promise((resolve) => setImmediate(resolve));
-        const output = vm.output().trim();
-        const vmStopped = /^The VM stopped/.test((error as Error).message) || /limit|exceeds/i.test(output);
+        const output = vm?.output().trim() ?? "";
         await stop().catch(() => {});
         await remove().catch(() => {});
-        if (!vmStopped) throw error;
-        if (/limit|exceeds/i.test(output)) {
+        if (!/^The VM stopped/.test((error as Error).message)) throw error;
+        if (VM_LIMIT.test(output)) {
             throw new Error(`The VM would not start: macOS allows at most two macOS VMs running at once. Look with "tart list" and stop another with "tart stop <name>". Tart said: ${output}`);
         }
         throw new Error(`The VM stopped before it was ready. Tart said: ${output || "nothing"}`);

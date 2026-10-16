@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -11,7 +11,7 @@ type Reply = { code?: number; stdout?: string; stderr?: string };
 
 // A fake machine: records every command, answers the ones a test scripts (matched on the command line,
 // first match wins; anything else succeeds), and starts "processes" that stay up until killed.
-function fake({ arch = "arm64", replies = [], vmOutput = "", vmExits = false }: { arch?: string; replies?: [RegExp, Reply][]; vmOutput?: string; vmExits?: boolean } = {}) {
+function fake({ arch = "arm64", replies = [], vmOutput = "", vmExits = false, hang }: { arch?: string; replies?: [RegExp, Reply][]; vmOutput?: string; vmExits?: boolean; hang?: RegExp } = {}) {
     const home = mkdtempSync(join(tmpdir(), "sandbox-home-"));
     mkdirSync(join(home, ".mentor", "sandbox"), { recursive: true });
     writeFileSync(join(home, ".mentor", "sandbox", "pairing-password"), "s3cret\n");
@@ -32,6 +32,8 @@ function fake({ arch = "arm64", replies = [], vmOutput = "", vmExits = false }: 
             if (args[0] === "stop") for (const stop of stops) stop();
             // The VM that never starts never gets an address.
             if (vmExits && args[0] === "ip") return new Promise(() => {});
+            // A command that never answers, until the test aborts the start.
+            if (hang?.test(line(call))) return new Promise(() => {});
             const reply = replies.find(([pattern]) => pattern.test(line(call)))?.[1] ?? (args[0] === "ip" ? { stdout: "192.168.64.7\n" } : {});
             return { code: reply.code ?? 0, stdout: reply.stdout ?? "", stderr: reply.stderr ?? "" };
         },
@@ -131,6 +133,64 @@ test("when macOS will not run another VM the error says so, and the copy is dele
     assert.equal(tart("delete").length, 1);
 });
 
+test("only Tart's message about the limit is taken for the limit; other output with the same words is shown as Tart said it", async () => {
+    const { host } = fake({ vmExits: true, vmOutput: "Error: disk quota limit exceeds what the volume allows" });
+
+    await assert.rejects(startSandbox({ host }), (error: Error) => error.message.includes("disk quota limit exceeds") && !/at most two/.test(error.message));
+});
+
+test("a copy that fails is deleted, in case it was left half made", async () => {
+    const { host, tart } = fake({ replies: [[/tart clone/, { code: 1, stderr: "no space left" }]] });
+
+    await assert.rejects(startSandbox({ host }), /Could not copy.*no space left/s);
+    assert.equal(tart("delete").length, 1);
+    assert.equal(tart("run").length, 0);
+});
+
+test("a start that fails after the copy deletes the copy", async () => {
+    const { host, tart } = fake({ replies: [[/tart ip/, { stdout: "" }]] });
+
+    await assert.rejects(startSandbox({ host }), /no IP address/);
+    assert.equal(tart("stop").length, 1);
+    assert.equal(tart("delete").length, 1);
+});
+
+test("Ctrl-C while the VM boots stops it and deletes the copy", async () => {
+    const { host, tart } = fake({ hang: /tart ip/ });
+    const controller = new AbortController();
+    const starting = startSandbox({ host, signal: controller.signal });
+    const outcome = assert.rejects(starting, /Interrupted/);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    controller.abort();
+    await outcome;
+
+    assert.equal(tart("stop").length, 1);
+    assert.equal(tart("delete").length, 1);
+});
+
+test("Ctrl-C while the image is being copied deletes the partial copy", async () => {
+    const { host, tart } = fake({ hang: /tart clone/ });
+    const controller = new AbortController();
+    const outcome = assert.rejects(startSandbox({ host, signal: controller.signal }), /Interrupted/);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    controller.abort();
+    await outcome;
+
+    assert.equal(tart("delete").length, 1);
+    assert.equal(tart("run").length, 0);
+});
+
+test("a Ctrl-C that came before the start deletes nothing and starts nothing", async () => {
+    const { host, tart } = fake();
+    const controller = new AbortController();
+    controller.abort();
+
+    await assert.rejects(startSandbox({ host, signal: controller.signal }), /Interrupted/);
+    assert.equal(tart("run").length, 0);
+});
+
 test("a VM that dies for another reason shows what Tart said", async () => {
     const { host } = fake({ vmExits: true, vmOutput: "Error: out of disk space" });
 
@@ -224,4 +284,81 @@ test("a copy that cannot be deleted says how to delete it", async () => {
     const sandbox = await startSandbox({ host });
 
     await assert.rejects(sandbox.close(), (error: Error) => error.message.includes(`tart delete ${sandbox.name}`));
+});
+
+// The reopen script, run on this machine against stand-ins for open, osascript, nc, pgrep and sleep, with
+// a clock that only `sleep` moves. It checks the script's logic; whether Live behaves as the stand-ins say
+// is what a real VM has to show.
+async function reopen(env: Record<string, string>) {
+    const { host, calls } = fake();
+    const sandbox = await startSandbox({ host });
+    const before = calls.length;
+    await sandbox.reopenBase();
+    const script = calls[before]?.input ?? "";
+
+    const sim = mkdtempSync(join(tmpdir(), "reopen-sim-"));
+    writeFileSync(join(sim, "clock"), "0");
+    const bin = join(sim, "bin");
+    mkdirSync(bin);
+    const stub = (name: string, body: string) => {
+        writeFileSync(join(bin, name), `#!/bin/bash\nSIM=${sim}\nnow() { cat "$SIM/clock"; }\nbusy() { [ -f "$SIM/clicked" ] && [ "$(now)" -lt $(( $(cat "$SIM/clicked") + \${BUSY:-4} )) ]; }\n${body}\n`);
+        chmodSync(join(bin, name), 0o755);
+    };
+    stub("sleep", 'echo $(( $(now) + $1 )) > "$SIM/clock"');
+    stub("open", 'now > "$SIM/opened"');
+    stub("pgrep", '[ "$RUNNING" != 0 ]');
+    stub("nc", "busy && exit 1; exit 0");
+    stub(
+        "osascript",
+        `if [ "$1" = -e ]; then
+    case "$*" in
+        *"Save Live Set"*) [ -n "\${PROBE:-}" ] && { echo "$PROBE"; exit 0; }; exit 1 ;;
+        *"name of window"*) busy && exit 1; echo "Chuck Sutton - Patience (Live 12 Suite Demo)"; exit 0 ;;
+    esac
+    exit 1
+fi
+cat >/dev/null
+if [ -n "\${SHEET_AT:-}" ] && [ ! -f "$SIM/clicked" ] && [ "$(now)" -ge $(( $(cat "$SIM/opened") + SHEET_AT )) ]; then now > "$SIM/clicked"; exit 0; fi
+exit 1`,
+    );
+    const result = spawnSync("bash", ["-s"], { input: script, env: { ...process.env, ...env, PATH: `${bin}:${process.env.PATH}` }, encoding: "utf8" });
+    const read = (file: string) => {
+        try {
+            return Number(readFileSync(join(sim, file), "utf8"));
+        } catch {
+            return undefined;
+        }
+    };
+    return { code: result.status, stderr: result.stderr, clicked: read("clicked"), end: read("clock") as number };
+}
+
+test("a Live that was not running reads Patience from disk, so there is nothing to answer", async () => {
+    const run = await reopen({ RUNNING: "0" });
+    assert.equal(run.code, 0, run.stderr);
+    assert.equal(run.clicked, undefined);
+});
+
+test("a Set Live says is unchanged is ready as soon as Patience shows", async () => {
+    const run = await reopen({ PROBE: "false" });
+    assert.equal(run.code, 0, run.stderr);
+    assert.equal(run.end < 5, true);
+});
+
+test("an unsaved Set is not ready before the Save changes sheet has been answered and Live has reloaded", async () => {
+    const run = await reopen({ PROBE: "true", SHEET_AT: "9", BUSY: "4" });
+    assert.equal(run.code, 0, run.stderr);
+    assert.ok(run.clicked !== undefined && run.clicked >= 9, "the sheet was answered");
+    assert.ok(run.end > (run.clicked ?? 0), "it waited after the answer");
+});
+
+test("after the answer it waits for the reload even when Live shows nothing while it loads", async () => {
+    const run = await reopen({ PROBE: "true", SHEET_AT: "2", BUSY: "0" });
+    assert.equal(run.code, 0, run.stderr);
+    assert.ok(run.end - (run.clicked ?? 0) >= 20, `ready ${run.end - (run.clicked ?? 0)}s after the answer`);
+});
+
+test("an unsaved Set that never asks and never reloads fails, saying Live may still show the old Set", async () => {
+    const run = await reopen({ PROBE: "true" });
+    assert.equal(run.code, 1);
+    assert.match(run.stderr, /unsaved/);
 });
