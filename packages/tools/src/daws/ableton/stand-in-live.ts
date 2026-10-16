@@ -664,7 +664,7 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
                     arrangement.splice(arrangement.indexOf(under), 1);
                     kill(under.id);
                 }
-                return place(clip({ name, kind: "audio", start: position, end: position + sample.beats, audio: { file_path, ...sample.audio } }));
+                return place(clip({ name, kind: "audio", start: position, end, audio: { file_path, ...sample.audio } }));
             },
             // As Live does: a copy of a clip of the same kind as the track, at a time in beats.
             duplicate_clip_to_arrangement: ({ clip_id, time }: { clip_id: string; time: number }) => {

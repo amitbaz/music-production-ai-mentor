@@ -182,7 +182,7 @@ async function placeSample(client: Client, edit: Edit, song: Song) {
     const bar = barArg(edit);
     const { file, name } = edit;
     if (typeof file !== "string" || !isAbsolute(file)) throw new Error("file must be the full path of an audio file on disk, such as /Users/me/Samples/vox.wav");
-    if (name !== undefined && (typeof name !== "string" || name.trim() === "")) throw new Error("name must be some text");
+    if (name !== undefined) checkSetting("name", name);
     if (track.type !== "audio") throw new Error(`${id} is ${kindOf(track.type, "track")}. A sample is placed on an audio track.`);
     if (!(await stat(file).catch(() => undefined))?.isFile()) throw new Error(`There is no file at ${file}.`);
     const start = beatsOf(bar, song.perBar);
@@ -207,10 +207,13 @@ async function placeSample(client: Client, edit: Edit, song: Song) {
         }
         return { placed: copy, problem: await remove().then(() => undefined, left) };
     });
-    const rename = name === undefined ? [] : [setProp("clip", "name", name, placed.id)];
-    const [named, warping, warpMode] = (await client.send([...rename, ...["name", "warping", "warp_mode"].map((prop) => getProp("clip", prop, placed.id))])).slice(rename.length);
+    // The sample is on the track by now, so a name Live refuses is reported with it, not in its place.
+    const renamed =
+        name === undefined ? undefined : await client.send([setProp("clip", "name", name, placed.id)]).then(() => undefined, (error: Error) => `The sample could not be named ${name}: ${error.message}`);
+    const [named, warping, warpMode] = await client.send(["name", "warping", "warp_mode"].map((prop) => getProp("clip", prop, placed.id)));
     const result = { action: "place_sample", clip: client.objectId("c", placed.id), track: id, name: named, ...span(placed, song), warp: warpShown(warping, warpMode) };
-    return problem ? { ...result, error: problem } : result;
+    const error = [problem, renamed].filter(Boolean).join(" ");
+    return error ? { ...result, error } : result;
 }
 
 // A clip by its object id, with the track it is on, and the clips of each track that holds them, by

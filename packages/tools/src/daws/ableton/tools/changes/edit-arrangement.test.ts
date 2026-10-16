@@ -62,6 +62,7 @@ async function setup(t: TestContext) {
         folder,
         vox,
         hit,
+        sample,
         read,
         clipsOf,
         song: () => live.get("song") as Record<string, unknown>,
@@ -522,4 +523,17 @@ test("edit_arrangement refuses a sample that is not a full path to a file, and o
     assert.match(results[3].error, /t2 is a MIDI track\. A sample is placed on an audio track/);
     assert.match(results[4].error, /bar must be a bar number from 1/);
     assert.equal(sentNames().includes("create_audio_clip"), false);
+});
+
+test("edit_arrangement reports a sample it placed and could not name, with its object id and bars", async (t) => {
+    const { edit, clipsOf, drums, folder, sample } = await setup(t);
+    const stuck = join(folder, "stuck.wav");
+    await writeFile(stuck, "");
+    // The stand-in gives the clip of a sample what its audio settings hold: here, a name Live refuses.
+    sample(stuck, 8, { refuses: "name" } as Parameters<typeof sample>[2]);
+
+    const [placed] = await edit([{ action: "place_sample", track: drums, bar: 9, file: stuck, name: "Hit" }]);
+
+    assert.match(placed.error, /could not be named Hit: name could not be set/);
+    assert.deepEqual([placed.clip, placed.name, placed.from_bar, placed.to_bar], [(await clipsOf("Drums"))[1]?.[0], "stuck", 9, 11]);
 });
