@@ -11,7 +11,8 @@
         "typecheck": "pnpm -r typecheck",
         "lint": "pnpm -r lint",
         "check": "pnpm -r check",
-        "plant": "pnpm --filter @mentor/evals plant"
+        "plant": "pnpm --filter @mentor/evals plant",
+        "eval": "pnpm --filter @mentor/evals eval"
     },
     "devDependencies": {
         "@biomejs/biome": "^2.5.15",

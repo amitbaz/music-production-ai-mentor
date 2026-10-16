@@ -4,6 +4,7 @@
     "type": "module",
     "scripts": {
         "plant": "node --env-file-if-exists=../apps/cli/.env src/cli.ts",
+        "eval": "node --env-file-if-exists=../apps/cli/.env src/eval.ts",
         "test": "node --test \"src/**/*.test.ts\" \"sets/**/*.test.ts\"",
         "typecheck": "tsc",
         "lint": "biome lint --error-on-warnings src sets",
@@ -11,6 +12,7 @@
     },
     "dependencies": {
         "@mentor/harness": "workspace:*",
+        "@mentor/mentor": "workspace:*",
         "@mentor/tools": "workspace:*"
     }
 }

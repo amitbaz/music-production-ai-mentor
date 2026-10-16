@@ -204,3 +204,10 @@ test("with keys, a turn goes to the mentor's own model with the key for its prov
     assert.match(url, /^https:\/\/generativelanguage\.googleapis\.com\/.*\/models\/gemini-/);
     assert.equal((options.headers as Record<string, string>)["x-goog-api-key"], "test-key");
 });
+
+test("with a model id, a turn goes to that model in place of the mentor's own", async () => {
+    const result = await createMentor({ keys: { gemini: "test-key" }, model: "gemini:gemini-0-unknown" }).generate([], "hi");
+
+    assert.equal(result.stop, "error");
+    assert.match(result.stop === "error" ? result.error.message : "", /gemini-0-unknown/);
+});
