@@ -6,9 +6,12 @@ The evals call the real model, so they run on demand and cost API credit. `pnpm 
 
 ## Before you run
 
-- Ableton Live 12 Suite, 12.4 or newer, paired with the mentor (`pnpm pair ableton`, see the [quick start](../README.md#quick-start)).
-- The base Set open in Live: [*Patience*](sets/patience/README.md#where-it-is), Ableton's demo song. Never save over it.
-- A key in `apps/cli/.env` for each model you run on: `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`. The eval scripts read that file.
+`pnpm eval` runs in a **sandbox**: a throwaway virtual Mac (Tart) copied from a sandbox image that holds Live, authorized and paired ([ADR 0025](../docs/adr/0025-evals-run-in-a-throwaway-vm.md)). The VM has no window and no sound, and your own Live is never touched, so you can keep working while a series runs.
+
+- A Mac with Apple Silicon, [Tart](https://tart.run) installed (`tart` on PATH, or `TART=/path/to/tart`), and about 60 GB of free disk.
+- The sandbox image, built once: see [Building the sandbox image](#building-the-sandbox-image). Without it, `pnpm eval <case>` stops and names the build command.
+- A key in `apps/cli/.env` for each model you run on: `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`. The eval scripts read that file. The keys stay on your Mac and never go into the VM.
+- `pnpm plant` is different: it works on the Live you have open, with the base Set ([*Patience*](sets/patience/README.md#where-it-is), Ableton's demo song) open in it. Never save over it.
 
 ## Running
 
@@ -16,12 +19,12 @@ Run from the repo root:
 
 ```sh
 pnpm plant                                   # lists the plants
-pnpm plant <name> [--revert]                 # applies or reverts one on the Set open in Live, without saving
+pnpm plant <name> [--revert]                 # applies or reverts one on the Set open in your Live, without saving
 pnpm eval                                    # lists the cases
 pnpm eval <case> [--runs 30] [--model provider:model]
 ```
 
-`pnpm eval` runs the case 30 times by default, on the mentor's default model unless `--model` names another. Each run plants the fault, gives the mentor one turn, reads the Set back, grades it against the base and restores it:
+`pnpm eval` runs the case 30 times by default, on the mentor's default model unless `--model` names another. It copies the sandbox image under a new name, starts the copy, and runs the series in it, one series at a time. Before every run, a script in the VM reopens Patience from disk and answers Live's "Save changes?" with "Don't Save", so every run starts from the base. Then the run plants the fault, gives the mentor one turn, reads the Set back and grades it against the base:
 
 ```text
 run 1: fail (1 differences, stop finished)
@@ -30,7 +33,32 @@ run 2: pass
 low-end-hot-told on claude:claude-haiku-5-5: 0/30 passed. Runs in ~/.mentor/evals/runs/<date>-low-end-hot-told
 ```
 
-Every run is saved in full under `~/.mentor/evals/runs/`, outside the repo: the conversation, the verdict, and how the Set differed from its base. If a run leaves the Set in a state the runner cannot undo, the series stops and says what still differs; reopen *Patience* without saving.
+When the series ends, the copy is deleted. Every run is saved in full under `~/.mentor/evals/runs/`, outside the repo: the conversation, the verdict, and how the Set differed from its base.
+
+If Patience does not come back after a reopen, the series stops. The runs made so far are kept, a screenshot of the VM's screen is saved as `stopped.png` in the series folder, and the VM is kept. The CLI names it and says how to look and clean up:
+
+```sh
+tart run <name>       # opens the VM's window
+tart delete <name>    # when you are done; a kept VM takes disk
+```
+
+Other errors name their fix: no Tart, a Mac without Apple Silicon, no sandbox image, or macOS's limit of two macOS VMs running at once (`tart list` shows them, `tart stop <name>` frees one).
+
+## Building the sandbox image
+
+A series runs in a sandbox copied from a **sandbox image** (ADR 0025). Build it once, and again after a Live or macOS update:
+
+```sh
+scripts/build-sandbox-image.sh <live-installer.dmg> <licence.auz> [image-name]   # image-name defaults to mentor-sandbox
+```
+
+- The machine needs Apple Silicon, [Tart](https://tart.run) (`tart` on PATH, or `TART=/path/to/tart`), `pnpm install` done, and about 60 GB of free disk.
+- You pass the Live 12 Suite installer and the licence file (`.auz`) from outside the repo. The script refuses a file inside it, and keeps neither: the installer and the licence file are deleted from the VM after use. What stays is Live's authorization inside the image.
+- It copies the Cirrus Labs macOS base, grows its disk to 100 GB (`SANDBOX_DISK_GB`), boots it with no window and no sound, installs Live, authorizes it, pairs it (the same install as `pnpm pair ableton`, with a new password), sets auto-login and Patience at login, checks the System Events permission the "Don't Save" click needs, then reboots the VM and reads Patience's tracks through an SSH tunnel on a port other than 39031. It prints the image's size and the boot-to-Patience time. A failed build stops the VM but keeps it, with its progress: rerun the same command to resume. The steps already done are listed in `~/.mentor/sandbox/<image-name>.done` and are skipped. To start over, `tart delete <image-name>` and remove that file; `SANDBOX_DELETE_ON_FAIL=1` deletes the half-built image after a failure instead.
+- It leaves two files on your Mac in `~/.mentor/sandbox/`: `pairing-password` and the SSH key `id_ed25519`. The sandbox reads them.
+- The image never leaves your Mac: the script never calls `tart push`. Do not push it.
+- Live's authorization is tied to the image's MAC address, and `tart clone` gives a copy a new one. The sandbox sets each copy back to the image's MAC, so only one copy can run at a time: a second one running beside it gets a new MAC from Tart, and its Live asks to be authorized.
+- Live's Control Surface choice and its first-launch dialogs cannot be scripted. If the final check says the Remote Script does not answer, build again with `SANDBOX_GUI=1`: the VM then shows a window and the script waits for you to choose MusicMentor in Live's settings (and to allow System Events, if macOS asks). The header of the script lists every setting.
 
 ## Don't know what to do? Run the loop
 
@@ -71,7 +99,7 @@ A plant with one right fix, such as a muted track, passes when its values are ba
 
 ```text
 evals/
-├── src/           # the runner: plant, snapshot, grade, restore
+├── src/           # the runner: plant, snapshot, grade
 ├── sets/
 │   └── patience/  # the first base Set: its README, plants.ts and cases.ts
 └── scores.md

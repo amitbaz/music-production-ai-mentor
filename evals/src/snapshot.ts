@@ -2,13 +2,13 @@ import type { Tool } from "@mentor/harness";
 
 // What the tools read of a Live Set, flat: one entry per thing a mentor can change, keyed by a label
 // a person reads, such as "Sub Sub Bass (t1) / Utility (d1) / Gain", with the value as Live shows it.
-// An entry for an object has its id, so one the mentor added can be deleted; an entry the runner can
-// write back says how. Ids are the runner's own connection's, so they hold across its reads.
+// An entry for an object has its id, so an object added or removed is one line of difference, not one
+// per thing inside it. Ids are the runner's own connection's, so they hold across its reads.
 // ponytail: notes inside clips and automation are not read; a case that needs them reads them.
-type Entry = { value: string; id?: string; write?: { target: string; parameter: string; choice: boolean } };
+type Entry = { value: string; id?: string };
 export type Snapshot = Record<string, Entry>;
 
-type Parameter = { name: string; value: string; choices?: string[] };
+type Parameter = { name: string; value: string };
 type Device = { id: string; name: string; parameters?: Parameter[]; chains?: { id: string; name: string; mute?: true; solo?: true; devices?: Device[] }[] };
 type Clip = { id: string; name: string; kind: string; scene?: number; start?: number; end?: number; muted?: true };
 type Track = { id: string; name: string; kind: string; group?: string; volume: string; pan: string; sends?: Record<string, string>; mute?: true; solo?: true };
@@ -25,7 +25,7 @@ export async function snapshot(tools: Tool[]): Promise<Snapshot> {
         const at = `${track.name} (${track.id})`;
         shot[at] = { value: [track.kind, track.group && `in ${track.group}`, track.mute && "muted", track.solo && "soloed"].filter(Boolean).join(", "), id: track.id };
         const mixer = (parameter: string, value: string) => {
-            shot[`${at} / ${parameter}`] = { value, write: { target: track.id, parameter, choice: false } };
+            shot[`${at} / ${parameter}`] = { value };
         };
         mixer("volume", track.volume);
         mixer("pan", track.pan);
@@ -53,9 +53,7 @@ function devices(shot: Snapshot, at: string, list: Device[]) {
     for (const device of list) {
         const key = `${at} / ${device.name} (${device.id})`;
         shot[key] = { value: "device", id: device.id };
-        for (const { name, value, choices } of device.parameters ?? []) {
-            shot[`${key} / ${name}`] = { value, write: { target: device.id, parameter: name, choice: Boolean(choices) } };
-        }
+        for (const { name, value } of device.parameters ?? []) shot[`${key} / ${name}`] = { value };
         for (const chain of device.chains ?? []) {
             const chainKey = `${key} / ${chain.name} (${chain.id})`;
             shot[chainKey] = { value: [chain.mute && "muted", chain.solo && "soloed"].filter(Boolean).join(", ") || "chain" };
@@ -85,28 +83,4 @@ export function difference(base: Snapshot, now: Snapshot): string[] {
     const inside = (key: string) => objects.some((object) => key.startsWith(`${object} / `));
     const keys = [...new Set([...Object.keys(base), ...Object.keys(now)])].filter((key) => !inside(key));
     return keys.filter((key) => base[key]?.value !== now[key]?.value).map((key) => `${key}: ${base[key]?.value ?? "none"} → ${now[key]?.value ?? "none"}`);
-}
-
-// Puts `now` back to `base` as far as the tools can: deletes what was added, writes back the values
-// that changed. What was removed cannot come back; the caller reads again to see what is left.
-export async function restore(tools: Tool[], base: Snapshot, now: Snapshot): Promise<string[]> {
-    const call = caller(tools);
-    const lines: string[] = [];
-    const added = only(now, base).map((key) => now[key]?.id as string);
-    if (added.length) lines.push(...(await call("delete", { ids: added })).deleted.map(String));
-    const changes = Object.entries(base).flatMap(([key, { value, write }]) =>
-        write && key in now && now[key]?.value !== value ? [{ target: write.target, parameter: write.parameter, value: write.choice ? value : number(value) }] : [],
-    );
-    if (changes.length) lines.push(...(await call("set_parameters", { changes })).changes);
-    return lines;
-}
-
-// A value as Live shows it, as the number set_parameters takes: "-1.0 dB" is -1, "2.50 kHz" is 2500
-// (Live writes Hz), "12L" is -12, "C" is 0.
-// ponytail: "-inf dB" has no number, so it is not written back and the series stops on it.
-function number(shown: string): number {
-    if (shown === "C") return 0;
-    const pan = shown.match(/^(\d+)([LR])$/);
-    if (pan) return (pan[2] === "L" ? -1 : 1) * Number(pan[1]);
-    return Number.parseFloat(shown) * (/kHz$/.test(shown) ? 1000 : 1);
 }
