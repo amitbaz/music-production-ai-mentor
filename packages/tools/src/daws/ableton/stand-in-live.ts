@@ -438,6 +438,9 @@ type TrackSpec = {
 // Builds a stand-in Live Set the way the script describes one.
 export function liveSet(song: { tempo: number; numerator: number; denominator: number }) {
     const live: LiveSet = new Map();
+    // The audio files Live can open, by their path: each one's length in beats as Live places it, and
+    // its audio settings when Live does not warp it as a loop.
+    const samples = new Map<string, { beats: number; audio?: Partial<AudioSpec> }>();
     let next = 1;
     const id = () => `live_${next++}`;
 
@@ -648,6 +651,20 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
             create_midi_clip: ({ start_time, length }: { start_time: number; length: number }) => {
                 if (spec.type !== "midi") throw new Error("Clip creation failed: MIDI clips can only be created on MIDI tracks");
                 return place(clip({ name: "", kind: "midi", start: start_time, end: start_time + length }));
+            },
+            // As Live does: a clip of the whole file at a time in beats, on an audio track only, named
+            // after the file. Live cuts the clips it lands on; the stand-in drops them whole.
+            create_audio_clip: ({ file_path, position }: { file_path: string; position: number }) => {
+                if (spec.type !== "audio") throw new Error("Clip creation failed: audio clips can only be created on audio tracks");
+                const sample = samples.get(file_path);
+                if (!sample) throw new Error(`Clip creation failed: cannot open ${file_path}`);
+                const name = (file_path.split("/").at(-1) as string).replace(/\.[^.]*$/, "");
+                const end = position + sample.beats;
+                for (const under of arrangement.filter((held) => held.start_time < end && held.end_time > position)) {
+                    arrangement.splice(arrangement.indexOf(under), 1);
+                    kill(under.id);
+                }
+                return place(clip({ name, kind: "audio", start: position, end: position + sample.beats, audio: { file_path, ...sample.audio } }));
             },
             // As Live does: a copy of a clip of the same kind as the track, at a time in beats.
             duplicate_clip_to_arrangement: ({ clip_id, time }: { clip_id: string; time: number }) => {
@@ -897,5 +914,7 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
         return serialized;
     }
 
-    return { live, track, clip, cue, browser, set: (props: Record<string, unknown>) => Object.assign(set, props) };
+    const sample = (path: string, beats: number, audio?: Partial<AudioSpec>) => samples.set(path, { beats, audio });
+
+    return { live, track, clip, cue, browser, sample, set: (props: Record<string, unknown>) => Object.assign(set, props) };
 }
