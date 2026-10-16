@@ -21,7 +21,7 @@ pnpm eval                                    # lists the cases
 pnpm eval <case> [--runs 30] [--model provider:model]
 ```
 
-`pnpm eval` runs the case 30 times by default, on the mentor's default model unless `--model` names another. Each run plants the fault, gives the mentor one turn, reads the Set back, grades it against the base and restores it:
+`pnpm eval` runs the case 30 times by default, on the mentor's default model unless `--model` names another. Each run plants the fault, gives the mentor one turn, reads the Set back and grades it against the base. In a sandbox, Live reopens the base Set before every run (ADR 0025); until the sandbox lands (#110), `pnpm eval <case>` stops and says it needs it:
 
 ```text
 run 1: fail (1 differences, stop finished)
@@ -30,7 +30,7 @@ run 2: pass
 low-end-hot-told on claude:claude-haiku-5-5: 0/30 passed. Runs in ~/.mentor/evals/runs/<date>-low-end-hot-told
 ```
 
-Every run is saved in full under `~/.mentor/evals/runs/`, outside the repo: the conversation, the verdict, and how the Set differed from its base. If a run leaves the Set in a state the runner cannot undo, the series stops and says what still differs; reopen *Patience* without saving.
+Every run is saved in full under `~/.mentor/evals/runs/`, outside the repo: the conversation, the verdict, and how the Set differed from its base. If the base Set does not come back after a reopen, the series stops, saves a screenshot in the series folder and keeps the VM, and says its name.
 
 ## Don't know what to do? Run the loop
 
@@ -71,7 +71,7 @@ A plant with one right fix, such as a muted track, passes when its values are ba
 
 ```text
 evals/
-├── src/           # the runner: plant, snapshot, grade, restore
+├── src/           # the runner: plant, snapshot, grade
 ├── sets/
 │   └── patience/  # the first base Set: its README, plants.ts and cases.ts
 └── scores.md

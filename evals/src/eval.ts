@@ -1,4 +1,4 @@
-// Runs a case against the real model on the base Set open in Live, and prints its rate (ADR 0020):
+// Runs a case against the real model in a sandbox and prints its rate (ADR 0020, ADR 0025):
 //     pnpm eval                                        lists the cases
 //     pnpm eval <case> [--runs 30] [--model provider:model]
 // Every run is kept in full under ~/.mentor/evals/runs/, outside the repo, so runs outlast the worktree they ran in.
@@ -9,7 +9,7 @@ import { parseArgs } from "node:util";
 import { createMentor, keysFromEnv, MODEL_ID } from "@mentor/mentor";
 import { createAbleton } from "@mentor/tools/daws/ableton";
 import { cases } from "../sets/patience/cases.ts";
-import { runCase } from "./run.ts";
+import { runCase, type Sandbox } from "./run.ts";
 
 const { positionals, values } = parseArgs({ allowPositionals: true, options: { runs: { type: "string", default: "30" }, model: { type: "string" } } });
 const chosen = cases.find((c) => c.name === positionals[0]);
@@ -21,15 +21,32 @@ if (!chosen) {
 const runs = Number(values.runs);
 if (!Number.isInteger(runs) || runs < 1) throw new Error(`--runs must be a whole number above 0, got ${values.runs}`);
 
-const ableton = { abletonAddress: process.env.ABLETON_ADDRESS, abletonPassword: process.env.ABLETON_PASSWORD };
+// The sandbox and where its Live answers: the tunnel's address and the pairing password.
+// ponytail: the real sandbox (Tart, ADR 0025) lands in #110; until then a series has nowhere to run
+// but the maintainer's own Live, and it must not.
+async function startSandbox(): Promise<Sandbox & { address: string; password: string }> {
+    throw new Error("pnpm eval needs the sandbox (ADR 0025), which is not built yet (#110). It will not run on your own Live.");
+}
+
+let sandbox: Awaited<ReturnType<typeof startSandbox>>;
+try {
+    sandbox = await startSandbox();
+} catch (error) {
+    console.error((error as Error).message);
+    process.exit(1);
+}
+
 const keys = keysFromEnv(process.env);
 const model = values.model ?? MODEL_ID;
 const folder = join(homedir(), ".mentor", "evals", "runs", `${new Date().toISOString().replace(/[:.]/g, "-")}-${chosen.name}`);
+const ableton = { abletonAddress: sandbox.address, abletonPassword: sandbox.password };
 const result = await runCase({
     connect: () => ({
-        tools: createAbleton({ address: ableton.abletonAddress, password: ableton.abletonPassword }),
+        tools: createAbleton({ address: sandbox.address, password: sandbox.password }),
         mentor: createMentor({ keys, model: values.model, ...ableton }),
     }),
+    sandbox,
+    folder,
     model,
     case: chosen,
     runs,
@@ -40,8 +57,8 @@ const result = await runCase({
     },
 });
 console.log(`${chosen.name} on ${model}: ${result.passed}/${result.runs} passed. Runs in ${folder}`);
-if (result.left) {
-    console.error(`Stopped: the Set still differs from its base. Reopen Patience without saving.\n${result.left.join("\n")}`);
+if (result.stopped) {
+    console.error(`Stopped after ${result.runs} runs: ${result.stopped.reason}\nScreenshot: ${join(folder, "stopped.png")}\nThe VM ${result.stopped.vm} is kept: open it with "tart run ${result.stopped.vm}", delete it with "tart delete ${result.stopped.vm}".`);
     process.exitCode = 1;
 }
 process.exit();

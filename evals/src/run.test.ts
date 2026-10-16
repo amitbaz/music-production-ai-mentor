@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import type { Message, Model, Tool } from "@mentor/harness";
 import { createMentor } from "@mentor/mentor";
 import { createAbleton } from "@mentor/tools/daws/ableton";
 import { ADDRESS, liveSet, type MixerSpec, useStandIn } from "@mentor/tools/daws/ableton/stand-in-live";
 import type { Case } from "./run.ts";
-import { type Run, runCase } from "./run.ts";
-import { snapshot } from "./snapshot.ts";
+import { type Run, runCase, type Sandbox } from "./run.ts";
 
 const db = (value: number): MixerSpec => ({ value, min: -70, max: 6, shown: (v) => `${v.toFixed(1)} dB` });
 const pan: MixerSpec = { value: 0, min: -50, max: 50, shown: () => "C" };
@@ -26,20 +28,39 @@ const say = (text: string): Message[] => [{ type: "assistant", text }];
 // The mentor's own connection reads Sub Sub Bass as t1 and its Utility as d1.
 const fix = [call("read_set", {}), call("set_parameters", { changes: [{ target: "t1", parameter: "volume", value: -1 }] }), say("Down to -1 dB.")];
 
-// A stand-in Live Set with the sub bass at its base volume and a Utility on it, and a way to connect
-// that gives the runner's tools and a mentor with a scripted model, each pair on its own connection.
-// `used` lists every tool the runner's tools ran and every call of the mentor's model, by the pair that did it.
-function open(t: TestContext, replies: Message[][] | Model) {
+// A stand-in Live Set with the sub bass at its base volume and a Utility on it, a fake sandbox, and a
+// way to connect that gives the runner's tools and a mentor with a scripted model, each pair on its
+// own connection. The sandbox's `reopenBase` puts the stand-in Live back to the base Set and records
+// the call; it throws on the reopen numbered `failReopen`. `screenshot` and `close` record what they
+// were given. `used` lists every tool the runner's tools ran and every call of the mentor's model, by
+// the pair that did it; `events` lists the reopens and those uses in the order they happened.
+function open(t: TestContext, replies: Message[][] | Model, { failReopen }: { failReopen?: number } = {}) {
     const { live, track, set } = liveSet({ tempo: 167, numerator: 4, denominator: 4 });
     const gain = { name: "Gain", value: 0, min: -35, max: 35, shown: (v: number) => `${v.toFixed(1)} dB` };
-    set({
-        tracks: [track({ name: "Sub Sub Bass", type: "midi", volume: db(-1), pan, sends: [], devices: [{ name: "Utility", class_name: "StereoGain", parameters: [gain] }] })],
-        return_tracks: [],
-        master_track: track({ name: "Main", type: "main", volume: db(0), pan }),
-    });
+    const baseSet = () =>
+        set({
+            tracks: [track({ name: "Sub Sub Bass", type: "midi", volume: db(-1), pan, sends: [], devices: [{ name: "Utility", class_name: "StereoGain", parameters: [gain] }] })],
+            return_tracks: [],
+            master_track: track({ name: "Main", type: "main", volume: db(0), pan }),
+        });
+    baseSet();
     useStandIn(t, live);
     const model = Array.isArray(replies) ? scripted(replies) : replies;
     const used: { pair: number; tool: string }[] = [];
+    const events: string[] = [];
+    const screenshots: string[] = [];
+    const closes: ({ keep?: boolean } | undefined)[] = [];
+    let reopens = 0;
+    const sandbox: Sandbox = {
+        name: "mentor-eval-test",
+        reopenBase: async () => {
+            events.push("reopen");
+            if (++reopens === failReopen) throw new Error("Patience did not come back");
+            baseSet();
+        },
+        screenshot: async (file) => void screenshots.push(file),
+        close: async (options) => void closes.push(options),
+    };
     let pairs = 0;
     const connect = () => {
         const pair = pairs++;
@@ -47,6 +68,7 @@ function open(t: TestContext, replies: Message[][] | Model) {
             ...tool,
             run: async (args: Record<string, unknown>) => {
                 used.push({ pair, tool: tool.name });
+                events.push(`tool ${tool.name}`);
                 return tool.run(args);
             },
         }));
@@ -54,6 +76,7 @@ function open(t: TestContext, replies: Message[][] | Model) {
             model: {
                 call: async (...args) => {
                     used.push({ pair, tool: "model" });
+                    events.push("model");
                     return model.call(...args);
                 },
             },
@@ -64,14 +87,26 @@ function open(t: TestContext, replies: Message[][] | Model) {
     // The test's own view of the Set, on a connection of its own.
     const tools: Tool[] = createAbleton({ address: ADDRESS });
     const runs: Run[] = [];
-    return { connect, tools, runs, used, onRun: async (run: Run) => void runs.push(run) };
+    const folder = join(mkdtempSync(join(tmpdir(), "series-")), "series");
+    return { connect, sandbox, folder, tools, runs, used, events, screenshots, closes, onRun: async (run: Run) => void runs.push(run) };
 }
 
-test("a run passes when the mentor puts the planted value back, and is kept in full", async (t) => {
-    const { connect, tools, runs, onRun } = open(t, [...fix, ...fix]);
-    const base = await snapshot(tools);
+test("the base is reopened before every run's plant", async (t) => {
+    const { connect, sandbox, folder, events, onRun } = open(t, [...fix, ...fix, ...fix]);
 
-    const result = await runCase({ connect, model: "gemini:test", case: lowEndHot, runs: 2, onRun });
+    await runCase({ connect, sandbox, folder, model: "gemini:test", case: lowEndHot, runs: 3, onRun });
+
+    assert.equal(events.filter((event) => event === "reopen").length, 3);
+    // Each run's stretch of events starts with the reopen, and the plant (the runner's write) comes after it.
+    const stretches = events.join("|").split("reopen|").slice(1);
+    assert.equal(stretches.length, 3);
+    for (const stretch of stretches) assert.match(stretch, /^tool read_set\|.*tool set_parameters\|.*model/);
+});
+
+test("a run passes when the mentor puts the planted value back, and is kept in full", async (t) => {
+    const { connect, sandbox, folder, runs, onRun } = open(t, [...fix, ...fix]);
+
+    const result = await runCase({ connect, sandbox, folder, model: "gemini:test", case: lowEndHot, runs: 2, onRun });
 
     assert.deepEqual(result, { passed: 2, runs: 2 });
     assert.equal(runs.length, 2);
@@ -80,20 +115,19 @@ test("a run passes when the mentor puts the planted value back, and is kept in f
     assert.equal(first.stop, "finished");
     assert.deepEqual(first.messages[0], { type: "user", text: lowEndHot.message });
     assert.deepEqual(first.messages.at(-1), { type: "assistant", text: "Down to -1 dB." });
-    assert.deepEqual(await snapshot(tools), base);
+    assert.deepEqual(Object.keys(first).sort(), ["case", "difference", "message", "messages", "model", "passed", "run", "stop"]);
 });
 
-test("a run fails when the mentor changes anything else, and the Set is restored before the next run", async (t) => {
-    const { connect, tools, runs, onRun } = open(t, [
+test("a run fails when the mentor changes anything else, and the next run still starts from the base", async (t) => {
+    const { connect, sandbox, folder, runs, onRun } = open(t, [
         call("read_set", {}),
         call("set_parameters", { changes: [{ target: "t1", parameter: "volume", value: -1 }, { target: "d1", parameter: "Gain", value: 3 }] }),
         call("edit_devices", { edits: [{ action: "add", name: "EQ Eight", to: "t1" }] }),
         say("Fixed, and shaped it."),
         ...fix,
     ]);
-    const base = await snapshot(tools);
 
-    const result = await runCase({ connect, model: "gemini:test", case: lowEndHot, runs: 2, onRun });
+    const result = await runCase({ connect, sandbox, folder, model: "gemini:test", case: lowEndHot, runs: 2, onRun });
 
     assert.deepEqual(result, { passed: 1, runs: 2 });
     const [first, second] = runs as [Run, Run];
@@ -102,9 +136,7 @@ test("a run fails when the mentor changes anything else, and the Set is restored
     assert.ok(first.difference.some((line) => /EQ Eight/.test(line)), first.difference.join("\n"));
     // An added device is one line, not one per parameter.
     assert.equal(first.difference.filter((line) => /EQ Eight \(d\d+\) \//.test(line)).length, 0, first.difference.join("\n"));
-    assert.deepEqual(first.left, []);
     assert.equal(second.passed, true);
-    assert.deepEqual(await snapshot(tools), base);
 });
 
 test("a refused run is a failed run, though the Set was left as it was", async (t) => {
@@ -113,9 +145,9 @@ test("a refused run is a failed run, though the Set was left as it was", async (
     const refusesLast: Model = {
         call: async () => replies.length ? { messages: replies.shift() ?? [], cutOff: false } : { messages: [], cutOff: false, refused: { category: "cyber", explanation: "No." } },
     };
-    const { connect, runs, onRun } = open(t, refusesLast);
+    const { connect, sandbox, folder, runs, onRun } = open(t, refusesLast);
 
-    const result = await runCase({ connect, model: "gemini:test", case: lowEndHot, runs: 1, onRun });
+    const result = await runCase({ connect, sandbox, folder, model: "gemini:test", case: lowEndHot, runs: 1, onRun });
 
     assert.deepEqual(result, { passed: 0, runs: 1 });
     const [only] = runs as [Run];
@@ -123,30 +155,32 @@ test("a refused run is a failed run, though the Set was left as it was", async (
     assert.equal(only.passed, false);
 });
 
-test("the mentor's removals are approved, and a change the runner cannot undo stops the series", async (t) => {
-    const { connect, runs, onRun } = open(t, [
+test("the mentor's removals are approved, and a run that deletes something fails without stopping the series", async (t) => {
+    const { connect, sandbox, folder, runs, onRun } = open(t, [
         call("read_set", {}),
         call("delete", { ids: ["d1"] }),
         call("set_parameters", { changes: [{ target: "t1", parameter: "volume", value: -1 }] }),
         say("Removed the Utility and brought it down."),
+        ...fix,
+        ...fix,
     ]);
 
-    const result = await runCase({ connect, model: "gemini:test", case: lowEndHot, runs: 3, onRun });
+    const result = await runCase({ connect, sandbox, folder, model: "gemini:test", case: lowEndHot, runs: 3, onRun });
 
-    assert.equal(result.passed, 0);
-    assert.equal(result.runs, 1);
-    assert.ok(result.left?.some((line) => /Utility/.test(line)), String(result.left));
-    const [only] = runs as [Run];
-    assert.equal(runs.length, 1);
-    const deleted = only.messages.find((message) => message.type === "tool_result" && message.name === "delete");
+    assert.deepEqual(result, { passed: 2, runs: 3 });
+    const [first, second] = runs as [Run, Run, Run];
+    assert.equal(first.passed, false);
+    assert.ok(first.difference.some((line) => /Utility/.test(line)), first.difference.join("\n"));
+    const deleted = first.messages.find((message) => message.type === "tool_result" && message.name === "delete");
     assert.match(deleted?.type === "tool_result" ? deleted.output : "", /Utility/);
-    assert.deepEqual(only.left, result.left);
+    // The next run found the Utility again, so it started from the base.
+    assert.equal(second.passed, true);
 });
 
 test("each run connects afresh, so ids read in the first run are never sent in the second", async (t) => {
-    const { connect, runs, used, onRun } = open(t, [...fix, ...fix]);
+    const { connect, sandbox, folder, runs, used, onRun } = open(t, [...fix, ...fix]);
 
-    await runCase({ connect, model: "gemini:test", case: lowEndHot, runs: 2, onRun });
+    await runCase({ connect, sandbox, folder, model: "gemini:test", case: lowEndHot, runs: 2, onRun });
 
     assert.equal(runs.length, 2);
     // Every use of the first pair comes before every use of the second, and each pair starts by reading.
@@ -154,4 +188,31 @@ test("each run connects afresh, so ids read in the first run are never sent in t
     assert.deepEqual(pairs, [...pairs].sort());
     assert.deepEqual([...new Set(pairs)], [0, 1]);
     for (const pair of [0, 1]) assert.equal(used.find((use) => use.pair === pair && use.tool !== "model")?.tool, "read_set");
+});
+
+test("a failed reopen stops the series with a screenshot and the VM kept, and reports the runs made", async (t) => {
+    const { connect, sandbox, folder, runs, events, screenshots, closes, onRun } = open(t, [...fix, ...fix, ...fix, ...fix], { failReopen: 3 });
+
+    const result = await runCase({ connect, sandbox, folder, model: "gemini:test", case: lowEndHot, runs: 4, onRun });
+
+    assert.equal(runs.length, 2);
+    assert.equal(events.filter((event) => event === "reopen").length, 3);
+    assert.equal(events.at(-1), "reopen", "nothing ran after the failed reopen");
+    assert.deepEqual(screenshots, [join(folder, "stopped.png")]);
+    assert.deepEqual(closes, [{ keep: true }]);
+    assert.equal(result.passed, 2);
+    assert.equal(result.runs, 2);
+    assert.match(result.stopped?.reason ?? "", /Patience did not come back/);
+    assert.equal(result.stopped?.vm, "mentor-eval-test");
+});
+
+test("a series that finishes closes the sandbox without keeping it", async (t) => {
+    const { connect, sandbox, folder, screenshots, closes, onRun } = open(t, [...fix, ...fix]);
+
+    const result = await runCase({ connect, sandbox, folder, model: "gemini:test", case: lowEndHot, runs: 2, onRun });
+
+    assert.equal(result.stopped, undefined);
+    assert.equal(closes.length, 1);
+    assert.notEqual(closes[0]?.keep, true);
+    assert.deepEqual(screenshots, []);
 });
