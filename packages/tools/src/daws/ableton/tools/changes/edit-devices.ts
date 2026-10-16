@@ -144,12 +144,14 @@ async function browserItem(client: Client, item: unknown) {
 }
 
 // Whether a browser item loads as an instrument or an effect, told from where it is, since Live does
-// not say before it is loaded. An item elsewhere, such as a preset at the top of the user library, is
-// not known until it is loaded.
+// not say before it is loaded: its root, a sample's file name, then a folder named Audio or MIDI
+// Effects (only a folder, so a preset named for its effects is not taken for one). An item elsewhere,
+// such as a preset at the top of the user library, is not known until it is loaded.
 function loadsAs(path: string) {
-    const [root] = path.split("/");
-    if (root === "audio_effects" || root === "midi_effects" || /(Audio|MIDI) Effects?\b/i.test(path)) return "effect";
+    const [root, ...rest] = path.split("/");
+    if (root === "audio_effects" || root === "midi_effects") return "effect";
     if (root === "instruments" || root === "drums" || root === "sounds" || root === "samples" || SAMPLE_FILE.test(path)) return "instrument";
+    if (rest.slice(0, -1).some((folder) => /(Audio|MIDI) Effects?\b/i.test(folder))) return "effect";
     return undefined;
 }
 
@@ -163,7 +165,10 @@ async function load(client: Client, edit: Edit) {
     if (kind === "instrument" && (into.ns === "chain" || edit.position !== undefined)) {
         throw new Error("An instrument goes onto a track, in the instrument's place. Give a track as to, with no position.");
     }
-    const place = position(edit.position, (await devicesOf(client, into)).length + 1, false);
+    // The load adds no device to a chain, and Live puts an effect last on a track, so this count is
+    // also the last place for the move after.
+    const count = (await devicesOf(client, into)).length;
+    const place = position(edit.position, count + 1, false);
     const track = into.ns === "track" ? into.scriptId : (await findTracksOfDevices(client)).get(into.scriptId)?.id;
     if (!track) throw new Error(goneMessage(into.id, "read_tracks"));
     const onTrack: Target = { id: client.objectId("t", track), ns: "track", scriptId: track };
@@ -187,7 +192,7 @@ async function load(client: Client, edit: Edit) {
     }
     const added = (await devicesOf(client, onTrack)).find((device) => !before.has(device.id));
     if (!added) {
-        const why = midi ? "it may be a sample, which loads only where the track has no instrument" : "an instrument, kit or sample loads only onto a MIDI track";
+        const why = midi ? "it may be a sample, which loads only where the track has no instrument" : "an instrument, kit, sample or MIDI effect loads only onto a MIDI track";
         throw new Error(`Live loaded nothing from ${String(edit.item)}; ${why}.`);
     }
     // Live puts an instrument in its own place on the track.
@@ -195,9 +200,8 @@ async function load(client: Client, edit: Edit) {
 
     // Live puts an effect last on the track, whatever is selected.
     if (into.ns === "chain" || place !== undefined) {
-        const last = (await devicesOf(client, into)).length - (into.ns === "track" ? 1 : 0);
         try {
-            await client.send([{ ns: "mentor", name: "move_device", args: { device_id: added.id, target_id: into.scriptId, position: (place ?? last + 1) - 1 } }]);
+            await client.send([{ ns: "mentor", name: "move_device", args: { device_id: added.id, target_id: into.scriptId, position: (place ?? count + 1) - 1 } }]);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             throw new Error(`${added.name} was loaded as ${client.objectId("d", added.id)}, last on ${onTrack.id}, but could not be moved: ${message}`);

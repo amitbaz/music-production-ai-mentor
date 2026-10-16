@@ -295,6 +295,7 @@ async function setupLoad(t: TestContext) {
                 children: [
                     { name: "Audio Effects", children: [{ name: "My Glue.adv", loads: { name: "My Glue", class_name: "GlueCompressor" } }] },
                     { name: "My Keys.adg", loads: { name: "My Keys", class_name: "InstrumentGroupDevice", type: "instrument" } },
+                    { name: "Keys with Audio Effects.adg", loads: { name: "Keys with Audio Effects", class_name: "InstrumentGroupDevice", type: "instrument" } },
                 ],
             },
         ],
@@ -444,6 +445,15 @@ test("edit_devices loads an effect from the user library's Audio Effects onto a 
 
     assert.equal(loaded.position, 3);
     assert.deepEqual(await names(Bass), ["Pitch", "Drift", "My Glue", "EQ Eight"]);
+});
+
+test("edit_devices tells an instrument from an effect by its folders, not by its own name", async (t) => {
+    const { edit, names, Bass } = await setupLoad(t);
+
+    const [refused] = await edit([{ action: "load", item: "user_library/Presets/Keys with Audio Effects.adg", to: Bass }]);
+
+    assert.match(refused.error, /already has an instrument/);
+    assert.deepEqual(await names(Bass), ["Pitch", "Drift", "EQ Eight"]);
 });
 
 test("edit_devices reports an item the path did not show to be an instrument where Live put it", async (t) => {
