@@ -14,7 +14,8 @@ import {
 type ClaudeBlock = Record<string, unknown>;
 type ClaudeMessage = { role: "user" | "assistant"; content: ClaudeBlock[] };
 
-// Generous, so a long reply is not cut off; the model's own limit is higher still.
+// Generous, so a long reply is not cut off. Half of the 128K output limit that the models page
+// (https://platform.claude.com/docs/en/about-claude/models/overview) gives Claude Haiku 5.5.
 const MAX_TOKENS = 64_000;
 
 export function toClaudeRequest(conversation: Message[], tools: Tool[], system?: string) {
