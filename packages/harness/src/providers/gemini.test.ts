@@ -1,7 +1,7 @@
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { createGeminiModel, toGeminiRequest } from "./gemini.ts";
-import { type Message, ModelCallError, type Tool } from "../types.ts";
+import { type Message, ModelCallError, type ProviderMeta, type Tool } from "../types.ts";
 
 const setTempo: Tool = {
     name: "set_tempo",
@@ -22,7 +22,7 @@ test("translates a conversation and its tools into a Gemini request", () => {
             id: "call_1",
             name: "set_tempo",
             args: { bpm: 128 },
-            providerMeta: { thoughtSignature: "sig_1" },
+            providerMeta: { provider: "gemini", thoughtSignature: "sig_1" },
         },
         {
             type: "tool_result",
@@ -73,6 +73,19 @@ test("translates a conversation and its tools into a Gemini request", () => {
             },
         ],
     });
+});
+
+test("meta tagged for another provider is ignored: the request is the same as with no meta", () => {
+    const withMeta = (providerMeta?: ProviderMeta): Message[] => [
+        { type: "user", text: "Set the tempo to 128" },
+        { type: "assistant", text: "On it.", providerMeta },
+        { type: "tool_call", id: "toolu_1", name: "set_tempo", args: { bpm: 128 }, providerMeta },
+    ];
+    const withoutMeta = toGeminiRequest(withMeta(), [setTempo]);
+
+    // A conversation that came from Claude.
+    const fromClaude = withMeta({ provider: "claude", thoughtSignature: "sig_1" });
+    assert.deepEqual(toGeminiRequest(fromClaude, [setTempo]), withoutMeta);
 });
 
 test("a request with no tools leaves tools out, as the summary request has none", () => {
@@ -176,8 +189,8 @@ test("translates a text reply into an assistant message", async (t) => {
         {
             type: "assistant",
             text: "The tempo is now 128.",
-            // Kept so it can be sent back to Gemini on the next call.
-            providerMeta: { thoughtSignature: "sig_1" },
+            // Kept so it can be sent back to Gemini on the next call, tagged as Gemini's.
+            providerMeta: { provider: "gemini", thoughtSignature: "sig_1" },
         },
     ]);
 });
@@ -208,7 +221,7 @@ test("translates function calls into tool calls", async (t) => {
             id: "call_68471",
             name: "set_tempo",
             args: { bpm: 128 },
-            providerMeta: { thoughtSignature: "sig_1" },
+            providerMeta: { provider: "gemini", thoughtSignature: "sig_1" },
         },
         // No signature on this part, and no args: it becomes an empty args object.
         { type: "tool_call", id: "call_68472", name: "get_session", args: {} },
@@ -242,6 +255,7 @@ const recordedReply: Message[] = [
         name: "set_tempo",
         args: { bpm: 128 },
         providerMeta: {
+            provider: "gemini",
             thoughtSignature:
                 "EmAKXgFpFH0TIpx89cj80niIuK2X+xM2BFzqlrzQfYhcAj2771fvDmBUqnzuBtfXDhi6dSD1SWHlOY2oxRv9bVJTxeCwfxrw0UwHhtbjppiAtSkykPf0OiKoScmJF3cQZxM=",
         },
@@ -259,6 +273,35 @@ test("reads a streamed reply, reporting each piece of text as it arrives", async
 
     assert.deepEqual(reply, recordedReply);
     assert.deepEqual(pieces, ["I am", " about to set the tempo of our session to 128 BPM."]);
+});
+
+// The tool call id rule (types.ts): a user may switch provider between turns, so every provider must accept every id.
+const toolCallIdRule = /^[A-Za-z0-9_-]+$/;
+
+test("the tool call ids it reads from a reply fit the id rule", async (t) => {
+    fakeStream(t, recordedStream);
+    const { messages: recorded } = await createGeminiModel("test-key", "test-model").call(hi, [setTempo]);
+
+    // The ids in the shape Gemini returned for two calls at once.
+    fakeFetch(t, 200, {
+        candidates: [
+            {
+                content: {
+                    role: "model",
+                    parts: [
+                        { functionCall: { name: "set_tempo", args: { bpm: 128 }, id: "call_68471" } },
+                        { functionCall: { name: "get_session", id: "call_68472" } },
+                    ],
+                },
+                finishReason: "STOP",
+            },
+        ],
+    });
+    const { messages: two } = await createGeminiModel("test-key", "test-model").call(hi, []);
+
+    const ids = [...recorded, ...two].flatMap((m) => (m.type === "tool_call" ? [m.id] : []));
+    assert.equal(ids.length, 3);
+    for (const id of ids) assert.match(id, toolCallIdRule);
 });
 
 test("reads a streamed reply whose lines are cut in the middle", async (t) => {
