@@ -12,7 +12,7 @@ Some plants have one fix: a muted track is fixed by making it audible, and that 
 
 - A plant with one fix keeps ADR 0020's grade: the planted values back at their before values.
 - A judgment plant, such as a level, passes when each planted value lands within a range around its before value. The rest of the Set must still equal the base.
-- The width of a range comes from evidence: how far apart skilled engineers set the same element when they mix the same song in the same genre (#83). It is not set by anyone's ear, since that would put one person's taste in the answer key.
+- The width of a range comes from evidence: how far apart skilled engineers set the same element when they mix the same song in the same genre (#83; the evidence and proposed ranges are in `docs/research/how-far-apart-good-mixes-set-one-element.md`). It is not set by anyone's ear, since that would put one person's taste in the answer key.
 - A judgment case with no range yet stays out of the evals loop. Its score is kept as a baseline, so listening and knowledge can later show what they add.
 
 Rejected:
