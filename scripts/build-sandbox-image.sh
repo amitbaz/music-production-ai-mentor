@@ -12,11 +12,16 @@
 #     id_ed25519         the SSH key (public half in the image's authorized_keys), user admin
 #
 # Environment:
-#     TART=/path/to/tart      used when `tart` is not on PATH
+#     TART=/path/to/tart      the tart binary to use (default: `tart` on PATH)
 #     SANDBOX_BASE=...        base image to copy (default ghcr.io/cirruslabs/macos-tahoe-base:latest)
 #     SANDBOX_GUI=1           boot with a window and wait for you at the steps that need a hand (see below)
 #     SANDBOX_AUDIO=1         boot with Tart's audio on (the default is --no-audio, as the sandbox runs)
-#     SANDBOX_KEEP_ON_FAIL=1  keep the half-built image after a failure, to look at it with `tart run`
+#     SANDBOX_DELETE_ON_FAIL=1  delete the half-built image after a failure (the default is to keep it)
+#     SANDBOX_DISK_GB=100     the image's disk size
+#
+# A failed build keeps its VM, and a rerun of the same command resumes: the steps already done (listed in
+# ~/.mentor/sandbox/<image-name>.done) are skipped, and the VM is reused. To start over, tart delete the
+# image and remove that file.
 #
 # The pairing is the mentor's own: installRemoteScript() from @mentor/tools runs on this Mac into a
 # staging folder, and the folder is copied into the VM, because the VM has no Node and no repo. It is
@@ -60,10 +65,10 @@ NAME=${3:-mentor-sandbox}
 [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ] ||
     die "this needs an Apple Silicon Mac: Tart runs macOS VMs only on Apple Silicon."
 
-if command -v tart >/dev/null 2>&1; then
-    TART_BIN=$(command -v tart)
-elif [ -n "${TART:-}" ] && [ -x "$TART" ]; then
+if [ -n "${TART:-}" ] && [ -x "$TART" ]; then
     TART_BIN=$TART
+elif command -v tart >/dev/null 2>&1; then
+    TART_BIN=$(command -v tart)
 else
     die "Tart is not installed. Install it (brew install cirruslabs/cli/tart), or set TART to the path of the tart binary."
 fi
@@ -83,13 +88,20 @@ for file in "$INSTALLER" "$LICENCE"; do
     abs=$(cd "$(dirname "$file")" && pwd -P)/$(basename "$file")
     case "$abs" in "$REPO"/*) die "$file is inside the repo. Keep it outside, so it can never be committed." ;; esac
 done
+STATE=$SANDBOX_HOME/$NAME.done
+RESUME=0
 if tart get "$NAME" >/dev/null 2>&1; then
-    die "an image named $NAME already exists. Delete it first (tart delete $NAME) or pass another name."
+    [ -f "$STATE" ] ||
+        die "an image named $NAME already exists and is not a half-built one of this script. Delete it first (tart delete $NAME) or pass another name."
+    RESUME=1
 fi
 
 GUI=${SANDBOX_GUI:-0}
 
 # ---- State, and cleanup on any exit -------------------------------------------------------------------
+
+is_done() { grep -qx "$1" "$STATE" 2>/dev/null; }
+mark() { echo "$1" >>"$STATE"; }
 
 STAGE=$(mktemp -d "${TMPDIR:-/tmp}/sandbox-image.XXXXXX")
 CREATED=0
@@ -115,14 +127,17 @@ cleanup() {
         tart stop "$NAME" >/dev/null 2>&1 || true
         wait "$VM_PID" 2>/dev/null || true
     fi
-    if [ "$status" -ne 0 ]; then
-        rm -f "$PASSWORD_FILE.new"
-        if [ "$CREATED" = 1 ] && [ "${SANDBOX_KEEP_ON_FAIL:-0}" = 1 ]; then
-            echo "build failed; kept the half-built image $NAME (tart run $NAME; tart delete $NAME)." >&2
-        elif [ "$CREATED" = 1 ]; then
+    if [ "$status" -ne 0 ] && [ "$CREATED" = 1 ]; then
+        if ! is_done clone || [ "${SANDBOX_DELETE_ON_FAIL:-0}" = 1 ]; then
             tart delete "$NAME" >/dev/null 2>&1 || true
-            echo "build failed; stopped the VM and deleted the half-built image $NAME." >&2
+            rm -f "$STATE" "$PASSWORD_FILE.new"
+            echo "build failed; deleted the half-built image $NAME." >&2
+        else
+            echo "build failed; the VM $NAME is kept with its progress. Run the same command again to resume," >&2
+            echo "or look at it: tart run $NAME. To start over: tart delete $NAME; rm $STATE" >&2
         fi
+    elif [ "$status" -ne 0 ]; then
+        rm -f "$PASSWORD_FILE.new"
     fi
     rm -rf "$STAGE"
     exit "$status"
@@ -263,40 +278,62 @@ patience_open() {
 
 mkdir -p "$SANDBOX_HOME"
 chmod 700 "$SANDBOX_HOME"
+# A state file with no VM behind it is left over from a build whose VM was deleted.
+[ "$RESUME" = 1 ] || rm -f "$STATE"
 [ -f "$KEY" ] || ssh-keygen -q -t ed25519 -N "" -C "mentor-sandbox" -f "$KEY"
 
-say "Pairing, on this Mac, into a staging folder"
-# The password stays in $PASSWORD_FILE.new until the image works, so a failed build never overwrites the
-# password a good image needs.
-# ponytail: one password file for all images; two images under different names share the latest one.
-PASSWORD=$(cd "$REPO/evals" && node --input-type=module -e '
-    import { installRemoteScript } from "@mentor/tools/daws/ableton";
-    console.log((await installRemoteScript(process.argv[1])).password);
-' "$STAGE/remote-scripts")
-[ -n "$PASSWORD" ] || die "pairing gave no password."
-(umask 077 && printf '%s\n' "$PASSWORD" >"$PASSWORD_FILE.new")
-unset PASSWORD
+if [ "$RESUME" = 1 ] && is_done remote_script && [ -f "$PASSWORD_FILE.new" ]; then
+    say "Pairing: kept from the earlier run"
+else
+    say "Pairing, on this Mac, into a staging folder"
+    # The password stays in $PASSWORD_FILE.new until the image works, so a failed build never overwrites the
+    # password a good image needs.
+    # ponytail: one password file for all images; two images under different names share the latest one.
+    PASSWORD=$(cd "$REPO/evals" && node --input-type=module -e '
+        import { installRemoteScript } from "@mentor/tools/daws/ableton";
+        console.log((await installRemoteScript(process.argv[1])).password);
+    ' "$STAGE/remote-scripts")
+    [ -n "$PASSWORD" ] || die "pairing gave no password."
+    (umask 077 && printf '%s\n' "$PASSWORD" >"$PASSWORD_FILE.new")
+    unset PASSWORD
+    # A new password means the Remote Script in the VM has to be installed again.
+    if [ -f "$STATE" ]; then sed -i '' '/^remote_script$/d' "$STATE"; fi
+fi
 
-say "Copying the base image $BASE as $NAME (the first copy downloads it)"
 CREATED=1
-tart clone "$BASE" "$NAME"
-# the base disk has only ~13 GB free; the guest grows its disk on boot (checked on macOS 26.6.2)
-tart set "$NAME" --disk-size "${SANDBOX_DISK_GB:-100}"
+if ! is_done clone; then
+    say "Copying the base image $BASE as $NAME (the first copy downloads it)"
+    tart clone "$BASE" "$NAME"
+    # the base disk has only ~13 GB free; the guest grows its disk on boot (checked on macOS 26.6.2)
+    tart set "$NAME" --disk-size "${SANDBOX_DISK_GB:-100}"
+    mark clone
+else
+    say "Resuming the half-built image $NAME (steps done: $(tr '\n' ' ' <"$STATE"))"
+fi
 
 say "Booting $NAME (graphics: $([ "$GUI" = 1 ] && echo window || echo none), audio: $([ "${SANDBOX_AUDIO:-0}" = 1 ] && echo on || echo none))"
-start_vm first
+if is_done key; then
+    start_vm
+else
+    start_vm first
+    mark key
+fi
 
 say "Checking the VM has room for Live"
 need_kb=$(($(wc -c <"$INSTALLER") * 3 / 1024))
-free_kb=$(vm "df -k / | awk 'NR==2 {print \$4}'")
-[ "$free_kb" -gt "$need_kb" ] ||
-    die "the VM has $((free_kb / 1024)) MB free and the install needs about $((need_kb / 1024)) MB. Make the base disk bigger (tart set --disk-size) and build again."
+has_room() {
+    local free
+    free=$(vm "df -k / | awk 'NR==2 {print \$4}'" 2>/dev/null || true)
+    [ -n "$free" ] && [ "$free" -gt "$need_kb" ] 2>/dev/null
+}
+wait_for "the disk to grow to hold Live (needs about $((need_kb / 1024)) MB)" 120 has_room
 
 say "Installing Live from $(basename "$INSTALLER")"
-vm_in 'cat > /private/tmp/live-installer.dmg' <"$INSTALLER"
-{
-    printf 'app=%q\n' "$LIVE_APP"
-    cat <<'GUEST'
+if ! is_done install_live; then
+    vm_in 'cat > /private/tmp/live-installer.dmg' <"$INSTALLER"
+    {
+        printf 'app=%q\n' "$LIVE_APP"
+        cat <<'GUEST'
 set -euo pipefail
 mnt=$(mktemp -d /private/tmp/live-dmg.XXXXXX)
 # Echo Y answers a licence-agreement prompt, if the dmg has one.
@@ -308,17 +345,25 @@ ditto "$src" "$app"
 hdiutil detach "$mnt" >/dev/null
 rm -f /private/tmp/live-installer.dmg
 GUEST
-} | vm_in bash -s
-vm "test -f '$PATIENCE'" || die "Patience is not where evals/sets/patience/README.md says. Is the installer Live 12 Suite?"
+    } | vm_in bash -s
+    vm "test -f '$PATIENCE'" || die "Patience is not where evals/sets/patience/README.md says. Is the installer Live 12 Suite?"
+
+    mark install_live
+fi
 
 say "Installing the Remote Script"
-COPYFILE_DISABLE=1 tar -C "$STAGE/remote-scripts" -cf - MusicMentor |
-    vm_in 'mkdir -p "$HOME/Music/Ableton/User Library/Remote Scripts" && tar -C "$HOME/Music/Ableton/User Library/Remote Scripts" -xf -'
+if ! is_done remote_script; then
+    COPYFILE_DISABLE=1 tar -C "$STAGE/remote-scripts" -cf - MusicMentor |
+        vm_in 'mkdir -p "$HOME/Music/Ableton/User Library/Remote Scripts" && tar -C "$HOME/Music/Ableton/User Library/Remote Scripts" -xf -'
+
+    mark remote_script
+fi
 
 say "Setting up auto-login and Patience at login"
-{
-    printf 'user=%q\npassword=%q\napp=%q\npatience=%q\n' "$GUEST_USER" "$GUEST_PASSWORD" "$LIVE_APP" "$PATIENCE"
-    cat <<'GUEST'
+if ! is_done login; then
+    {
+        printf 'user=%q\npassword=%q\napp=%q\npatience=%q\n' "$GUEST_USER" "$GUEST_PASSWORD" "$LIVE_APP" "$PATIENCE"
+        cat <<'GUEST'
 set -euo pipefail
 autologin() { defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null || true; }
 [ "$(autologin)" = "$user" ] || sudo -n sysadminctl -autologin set -userName "$user" -password "$password" >/dev/null
@@ -343,39 +388,53 @@ cat >"$HOME/Library/LaunchAgents/com.mentor.open-patience.plist" <<PLIST
 PLIST
 plutil -lint "$HOME/Library/LaunchAgents/com.mentor.open-patience.plist" >/dev/null
 GUEST
-} | vm_in bash -s
+    } | vm_in bash -s
 
-say "Opening Live with the licence file, to authorize it"
-vm_in 'cat > /private/tmp/licence.auz' <"$LICENCE"
-vm "open -a '$LIVE_APP' /private/tmp/licence.auz"
-wait_for "Live to start" 120 live_up
-sleep 15
-if [ "$GUI" = 1 ]; then
-    echo
-    echo "Live is open in the VM window. By hand: dismiss any first-launch dialog, confirm Live is"
-    echo "authorized (Settings → Licenses & Updates), and choose MusicMentor as a Control Surface in"
-    echo "Settings → Link, Tempo & MIDI. Then press Enter here."
-    read -r
+    mark login
 fi
-vm 'rm -f /private/tmp/licence.auz'
-# Live keeps its authorization in an Unlock file under its support folders; none means the .auz was not taken.
-if [ -n "$(vm 'find "$HOME/Library/Application Support/Ableton" "$HOME/Library/Preferences/Ableton" -ipath "*unlock*" -type f 2>/dev/null | head -n 1' || true)" ]; then
-    AUTHORIZED="an Unlock file is in place"
-else
-    AUTHORIZED="NOT confirmed: no Unlock file found; check Settings → Licenses & Updates in the VM (SANDBOX_GUI=1)"
-    echo "warning: authorization $AUTHORIZED" >&2
+
+AUTHORIZED="(done in an earlier run)"
+say "Opening Live with the licence file, to authorize it"
+if ! is_done authorize; then
+    vm_in 'cat > /private/tmp/licence.auz' <"$LICENCE"
+    vm "open -a '$LIVE_APP'"
+    wait_for "Live to start" 120 live_up
+    sleep 10
+    vm "open -a '$LIVE_APP' /private/tmp/licence.auz"
+    sleep 5
+    if [ "$GUI" = 1 ]; then
+        echo
+        echo "Live is open in the VM window. By hand: dismiss any first-launch dialog, confirm Live is"
+        echo "authorized (Settings → Licenses & Updates), and choose MusicMentor as a Control Surface in"
+        echo "Settings → Link, Tempo & MIDI. Then press Enter here."
+        read -r
+    fi
+    vm 'rm -f /private/tmp/licence.auz'
+    # Live keeps its authorization in an Unlock file under its support folders; none means the .auz was not taken.
+    if [ -n "$(vm 'find "$HOME/Library/Application Support/Ableton" "$HOME/Library/Preferences/Ableton" -ipath "*unlock*" -type f 2>/dev/null | head -n 1' || true)" ]; then
+        AUTHORIZED="an Unlock file is in place"
+    else
+        AUTHORIZED="NOT confirmed: no Unlock file found; check Settings → Licenses & Updates in the VM (SANDBOX_GUI=1)"
+        echo "warning: authorization $AUTHORIZED" >&2
+    fi
+
+    mark authorize
 fi
 
 say "Checking the System Events permission the \"Don't Save\" click needs"
-until check_tcc; do
-    [ "$GUI" = 1 ] ||
-        die "System Events access is not granted in the base image. Build with SANDBOX_GUI=1 and allow it in the VM when macOS asks, or grant it in System Settings → Privacy & Security."
-    echo "Grant it in the VM window, then press Enter (Ctrl-C to give up)."
-    read -r
-done
-# The runner's screenshot of a stuck VM. Without Screen Recording it shows little, so say so.
-if ! vm 'screencapture -x /private/tmp/check.png && test -s /private/tmp/check.png; r=$?; rm -f /private/tmp/check.png; exit $r'; then
-    echo "warning: screencapture failed in the VM; the stuck-VM screenshot of #110 will not work." >&2
+if ! is_done tcc; then
+    until check_tcc; do
+        [ "$GUI" = 1 ] ||
+            die "System Events access is not granted in the base image. Build with SANDBOX_GUI=1 and allow it in the VM when macOS asks, or grant it in System Settings → Privacy & Security."
+        echo "Grant it in the VM window, then press Enter (Ctrl-C to give up)."
+        read -r
+    done
+    # The runner's screenshot of a stuck VM. Without Screen Recording it shows little, so say so.
+    if ! vm 'screencapture -x /private/tmp/check.png && test -s /private/tmp/check.png; r=$?; rm -f /private/tmp/check.png; exit $r'; then
+        echo "warning: screencapture failed in the VM; the stuck-VM screenshot of #110 will not work." >&2
+    fi
+
+    mark tcc
 fi
 
 say "Stopping the VM, then booting it again to check Patience opens by itself"
@@ -389,6 +448,8 @@ mv "$PASSWORD_FILE.new" "$PASSWORD_FILE"
 
 say "Stopping the VM"
 shutdown_vm
+
+rm -f "$STATE"
 
 SIZE=$(du -sh "${TART_HOME:-$HOME/.tart}/vms/$NAME" 2>/dev/null | cut -f1 || true)
 echo
