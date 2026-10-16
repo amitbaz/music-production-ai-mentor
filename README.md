@@ -4,7 +4,7 @@ An AI mentor for music producers. You talk to it in plain language: it explains 
 
 ## Status
 
-Early. The mentor runs in the terminal on Gemini, and on Gemini or Claude in the evals (`pnpm eval <case> --model claude:claude-haiku-5-5`). It reads the Live Set open in Ableton Live: an overview, the detail of the tracks it chooses, the arrangement and the inside of a clip. `pnpm pair ableton` installs the Remote Script it reaches Live through. It changes device parameters and the mixer, tracks, effect chains, arrangement clips and locators, the notes of MIDI clips, the transport and what is selected in Live, finds devices, presets and samples by name, deletes tracks, devices, clips and notes after asking, and reaches anything else Live offers to scripts through two general tools. Its system prompt tells the model how to work in Live: read first, give each change before → after, and say it cannot hear the audio.
+Early. The mentor runs on Gemini, or on Claude when asked, in the terminal (`pnpm start --model claude:claude-haiku-5-5`) and in the evals (`pnpm eval <case> --model claude:claude-haiku-5-5`). It reads the Live Set open in Ableton Live: an overview, the detail of the tracks it chooses, the arrangement and the inside of a clip. `pnpm pair ableton` installs the Remote Script it reaches Live through. It changes device parameters and the mixer, tracks, effect chains, arrangement clips and locators, the notes of MIDI clips, the transport and what is selected in Live, finds devices, presets and samples by name, deletes tracks, devices, clips and notes after asking, and reaches anything else Live offers to scripts through two general tools. Its system prompt tells the model how to work in Live: read first, give each change before → after, and say it cannot hear the audio.
 
 ## What it does today
 
@@ -58,7 +58,7 @@ git clone https://github.com/amitbaz/music-production-ai-mentor.git
 cd music-production-ai-mentor
 pnpm install
 cp apps/cli/.env.example apps/cli/.env   # then set GEMINI_API_KEY (and ANTHROPIC_API_KEY for Claude) in it
-pnpm start
+pnpm start                               # or: pnpm start --model claude:claude-haiku-5-5
 ```
 
 For the Ableton tools you also need Ableton Live 12.4 or newer on macOS. Pair it once:
