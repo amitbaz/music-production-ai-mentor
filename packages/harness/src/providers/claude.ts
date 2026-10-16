@@ -194,48 +194,61 @@ async function readReply(
     // The end of what was read so far, when it stops in the middle of a line
     let rest = "";
 
+    // One line of the stream; only "data:" lines hold an event.
+    function readLine(line: string) {
+        if (!line.startsWith("data:")) return;
+        let event: ClaudeEvent;
+        try {
+            event = JSON.parse(line.slice("data:".length));
+        } catch {
+            // A line cut or garbled on the way is a fault of the stream, like a dropped connection.
+            throw new ModelCallError("Claude request failed: the stream held an event that is not JSON", {
+                retryable: true,
+            });
+        }
+        const index = event.index ?? -1;
+        const block = blocks.get(index);
+        const delta = event.delta;
+
+        if (event.type === "message_start") {
+            usage = { ...event.message?.usage };
+        } else if (event.type === "content_block_start" && event.content_block) {
+            blocks.set(index, { ...event.content_block });
+            inputs.set(index, "");
+        } else if (event.type === "content_block_delta" && block) {
+            if (delta?.type === "text_delta") {
+                block.text = `${block.text ?? ""}${delta.text ?? ""}`;
+                if (delta.text) onText?.(delta.text);
+            } else if (delta?.type === "thinking_delta") {
+                block.thinking = `${block.thinking ?? ""}${delta.thinking ?? ""}`;
+            } else if (delta?.type === "signature_delta") {
+                block.signature = delta.signature;
+            } else if (delta?.type === "input_json_delta") {
+                inputs.set(index, (inputs.get(index) ?? "") + (delta.partial_json ?? ""));
+            }
+        } else if (event.type === "message_delta") {
+            stopReason = delta?.stop_reason ?? stopReason;
+            stopDetails = delta?.stop_details ?? stopDetails;
+            usage = { ...usage, ...event.usage };
+        } else if (event.type === "message_stop") {
+            stopped = true;
+        } else if (event.type === "error") {
+            // Sent in the stream when the request failed after the reply began
+            const { type = "api_error", message = "" } = (event as ClaudeError).error ?? {};
+            throw new ModelCallError(`Claude request failed: ${type}: ${message}`, {
+                retryable: RETRYABLE_TYPES.includes(type),
+            });
+        }
+    }
+
     const decoder = new TextDecoder();
     for await (const bytes of body) {
         const lines = (rest + decoder.decode(bytes, { stream: true })).split("\n");
         rest = lines.pop() ?? "";
-        for (const line of lines) {
-            if (!line.startsWith("data:")) continue;
-            const event: ClaudeEvent = JSON.parse(line.slice("data:".length));
-            const index = event.index ?? -1;
-            const block = blocks.get(index);
-            const delta = event.delta;
-
-            if (event.type === "message_start") {
-                usage = { ...event.message?.usage };
-            } else if (event.type === "content_block_start" && event.content_block) {
-                blocks.set(index, { ...event.content_block });
-                inputs.set(index, "");
-            } else if (event.type === "content_block_delta" && block) {
-                if (delta?.type === "text_delta") {
-                    block.text = `${block.text ?? ""}${delta.text ?? ""}`;
-                    if (delta.text) onText?.(delta.text);
-                } else if (delta?.type === "thinking_delta") {
-                    block.thinking = `${block.thinking ?? ""}${delta.thinking ?? ""}`;
-                } else if (delta?.type === "signature_delta") {
-                    block.signature = delta.signature;
-                } else if (delta?.type === "input_json_delta") {
-                    inputs.set(index, (inputs.get(index) ?? "") + (delta.partial_json ?? ""));
-                }
-            } else if (event.type === "message_delta") {
-                stopReason = delta?.stop_reason ?? stopReason;
-                stopDetails = delta?.stop_details ?? stopDetails;
-                usage = { ...usage, ...event.usage };
-            } else if (event.type === "message_stop") {
-                stopped = true;
-            } else if (event.type === "error") {
-                // Sent in the stream when the request failed after the reply began
-                const { type = "api_error", message = "" } = (event as ClaudeError).error ?? {};
-                throw new ModelCallError(`Claude request failed: ${type}: ${message}`, {
-                    retryable: RETRYABLE_TYPES.includes(type),
-                });
-            }
-        }
+        for (const line of lines) readLine(line);
     }
+    // The last line has no newline after it when the stream ends there.
+    readLine(rest + decoder.decode());
 
     if (!stopped) {
         throw new ModelCallError("Claude request failed: the stream ended before the reply was whole", {
@@ -244,6 +257,7 @@ async function readReply(
     }
 
     const cutOff = stopReason === "max_tokens";
+    const refused = stopReason === "refusal";
     const thinking: ClaudeBlock[] = [];
     let text = "";
     const calls: Message[] = [];
@@ -254,8 +268,8 @@ async function readReply(
             text += block.text;
         } else if (block.type === "tool_use") {
             const args = parseInput(inputs.get(index) ?? "");
-            // A reply cut off in the middle of a call has no whole call to run.
-            if (args === undefined && cutOff) continue;
+            // A reply cut off or refused in the middle of a call has no whole call to run.
+            if (args === undefined && (cutOff || refused)) continue;
             if (args === undefined) throw new Error(`Claude returned a tool call with input that is not JSON: ${inputs.get(index)}`);
             calls.push({ type: "tool_call", id: String(block.id), name: String(block.name), args });
         }
@@ -273,7 +287,7 @@ async function readReply(
             ? {}
             : { tokens: input_tokens + output_tokens + cache_creation_input_tokens + cache_read_input_tokens }),
         cutOff,
-        ...(stopReason === "refusal"
+        ...(refused
             ? {
                   refused: {
                       category: stopDetails?.category ?? "unspecified",

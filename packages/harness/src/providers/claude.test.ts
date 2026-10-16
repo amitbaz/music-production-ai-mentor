@@ -652,6 +652,47 @@ test("a stream that ends without its final event is retryable", async (t) => {
     assert.match(error.message, /ended before the reply was whole/);
 });
 
+test("a data line that is not JSON is a retryable stream fault, not a crash", async (t) => {
+    fakeStream(t, [sse(recordedEvents.slice(0, 3)), 'event: content_block_delta\ndata: {"type": "content_block_de\n\n']);
+
+    const error = await failureOf(createClaudeModel("test-key", "test-model").call(hi, []));
+
+    assert.equal(error.retryable, true);
+    assert.match(error.message, /Claude request failed/);
+});
+
+test("a last line with no newline after it is still read", async (t) => {
+    fakeStream(t, [minimalReply.trimEnd()]);
+
+    const reply = await createClaudeModel("test-key", "test-model").call(hi, []);
+
+    assert.deepEqual(reply.messages, [{ type: "assistant", text: "Hello!" }]);
+});
+
+test("a refusal that cuts a tool call in the middle skips the call and keeps the text", async (t) => {
+    fakeStream(t, [
+        sse([
+            { type: "message_start", message: { usage: { input_tokens: 10, output_tokens: 1 } } },
+            { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+            { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Setting it" } },
+            { type: "content_block_stop", index: 0 },
+            { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "toolu_1", name: "set_tempo", input: {} } },
+            { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '{"bpm": 1' } },
+            {
+                type: "message_delta",
+                delta: { stop_reason: "refusal", stop_details: { type: "refusal", category: "cyber", explanation: "No." } },
+                usage: { output_tokens: 6 },
+            },
+            { type: "message_stop" },
+        ]),
+    ]);
+
+    const reply = await createClaudeModel("test-key", "test-model").call(hi, [setTempo]);
+
+    assert.deepEqual(reply.messages, [{ type: "assistant", text: "Setting it" }]);
+    assert.deepEqual(reply.refused, { category: "cyber", explanation: "No." });
+});
+
 test("an error event in the middle of the stream is labelled by its type", async (t) => {
     for (const [type, retryable] of [
         ["overloaded_error", true],
