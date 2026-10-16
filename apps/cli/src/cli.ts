@@ -1,8 +1,8 @@
-import { createMentor } from "@mentor/mentor";
+import { createMentor, keysFromEnv } from "@mentor/mentor";
 import { runCli } from "./run.ts";
 
 const mentor = createMentor({
-    keys: { gemini: process.env.GEMINI_API_KEY },
+    keys: keysFromEnv(process.env),
     abletonAddress: process.env.ABLETON_ADDRESS,
     abletonPassword: process.env.ABLETON_PASSWORD,
     onRetry: ({ error, retry, maxRetries, waitMs }) =>

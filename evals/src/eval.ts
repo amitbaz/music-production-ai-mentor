@@ -6,7 +6,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { createMentor, MODEL_ID } from "@mentor/mentor";
+import { createMentor, keysFromEnv, MODEL_ID } from "@mentor/mentor";
 import { createAbleton } from "@mentor/tools/daws/ableton";
 import { cases } from "../sets/patience/cases.ts";
 import { runCase } from "./run.ts";
@@ -22,7 +22,7 @@ const runs = Number(values.runs);
 if (!Number.isInteger(runs) || runs < 1) throw new Error(`--runs must be a whole number above 0, got ${values.runs}`);
 
 const ableton = { abletonAddress: process.env.ABLETON_ADDRESS, abletonPassword: process.env.ABLETON_PASSWORD };
-const mentor = createMentor({ keys: { gemini: process.env.GEMINI_API_KEY }, model: values.model, ...ableton });
+const mentor = createMentor({ keys: keysFromEnv(process.env), model: values.model, ...ableton });
 const model = values.model ?? MODEL_ID;
 const folder = join(homedir(), ".mentor", "evals", "runs", `${new Date().toISOString().replace(/[:.]/g, "-")}-${chosen.name}`);
 const result = await runCase({
