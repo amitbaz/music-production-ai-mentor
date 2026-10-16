@@ -5,7 +5,8 @@ import { cp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 // The pinned ableton-js Remote Script, kept in the repo with its files unchanged but for our own
-// Mentor.py and the one line of AbletonJS.py that registers it. What to try by hand in Live is in
+// Mentor.py, the one line of AbletonJS.py that registers it, and the two lines of Namespaces/Interface.py
+// that pass a list of args in order. What to try by hand in Live is in
 // remote-scripts/checklist.md.
 const SOURCE = join(import.meta.dirname, "..", "..", "..", "remote-scripts", "ableton-js");
 
