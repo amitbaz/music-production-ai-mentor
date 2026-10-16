@@ -20,12 +20,12 @@ The evals say whether Mentor, with the prompt and tools it has, fixes what is pl
 The user brings the model (ADR 0022), so a case runs on every supported model, not one. Read the matrix:
 
 - Low on all models → a product problem: prompt, tool or knowledge. Fix it.
-- Low on one model → a model problem. Don't fix it; the README's "works with" table records it.
+- Low on one model → a model problem. Don't fix it; the line in `scores.md` records it.
 - A change is kept when it lifts the panel, never for one model.
 
 ## scores.md
 
-One line per case, per model, per series. It is the only score the repo keeps; the runs themselves stay outside it.
+One line per case, per model, per series. It is the only score the repo keeps; the runs themselves stay outside it. It is internal: nothing in the README says which models score what. When the log gets too long to read the latest score per case and model at a glance, a small matrix goes at its top, kept by hand.
 
 ## Running
 
