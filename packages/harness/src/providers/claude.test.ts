@@ -481,4 +481,128 @@ test("an assistant message with no text sends no empty text block", () => {
     assert.deepEqual(messages[1], { role: "assistant", content: thinkingBlocks });
 });
 
-void failureOf;
+// ---- Errors ----
+
+// A failed request as Claude answers it: an error body, and sometimes a retry-after header in seconds.
+function fakeFailure(t: TestContext, status: number, type: string, message: string, headers: Record<string, string> = {}) {
+    return t.mock.method(globalThis, "fetch", async () =>
+        Response.json({ type: "error", error: { type, message } }, { status, headers }),
+    );
+}
+
+test("429, 500, 503 and 529 are retryable, and the error carries Claude's type and text", async (t) => {
+    const cases: [number, string, string][] = [
+        [429, "rate_limit_error", "Number of request tokens has exceeded your limit"],
+        [500, "api_error", "Internal server error"],
+        [503, "api_error", "Service unavailable"],
+        [529, "overloaded_error", "Overloaded"],
+    ];
+    for (const [status, type, message] of cases) {
+        fakeFailure(t, status, type, message);
+
+        const error = await failureOf(createClaudeModel("test-key", "test-model").call(hi, []));
+
+        assert.equal(error.retryable, true, `${status}`);
+        assert.equal(error.retryAfterMs, undefined);
+        assert.equal(error.message, `Claude request failed (${status}): ${type}: ${message}`);
+    }
+});
+
+test("the model reads how long Claude asks to wait from retry-after", async (t) => {
+    fakeFailure(t, 429, "rate_limit_error", "Slow down", { "retry-after": "12" });
+
+    const error = await failureOf(createClaudeModel("test-key", "test-model").call(hi, []));
+
+    assert.equal(error.retryable, true);
+    assert.equal(error.retryAfterMs, 12_000);
+});
+
+test("a retry-after that is not a number of seconds is not a wait", async (t) => {
+    fakeFailure(t, 529, "overloaded_error", "Overloaded", { "retry-after": "soon" });
+
+    const error = await failureOf(createClaudeModel("test-key", "test-model").call(hi, []));
+
+    assert.equal(error.retryable, true);
+    assert.equal(error.retryAfterMs, undefined);
+});
+
+test("400 and 401 are not retryable", async (t) => {
+    for (const [status, type, message] of [
+        [400, "invalid_request_error", "messages: roles must alternate"],
+        [401, "authentication_error", "invalid x-api-key"],
+    ] as const) {
+        fakeFailure(t, status, type, message);
+
+        const error = await failureOf(createClaudeModel("test-key", "test-model").call(hi, []));
+
+        assert.equal(error.retryable, false, `${status}`);
+        assert.match(error.message, new RegExp(`${type}: ${message}`));
+    }
+});
+
+test("the model keeps the status of a failure whose body is not JSON", async (t) => {
+    t.mock.method(globalThis, "fetch", async () => new Response("<html>Bad Gateway</html>", { status: 502 }));
+
+    const error = await failureOf(createClaudeModel("test-key", "test-model").call(hi, []));
+
+    assert.equal(error.retryable, true);
+    assert.match(error.message, /Claude request failed \(502\): <html>Bad Gateway<\/html>/);
+});
+
+test("the model marks a dropped connection as retryable", async (t) => {
+    t.mock.method(globalThis, "fetch", async () => {
+        throw new TypeError("fetch failed");
+    });
+
+    const error = await failureOf(createClaudeModel("test-key", "test-model").call(hi, []));
+
+    assert.equal(error.retryable, true);
+    assert.match(error.message, /Claude request failed: fetch failed/);
+});
+
+test("the model marks a connection dropped in the middle of a reply as retryable, after the text that arrived", async (t) => {
+    const body = new ReadableStream({
+        start(controller) {
+            controller.enqueue(new TextEncoder().encode(sse(recordedEvents.slice(0, 11))));
+        },
+        pull(controller) {
+            // What fetch reports when the connection is lost while the body is read.
+            controller.error(new TypeError("terminated"));
+        },
+    });
+    t.mock.method(globalThis, "fetch", async () => new Response(body));
+    const pieces: string[] = [];
+
+    const error = await failureOf(
+        createClaudeModel("test-key", "test-model").call(hi, [], { onText: (text) => pieces.push(text) }),
+    );
+
+    assert.equal(error.retryable, true);
+    assert.match(error.message, /Claude request failed: terminated/);
+    assert.deepEqual(pieces, ["I am", " about to set the tempo."]);
+});
+
+test("a stream that ends without its final event is retryable", async (t) => {
+    // Everything up to the last message_delta, and no message_stop.
+    fakeStream(t, [sse(recordedEvents.slice(0, -1))]);
+
+    const error = await failureOf(createClaudeModel("test-key", "test-model").call(hi, [setTempo]));
+
+    assert.equal(error.retryable, true);
+    assert.match(error.message, /ended before the reply was whole/);
+});
+
+test("an error event in the middle of the stream is labelled by its type", async (t) => {
+    for (const [type, retryable] of [
+        ["overloaded_error", true],
+        ["api_error", true],
+        ["invalid_request_error", false],
+    ] as const) {
+        fakeStream(t, [sse([...recordedEvents.slice(0, 3), { type: "error", error: { type, message: "It broke" } }])]);
+
+        const error = await failureOf(createClaudeModel("test-key", "test-model").call(hi, []));
+
+        assert.equal(error.retryable, retryable, type);
+        assert.equal(error.message, `Claude request failed: ${type}: It broke`);
+    }
+});

@@ -134,6 +134,32 @@ type ClaudeEvent = {
     usage?: ClaudeUsage;
 };
 
+// The body of an error, as an HTTP reply carries it and as an error event in the stream does.
+type ClaudeError = { type?: string; error?: { type?: string; message?: string } };
+
+// The statuses worth another attempt: rate limited, a server fault, or overloaded (529).
+const isRetryableStatus = (status: number) => status === 429 || status >= 500;
+// The same, by the error type Claude gives to an error event, which has no status
+const RETRYABLE_TYPES = ["rate_limit_error", "api_error", "overloaded_error"];
+
+// Turns a failed HTTP reply into a labelled failure. The body is not always JSON.
+function failedRequest(response: Response, text: string): ModelCallError {
+    let body: ClaudeError = {};
+    try {
+        body = JSON.parse(text);
+    } catch {
+        // An error page from a proxy; the raw text is the reason.
+    }
+
+    const reason = body.error ? `${body.error.type}: ${body.error.message}` : text;
+    // retry-after is a number of seconds
+    const seconds = Number.parseFloat(response.headers.get("retry-after") ?? "");
+    return new ModelCallError(`Claude request failed (${response.status}): ${reason}`, {
+        retryable: isRetryableStatus(response.status),
+        ...(Number.isFinite(seconds) ? { retryAfterMs: seconds * 1000 } : {}),
+    });
+}
+
 // Reads a streamed Claude reply. Each "data:" line holds one event, and the blocks of the reply
 // are built up by index: the start of a block opens it, its deltas fill it.
 async function readReply(
@@ -183,6 +209,12 @@ async function readReply(
                 usage = { ...usage, ...event.usage };
             } else if (event.type === "message_stop") {
                 stopped = true;
+            } else if (event.type === "error") {
+                // Sent in the stream when the request failed after the reply began
+                const { type = "api_error", message = "" } = (event as ClaudeError).error ?? {};
+                throw new ModelCallError(`Claude request failed: ${type}: ${message}`, {
+                    retryable: RETRYABLE_TYPES.includes(type),
+                });
             }
         }
     }
@@ -276,7 +308,9 @@ export function createClaudeModel(apiKey: string, model: string): Model {
                     signal: options?.signal,
                 });
 
-                return await readReply(response.body as ReadableStream<Uint8Array>, options?.onText);
+                // Read the status before the body: a failed reply is not a stream.
+                if (!response.ok || !response.body) throw failedRequest(response, await response.text());
+                return await readReply(response.body, options?.onText);
             } catch (e) {
                 // fetch reports a dropped connection as a TypeError, before the reply or
                 // in the middle of it; a cancel is not one.
