@@ -1,3 +1,5 @@
+import { stat } from "node:fs/promises";
+import { isAbsolute } from "node:path";
 import type { Tool } from "@mentor/harness";
 import { type Client, type Command, getProp, setProp } from "../../client.ts";
 import { goneMessage, isGone } from "../../changing.ts";
@@ -9,7 +11,7 @@ type Edit = Record<string, unknown>;
 // well, and how many beats a bar holds; and what went wrong beside the edits, for the result.
 type Song = { tracks: LiveTrack[]; all: LiveTrack[]; perBar: number; problems: string[] };
 
-const ACTIONS = ["create_clip", "duplicate", "move", "edit_clip", "add_locator", "rename_locator", "remove_locator"];
+const ACTIONS = ["create_clip", "place_sample", "duplicate", "move", "edit_clip", "add_locator", "rename_locator", "remove_locator"];
 
 // What Live does not let a script do to the arrangement (ADR 0015), each refused with the steps the
 // mentor gives the user instead. The bar and length asked for go into the steps.
@@ -28,13 +30,13 @@ const NOT_OFFERED: Record<string, (edit: Edit) => string> = {
     delete: () => "edit_arrangement cannot delete a clip. delete removes clips, after asking the user.",
 };
 
-// Reshapes the Arrangement View: creates, duplicates and moves clips, changes clip settings, and adds,
-// renames and removes locators. It has no way to delete a clip: removals are for a tool that asks first.
+// Reshapes the Arrangement View: creates clips, places samples, duplicates and moves clips, changes
+// clip settings, and adds, renames and removes locators. It has no way to delete a clip: removals are for a tool that asks first.
 export function editArrangement(client: Client): Tool {
     return {
         name: "edit_arrangement",
         description:
-            'Reshapes the Arrangement View of the Live Set. Takes a list of edits, applied in order; each is reported, and one that fails does not stop the rest. Bars are numbered as read_arrangement gives them, from 1 by the time signature; lengths are in bars. Object ids come from read_set and read_arrangement. Live moves the playback position to a clip it makes and to a locator; each edit puts it back where it was, and position_problems in the result says when it could not. The edits: {action: "create_clip", track, bar, bars, name?} creates an empty MIDI clip on a MIDI track and gives its object id. {action: "duplicate", clip, bar, track?} copies a clip to start at a bar, on its own track or another track of the same kind (MIDI or audio), and gives the copy\'s object id. {action: "move", clip, bar, track?} moves a clip the same way: Live cannot move a clip, so it is copied and the original removed, and the clip gets a new object id. {action: "edit_clip", clip, ...} changes any of name, muted, looping, loop_start and loop_end (beats from the start of the clip, as read_clip counts; not on an unwarped audio clip), and for an audio clip warp (off, beats, tones, texture, repitch, complex or complex_pro), gain (dB, as Live shows it, or "-inf" for silence), pitch_semitones and pitch_cents, and reports each before and after as Live shows it. {action: "add_locator", bar, name?} adds a locator at the start of a bar inside the arrangement, and gives its object id. {action: "rename_locator", locator, name} and {action: "remove_locator", locator} take a locator\'s object id from read_arrangement. Live does not let a script split a clip, insert or cut time, or write automation on the arrangement timeline: the actions split, insert_time, cut_time and automation give the steps to tell the user instead, with bar and bars if given. It cannot delete a clip.',
+            'Reshapes the Arrangement View of the Live Set. Takes a list of edits, applied in order; each is reported, and one that fails does not stop the rest. Bars are numbered as read_arrangement gives them, from 1 by the time signature; lengths are in bars. Object ids come from read_set and read_arrangement. Live moves the playback position to a clip it makes and to a locator; each edit puts it back where it was, and position_problems in the result says when it could not. The edits: {action: "create_clip", track, bar, bars, name?} creates an empty MIDI clip on a MIDI track and gives its object id. {action: "place_sample", track, bar, file, name?} places an audio file from disk on an audio track, as a clip as long as the file, and gives its object id, bars and warp mode; file is its full path, such as /Users/me/Samples/vox.wav, as read_clip gives the file of an audio clip. {action: "duplicate", clip, bar, track?} copies a clip to start at a bar, on its own track or another track of the same kind (MIDI or audio), and gives the copy\'s object id. {action: "move", clip, bar, track?} moves a clip the same way: Live cannot move a clip, so it is copied and the original removed, and the clip gets a new object id. {action: "edit_clip", clip, ...} changes any of name, muted, looping, loop_start and loop_end (beats from the start of the clip, as read_clip counts; not on an unwarped audio clip), and for an audio clip warp (off, beats, tones, texture, repitch, complex or complex_pro), gain (dB, as Live shows it, or "-inf" for silence), pitch_semitones and pitch_cents, and reports each before and after as Live shows it. {action: "add_locator", bar, name?} adds a locator at the start of a bar inside the arrangement, and gives its object id. {action: "rename_locator", locator, name} and {action: "remove_locator", locator} take a locator\'s object id from read_arrangement. Live does not let a script split a clip, insert or cut time, or write automation on the arrangement timeline: the actions split, insert_time, cut_time and automation give the steps to tell the user instead, with bar and bars if given. It cannot delete a clip.',
         params: {
             type: "object",
             properties: {
@@ -45,10 +47,11 @@ export function editArrangement(client: Client): Tool {
                         properties: {
                             action: { type: "string", enum: [...ACTIONS, ...Object.keys(NOT_OFFERED).filter((action) => action !== "delete")] },
                             clip: { type: "string", description: "duplicate, move, edit_clip: object id of the clip, such as c3." },
-                            track: { type: "string", description: "create_clip: the MIDI track. duplicate, move: the track it goes to, its own if left out. Such as t1." },
-                            bar: { type: "number", description: "create_clip, duplicate, move: the bar it starts at. add_locator: the bar, a whole number." },
+                            track: { type: "string", description: "create_clip: the MIDI track. place_sample: the audio track. duplicate, move: the track it goes to, its own if left out. Such as t1." },
+                            bar: { type: "number", description: "create_clip, place_sample, duplicate, move: the bar it starts at. add_locator: the bar, a whole number." },
                             bars: { type: "number", description: "create_clip: its length in bars." },
-                            name: { type: "string", description: "create_clip, edit_clip, add_locator, rename_locator: the name." },
+                            file: { type: "string", description: "place_sample: the full path of the audio file on disk." },
+                            name: { type: "string", description: "create_clip, place_sample, edit_clip, add_locator, rename_locator: the name." },
                             locator: { type: "string", description: "rename_locator, remove_locator: object id of the locator, such as l2." },
                             muted: { type: "boolean", description: "edit_clip." },
                             looping: { type: "boolean", description: "edit_clip: loop on or off." },
@@ -104,6 +107,7 @@ async function run(client: Client, args: Record<string, unknown>) {
 
 function apply(client: Client, edit: Edit, song: Song) {
     if (edit.action === "create_clip") return createClip(client, edit, song);
+    if (edit.action === "place_sample") return placeSample(client, edit, song);
     if (edit.action === "duplicate" || edit.action === "move") return duplicate(client, edit, song, edit.action);
     if (edit.action === "edit_clip") return editClip(client, edit);
     if (edit.action === "add_locator") return addLocator(client, edit, song);
@@ -170,6 +174,46 @@ async function createClip(client: Client, edit: Edit, song: Song) {
     const clip = client.objectId("c", created.id);
     const named = (await client.send([...(name === undefined ? [] : [setProp("clip", "name", name, created.id)]), getProp("clip", "name", created.id)])).at(-1);
     return { action: "create_clip", clip, track: id, name: named, ...span(created, song) };
+}
+
+// A sample placed on an audio track at a bar, as a clip as long as the file.
+async function placeSample(client: Client, edit: Edit, song: Song) {
+    const { id, track } = trackArg(client, edit, song);
+    const bar = barArg(edit);
+    const { file, name } = edit;
+    if (typeof file !== "string" || !isAbsolute(file)) throw new Error("file must be the full path of an audio file on disk, such as /Users/me/Samples/vox.wav");
+    if (name !== undefined) checkSetting("name", name);
+    if (track.type !== "audio") throw new Error(`${id} is ${kindOf(track.type, "track")}. A sample is placed on an audio track.`);
+    if (!(await stat(file).catch(() => undefined))?.isFile()) throw new Error(`There is no file at ${file}.`);
+    const start = beatsOf(bar, song.perBar);
+    const [clips] = (await client.send([getProp("track", "arrangement_clips", track.id)])) as [LiveClip[]];
+    // Live cuts the clips a new one lands on, and a sample's length is known only once Live has made
+    // it. So it is made where no clip of the track follows, and copied to its bar if those bars are free.
+    const at = Math.max(start, ...clips.map((clip) => clip.end_time));
+    const { placed, problem } = await keepingPosition(client, song, async () => {
+        const create = { ns: "track", nsid: track.id, name: "create_audio_clip", args: { file_path: file, position: at } };
+        const [made] = (await client.send([create])) as [LiveClip];
+        if (at === start) return { placed: made };
+        const remove = () => client.send([{ ns: "track", nsid: track.id, name: "delete_clip", args: { clip_id: made.id } }]);
+        // What is left behind when the clip made past the last one cannot be removed.
+        const left = (error: Error) => `The sample was first placed past the last clip of ${id}, as ${client.objectId("c", made.id)} at bar ${barOf(at, song.perBar)}, and that clip could not be removed: ${error.message}`;
+        let copy: LiveClip;
+        try {
+            refuseOverlap(client, id, clips, start, start + made.end_time - made.start_time, song);
+            [copy] = (await client.send([{ ns: "track", nsid: track.id, name: "duplicate_clip_to_arrangement", args: { clip_id: made.id, time: start } }])) as [LiveClip];
+        } catch (error) {
+            const message = await remove().then(() => (error as Error).message, (failed: Error) => `${(error as Error).message} ${left(failed)}`);
+            throw new Error(message);
+        }
+        return { placed: copy, problem: await remove().then(() => undefined, left) };
+    });
+    // The sample is on the track by now, so a name Live refuses is reported with it, not in its place.
+    const renamed =
+        name === undefined ? undefined : await client.send([setProp("clip", "name", name, placed.id)]).then(() => undefined, (error: Error) => `The sample could not be named ${name}: ${error.message}`);
+    const [named, warping, warpMode] = await client.send(["name", "warping", "warp_mode"].map((prop) => getProp("clip", prop, placed.id)));
+    const result = { action: "place_sample", clip: client.objectId("c", placed.id), track: id, name: named, ...span(placed, song), warp: warpShown(warping, warpMode) };
+    const error = [problem, renamed].filter(Boolean).join(" ");
+    return error ? { ...result, error } : result;
 }
 
 // A clip by its object id, with the track it is on, and the clips of each track that holds them, by

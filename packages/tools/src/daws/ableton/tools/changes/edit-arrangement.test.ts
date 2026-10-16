@@ -1,5 +1,8 @@
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Tool } from "@mentor/harness";
 import { createAbleton } from "../../ableton.ts";
 import { ADDRESS, liveSet, StandInSocket, useStandIn } from "../../stand-in-live.ts";
@@ -16,10 +19,18 @@ type Arrangement = { locators: { id: string; name: string; bar: number }[]; trac
 
 // A Live Set in 4/4 with a MIDI track Bass holding Riff in bars 1 to 5 and Hook in bars 9 to 13, an
 // empty MIDI track Lead, an audio track Drums holding Break, and the locators Intro at bar 1 and Drop
-// at bar 17, with the playback position at bar 3. Read first, as the mentor does, so the tool is
-// given object ids.
+// at bar 17, with the playback position at bar 3. Two audio files are on disk: vox.wav, which Live
+// places unwarped across 6 bars, and hit.wav, a warped loop of 2 bars. Read first, as the mentor
+// does, so the tool is given object ids.
 async function setup(t: TestContext) {
-    const { live, track, cue, set } = liveSet({ tempo: 120, numerator: 4, denominator: 4 });
+    const { live, track, cue, set, sample } = liveSet({ tempo: 120, numerator: 4, denominator: 4 });
+    const folder = await mkdtemp(join(tmpdir(), "samples-"));
+    t.after(() => rm(folder, { recursive: true }));
+    const vox = join(folder, "vox.wav");
+    const hit = join(folder, "hit.wav");
+    await Promise.all([writeFile(vox, ""), writeFile(hit, "")]);
+    sample(vox, 24, { warping: false });
+    sample(hit, 8);
     const midi = (name: string, arrangement: Parameters<typeof track>[0]["arrangement"] = []) =>
         track({ name, type: "midi", volume: "0.0 dB", pan: "C", arrangement });
     const bass = midi("Bass", [
@@ -48,6 +59,10 @@ async function setup(t: TestContext) {
         live,
         tool,
         edit,
+        folder,
+        vox,
+        hit,
+        sample,
         read,
         clipsOf,
         song: () => live.get("song") as Record<string, unknown>,
@@ -430,4 +445,95 @@ test("edit_arrangement refuses to add or remove a locator while Live plays, and 
     assert.equal(renamed.changed.name.after, "Drop 1");
     assert.deepEqual((await read()).locators.map((locator) => locator.name), ["Intro", "Drop 1"]);
     assert.equal(sentNames().includes("set_or_delete_cue"), false);
+});
+
+test("edit_arrangement places a sample from a file on an audio track at a bar, and gives its object id, bars and warp", async (t) => {
+    const { tool, edit, clipsOf, song, drums, vox } = await setup(t);
+
+    const [placed] = await edit([{ action: "place_sample", track: drums, bar: 9, file: vox }]);
+
+    assert.equal(tool.needsApproval, undefined);
+    assert.match(placed.clip, /^c\d+$/);
+    assert.deepEqual(placed, { action: "place_sample", clip: placed.clip, track: drums, name: "vox", from_bar: 9, to_bar: 15, warp: "off" });
+    assert.deepEqual((await clipsOf("Drums")).map((clip) => clip.slice(1)), [["Break", 1, 5], ["vox", 9, 15]]);
+    assert.equal(song().current_song_time, 8);
+});
+
+test("edit_arrangement places a sample between two clips where it fits", async (t) => {
+    const { edit, clipsOf, song, drums, vox, hit } = await setup(t);
+    const [later] = await edit([{ action: "place_sample", track: drums, bar: 17, file: vox }]);
+
+    const [placed] = await edit([{ action: "place_sample", track: drums, bar: 9, file: hit, name: "Hit" }]);
+
+    assert.deepEqual(placed, { action: "place_sample", clip: placed.clip, track: drums, name: "Hit", from_bar: 9, to_bar: 11, warp: "beats" });
+    // The clip measured past the vocal is gone: only the copy at bar 9 is left.
+    assert.deepEqual(
+        (await clipsOf("Drums")).map((clip) => clip.slice(1)),
+        [["Break", 1, 5], ["Hit", 9, 11], ["vox", 17, 23]],
+    );
+    assert.deepEqual((await clipsOf("Drums")).slice(1).map((clip) => clip[0]), [placed.clip, later.clip]);
+    assert.equal(song().current_song_time, 8);
+});
+
+test("edit_arrangement refuses to place a sample over a clip, which Live would cut, and leaves nothing behind", async (t) => {
+    const { edit, clipsOf, song, drums, vox } = await setup(t);
+    const [later] = await edit([{ action: "place_sample", track: drums, bar: 13, file: vox }]);
+
+    const [placed] = await edit([{ action: "place_sample", track: drums, bar: 9, file: vox }]);
+
+    assert.match(placed.error, new RegExp(`bars 9 to 15 of t3 hold ${later.clip}, vox\\. Live would cut that clip`));
+    assert.deepEqual((await clipsOf("Drums")).map((clip) => clip.slice(1)), [["Break", 1, 5], ["vox", 13, 19]]);
+    assert.equal((await clipsOf("Drums"))[1]?.[0], later.clip);
+    assert.equal(song().current_song_time, 8);
+});
+
+test("edit_arrangement reports a sample it measured and could not remove, with its object id", async (t) => {
+    const { live, edit, clipsOf, drums, vox, hit } = await setup(t);
+    await edit([{ action: "place_sample", track: drums, bar: 17, file: vox }]);
+    const held = [...live.values()].find((object) => object.ns === "track" && object.name === "Drums") as Record<string, unknown>;
+    held.delete_clip = () => {
+        throw new Error("Live is busy");
+    };
+
+    const [placed, refused] = await edit([
+        { action: "place_sample", track: drums, bar: 9, file: hit },
+        { action: "place_sample", track: drums, bar: 13, file: vox },
+    ]);
+
+    const left = (await clipsOf("Drums")).filter((clip) => clip[2] >= 23);
+    assert.equal(placed.from_bar, 9);
+    assert.match(placed.error, new RegExp(`as ${left[0]?.[0]} at bar 23, and that clip could not be removed: Live is busy`));
+    assert.match(refused.error, new RegExp(`Live would cut that clip.*as ${left[1]?.[0]} at bar 25, and that clip could not be removed: Live is busy`, "s"));
+});
+
+test("edit_arrangement refuses a sample that is not a full path to a file, and one for a track that is not audio, before asking Live", async (t) => {
+    const { edit, folder, lead, drums, vox } = await setup(t);
+
+    const results = await edit([
+        { action: "place_sample", track: drums, bar: 9, file: "vox.wav" },
+        { action: "place_sample", track: drums, bar: 9, file: join(folder, "gone.wav") },
+        { action: "place_sample", track: drums, bar: 9, file: folder },
+        { action: "place_sample", track: lead, bar: 9, file: vox },
+        { action: "place_sample", track: drums, bar: 0, file: vox },
+    ]);
+
+    assert.match(results[0].error, /file must be the full path of an audio file on disk, such as \/Users/);
+    assert.match(results[1].error, /There is no file at .*gone\.wav/);
+    assert.match(results[2].error, /There is no file at/);
+    assert.match(results[3].error, /t2 is a MIDI track\. A sample is placed on an audio track/);
+    assert.match(results[4].error, /bar must be a bar number from 1/);
+    assert.equal(sentNames().includes("create_audio_clip"), false);
+});
+
+test("edit_arrangement reports a sample it placed and could not name, with its object id and bars", async (t) => {
+    const { edit, clipsOf, drums, folder, sample } = await setup(t);
+    const stuck = join(folder, "stuck.wav");
+    await writeFile(stuck, "");
+    // The stand-in gives the clip of a sample what its audio settings hold: here, a name Live refuses.
+    sample(stuck, 8, { refuses: "name" } as Parameters<typeof sample>[2]);
+
+    const [placed] = await edit([{ action: "place_sample", track: drums, bar: 9, file: stuck, name: "Hit" }]);
+
+    assert.match(placed.error, /could not be named Hit: name could not be set/);
+    assert.deepEqual([placed.clip, placed.name, placed.from_bar, placed.to_bar], [(await clipsOf("Drums"))[1]?.[0], "stuck", 9, 11]);
 });
