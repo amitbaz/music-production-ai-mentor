@@ -51,4 +51,4 @@ pnpm eval                                   # lists the cases
 pnpm eval <case> [--runs 10] [--model provider:model]
 ```
 
-Each run is saved under `evals/runs/`. Between runs the runner puts the Set back; if it cannot, it stops and Patience is reopened without saving.
+Each run is saved under `~/.mentor/evals/runs/`, outside the repo. Between runs the runner puts the Set back; if it cannot, it stops and Patience is reopened without saving.

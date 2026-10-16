@@ -1,8 +1,10 @@
 // Runs a case against the real model on the base Set open in Live, and prints its rate (ADR 0020):
 //     pnpm eval                                        lists the cases
 //     pnpm eval <case> [--runs 10] [--model provider:model]
-// Every run is kept in full under evals/runs/, which git ignores.
+// Every run is kept in full under ~/.mentor/evals/runs/, outside the repo, so runs outlast the worktree they ran in.
 import { mkdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { createMentor, MODEL_ID } from "@mentor/mentor";
 import { createAbleton } from "@mentor/tools/daws/ableton";
@@ -22,7 +24,7 @@ if (!Number.isInteger(runs) || runs < 1) throw new Error(`--runs must be a whole
 const ableton = { abletonAddress: process.env.ABLETON_ADDRESS, abletonPassword: process.env.ABLETON_PASSWORD };
 const mentor = createMentor({ keys: { gemini: process.env.GEMINI_API_KEY }, model: values.model, ...ableton });
 const model = values.model ?? MODEL_ID;
-const folder = new URL(`../runs/${new Date().toISOString().replace(/[:.]/g, "-")}-${chosen.name}/`, import.meta.url);
+const folder = join(homedir(), ".mentor", "evals", "runs", `${new Date().toISOString().replace(/[:.]/g, "-")}-${chosen.name}`);
 const result = await runCase({
     tools: createAbleton({ address: ableton.abletonAddress, password: ableton.abletonPassword }),
     mentor,
@@ -31,11 +33,11 @@ const result = await runCase({
     runs,
     onRun: async (run) => {
         mkdirSync(folder, { recursive: true });
-        writeFileSync(new URL(`run-${String(run.run).padStart(2, "0")}.json`, folder), `${JSON.stringify(run, null, 2)}\n`);
+        writeFileSync(join(folder, `run-${String(run.run).padStart(2, "0")}.json`), `${JSON.stringify(run, null, 2)}\n`);
         console.log(`run ${run.run}: ${run.passed ? "pass" : `fail (${run.difference.length} differences, stop ${run.stop})`}`);
     },
 });
-console.log(`${chosen.name} on ${model}: ${result.passed}/${result.runs} passed. Runs in ${folder.pathname}`);
+console.log(`${chosen.name} on ${model}: ${result.passed}/${result.runs} passed. Runs in ${folder}`);
 if (result.left) {
     console.error(`Stopped: the Set still differs from its base. Reopen Patience without saving.\n${result.left.join("\n")}`);
     process.exitCode = 1;

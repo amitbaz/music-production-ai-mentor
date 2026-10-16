@@ -75,7 +75,7 @@ There are three kinds of test. Choose by what could be wrong: our code, our read
 - They call the real API, so they run on demand, apart from `pnpm test`, and a commit never depends on them.
 - Each case states a request and an expectation that can be checked: for a fault planted on a base Set, that the Set read back equals its base (ADR 0020); for a case about process, which tools were called and in what order.
 - Run each case several times and report how many passed. One passing run proves little, because the model varies.
-- `pnpm eval <case>` runs a case on the base Set open in Live, ten times unless `--runs` says otherwise, on the mentor's model unless `--model` names another, and prints the rate. Every run is saved in full under `evals/runs/`, which git ignores; read the failing ones before changing anything.
+- `pnpm eval <case>` runs a case on the base Set open in Live, ten times unless `--runs` says otherwise, on the mentor's model unless `--model` names another, and prints the rate. Every run is saved in full under `~/.mentor/evals/runs/`, outside the repo so it outlasts the worktree; read the failing ones before changing anything.
 - A behaviour no case covers yet is checked with a throwaway script outside the repo, and reported as observed, with the number of runs.
 
 ## Before changing a design
