@@ -51,7 +51,7 @@ A tool whose answer grows with its source, such as one that reads the whole Live
 - A dependency is allowed when it saves real code that would teach nothing (ADR 0021). Raise it with the maintainer first, and say in the pull request what it buys. The agent loop, the message format, summarising and retry stay hand-written.
 - `pnpm check` runs the type check, the linter and the tests in every package. It passes before every commit.
 - API keys and any other sensitive values live in a `.env` file inside each app (`apps/cli/.env`), which is not committed. Keep their values out of output, logs, tests and commits.
-- When a change adds, removes or replaces something a user can do, or starts or finishes an item under Planned, update the Status, What it does today and Planned sections of `README.md` in the same commit.
+- When a change adds, removes or replaces something a user can do, or starts or finishes an item under Planned, update the What it does today and Planned sections of `docs/features.md` in the same commit. Touch `README.md` only when the change alters its short lists (What it can do, What it can't do yet, Roadmap) or its quick start.
 
 ## Testing
 
