@@ -1,5 +1,6 @@
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
+import { createAgent } from "../agent.ts";
 import { createClaudeModel, toClaudeRequest } from "./claude.ts";
 import { type Message, ModelCallError, type ProviderMeta, type Tool } from "../types.ts";
 
@@ -605,4 +606,107 @@ test("an error event in the middle of the stream is labelled by its type", async
         assert.equal(error.retryable, retryable, type);
         assert.equal(error.message, `Claude request failed: ${type}: It broke`);
     }
+});
+
+// ---- A whole turn, through the agent ----
+
+// Replaces fetch with one that answers each request with the next reply on the list.
+function fakeReplies(t: TestContext, replies: (() => Response)[]) {
+    let next = 0;
+    return t.mock.method(globalThis, "fetch", async () => {
+        const reply = replies[next++];
+        assert.ok(reply, "more requests than replies");
+        return reply();
+    });
+}
+
+// The JSON body of the nth request a test sent.
+function bodyOf(fetchMock: ReturnType<typeof fakeReplies>, n: number) {
+    const call = fetchMock.mock.calls[n];
+    assert.ok(call, "fetch was not called");
+    const [, options] = call.arguments as unknown as [string, RequestInit];
+    return JSON.parse(options.body as string);
+}
+
+test("a turn with a tool: Claude's thinking is sent back with the tool results, and the turn finishes", async (t) => {
+    const ran: unknown[] = [];
+    const tempo: Tool = {
+        ...setTempo,
+        run: (args) => {
+            ran.push(args);
+            return '{"tempo":128}';
+        },
+    };
+    const getSession: Tool = { ...createTrack, name: "get_session", run: () => "{}" };
+    const fetchMock = fakeReplies(t, [() => new Response(recordedStream), () => new Response(minimalReply)]);
+    const agent = createAgent({
+        model: "claude:claude-haiku-5-5",
+        keys: { claude: "test-key" },
+        tools: [tempo, getSession],
+        system: "You are a test.",
+    });
+
+    const result = await agent.generate([], "Set the tempo");
+
+    assert.equal(result.stop, "finished");
+    assert.deepEqual(ran, [{ bpm: 128 }]);
+    // The second request holds the first reply with its thinking whole, then both results.
+    const second = bodyOf(fetchMock, 1);
+    assert.equal(second.system, "You are a test.");
+    assert.deepEqual(second.messages.slice(1), [
+        {
+            role: "assistant",
+            content: [
+                { type: "thinking", thinking: "", signature: "sig_a" },
+                { type: "redacted_thinking", data: "opaque_b" },
+                { type: "text", text: "I am about to set the tempo." },
+                { type: "tool_use", id: "toolu_01AbC", name: "set_tempo", input: { bpm: 128 } },
+                { type: "tool_use", id: "toolu_02DeF", name: "get_session", input: {} },
+            ],
+        },
+        {
+            role: "user",
+            content: [
+                { type: "tool_result", tool_use_id: "toolu_01AbC", content: '{"tempo":128}', is_error: false },
+                { type: "tool_result", tool_use_id: "toolu_02DeF", content: "{}", is_error: false },
+            ],
+        },
+    ]);
+});
+
+test("a rate limit is retried with the wait Claude asks for, and the turn goes on", async (t) => {
+    const busy = () =>
+        Response.json(
+            { type: "error", error: { type: "rate_limit_error", message: "Slow down" } },
+            { status: 429, headers: { "retry-after": "0" } },
+        );
+    const fetchMock = fakeReplies(t, [busy, () => new Response(minimalReply)]);
+    const agent = createAgent({ model: "claude:claude-haiku-5-5", keys: { claude: "test-key" }, tools: [] });
+
+    const result = await agent.generate([], "Hi");
+
+    assert.equal(result.stop, "finished");
+    assert.equal(fetchMock.mock.callCount(), 2);
+});
+
+test("a refusal ends the turn as refused, with the text that came before it", async (t) => {
+    const refusal = sse([
+        { type: "message_start", message: { usage: { input_tokens: 10, output_tokens: 1 } } },
+        { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+        { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Let me look" } },
+        { type: "content_block_stop", index: 0 },
+        {
+            type: "message_delta",
+            delta: { stop_reason: "refusal", stop_details: { type: "refusal", category: "cyber", explanation: "No." } },
+            usage: { output_tokens: 3 },
+        },
+        { type: "message_stop" },
+    ]);
+    fakeReplies(t, [() => new Response(refusal)]);
+    const agent = createAgent({ model: "claude:claude-haiku-5-5", keys: { claude: "test-key" }, tools: [] });
+
+    const result = await agent.generate([], "Hi");
+
+    assert.equal(result.stop, "refused");
+    assert.deepEqual(result.messages.at(-1), { type: "assistant", text: "Let me look" });
 });
