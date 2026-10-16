@@ -44,11 +44,11 @@ Sections, by locator: Intro 1, Verse 1 9, Chorus 17, Verse 2 25, Chorus 33, Brea
 
 ## Cases
 
-A case is a plant and what the user says about it (ADR 0020); they live in `cases.ts`. A run passes when the Set read back equals the base. With Patience open in Live, unsaved:
+A case is a plant and what the user says about it (ADR 0020); they live in `cases.ts`. A run passes when the Set read back equals the base. Cases run in the sandbox (see the [evals README](../../README.md#before-you-run)):
 
 ```
 pnpm eval                                   # lists the cases
 pnpm eval <case> [--runs 30] [--model provider:model]
 ```
 
-Each run is saved under `~/.mentor/evals/runs/`, outside the repo. Between runs the runner puts the Set back; if it cannot, it stops and Patience is reopened without saving.
+Each run is saved under `~/.mentor/evals/runs/`, outside the repo. Before every run the sandbox reopens Patience from disk (ADR 0025); if it does not come back, the series stops and the VM is kept for a look.

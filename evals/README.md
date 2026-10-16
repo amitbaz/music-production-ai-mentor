@@ -6,9 +6,12 @@ The evals call the real model, so they run on demand and cost API credit. `pnpm 
 
 ## Before you run
 
-- Ableton Live 12 Suite, 12.4 or newer, paired with the mentor (`pnpm pair ableton`, see the [quick start](../README.md#quick-start)).
-- The base Set open in Live: [*Patience*](sets/patience/README.md#where-it-is), Ableton's demo song. Never save over it.
-- A key in `apps/cli/.env` for each model you run on: `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`. The eval scripts read that file.
+`pnpm eval` runs in a **sandbox**: a throwaway virtual Mac (Tart) copied from a sandbox image that holds Live, authorized and paired ([ADR 0025](../docs/adr/0025-evals-run-in-a-throwaway-vm.md)). The VM has no window and no sound, and your own Live is never touched, so you can keep working while a series runs.
+
+- A Mac with Apple Silicon, [Tart](https://tart.run) installed (`tart` on PATH, or `TART=/path/to/tart`), and about 60 GB of free disk.
+- The sandbox image, built once: see [Building the sandbox image](#building-the-sandbox-image). Without it, `pnpm eval <case>` stops and names the build command.
+- A key in `apps/cli/.env` for each model you run on: `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`. The eval scripts read that file. The keys stay on your Mac and never go into the VM.
+- `pnpm plant` is different: it works on the Live you have open, with the base Set ([*Patience*](sets/patience/README.md#where-it-is), Ableton's demo song) open in it. Never save over it.
 
 ## Running
 
@@ -16,12 +19,12 @@ Run from the repo root:
 
 ```sh
 pnpm plant                                   # lists the plants
-pnpm plant <name> [--revert]                 # applies or reverts one on the Set open in Live, without saving
+pnpm plant <name> [--revert]                 # applies or reverts one on the Set open in your Live, without saving
 pnpm eval                                    # lists the cases
 pnpm eval <case> [--runs 30] [--model provider:model]
 ```
 
-`pnpm eval` runs the case 30 times by default, on the mentor's default model unless `--model` names another. Each run plants the fault, gives the mentor one turn, reads the Set back and grades it against the base. In a sandbox, Live reopens the base Set before every run (ADR 0025); until the sandbox lands (#110), `pnpm eval <case>` stops and says it needs it:
+`pnpm eval` runs the case 30 times by default, on the mentor's default model unless `--model` names another. It copies the sandbox image under a new name, starts the copy, and runs the series in it, one series at a time. Before every run, a script in the VM reopens Patience from disk and answers Live's "Save changes?" with "Don't Save", so every run starts from the base. Then the run plants the fault, gives the mentor one turn, reads the Set back and grades it against the base:
 
 ```text
 run 1: fail (1 differences, stop finished)
@@ -30,7 +33,16 @@ run 2: pass
 low-end-hot-told on claude:claude-haiku-5-5: 0/30 passed. Runs in ~/.mentor/evals/runs/<date>-low-end-hot-told
 ```
 
-Every run is saved in full under `~/.mentor/evals/runs/`, outside the repo: the conversation, the verdict, and how the Set differed from its base. If the base Set does not come back after a reopen, the series stops, saves a screenshot in the series folder and keeps the VM, and says its name.
+When the series ends, the copy is deleted. Every run is saved in full under `~/.mentor/evals/runs/`, outside the repo: the conversation, the verdict, and how the Set differed from its base.
+
+If Patience does not come back after a reopen, the series stops. The runs made so far are kept, a screenshot of the VM's screen is saved as `stopped.png` in the series folder, and the VM is kept. The CLI names it and says how to look and clean up:
+
+```sh
+tart run <name>       # opens the VM's window
+tart delete <name>    # when you are done; a kept VM takes disk
+```
+
+Other errors name their fix: no Tart, a Mac without Apple Silicon, no sandbox image, or macOS's limit of two macOS VMs running at once (`tart list` shows them, `tart stop <name>` frees one).
 
 ## Building the sandbox image
 
