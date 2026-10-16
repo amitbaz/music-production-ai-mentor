@@ -264,27 +264,41 @@ async function readReply(
 
     const cutOff = stopReason === "max_tokens";
     const refused = stopReason === "refusal";
-    const thinking: ClaudeBlock[] = [];
+    // Each thinking block rides on the message that follows it in the stream: the text, or the next call.
+    // Replayed before that message, the blocks come back in the order they were streamed, so their
+    // signatures still fit their prefix and the API has nothing to drop.
+    const withThinking = (pending: ClaudeBlock[]) =>
+        pending.length > 0 ? { providerMeta: { provider: "claude", thinking: pending } } : {};
+    let pending: ClaudeBlock[] = [];
     let text = "";
+    let textMeta = {};
     const calls: Message[] = [];
     for (const [index, block] of blocks) {
         if (block.type === "thinking" || block.type === "redacted_thinking") {
-            thinking.push(block);
+            pending.push(block);
         } else if (block.type === "text") {
+            if (text === "") {
+                textMeta = withThinking(pending);
+                pending = [];
+            }
             text += block.text;
         } else if (block.type === "tool_use") {
             const args = parseInput(inputs.get(index) ?? "");
             // A reply cut off or refused in the middle of a call has no whole call to run.
             if (args === undefined && (cutOff || refused)) continue;
             if (args === undefined) throw new Error(`Claude returned a tool call with input that is not JSON: ${inputs.get(index)}`);
-            calls.push({ type: "tool_call", id: String(block.id), name: String(block.name), args });
+            calls.push({ type: "tool_call", id: String(block.id), name: String(block.name), args, ...withThinking(pending) });
+            pending = [];
         }
     }
 
-    // The thinking rides on the first message of the reply, which is the text or, with none, the first call.
-    const meta = thinking.length > 0 ? { providerMeta: { provider: "claude", thinking } } : {};
-    const messages: Message[] = text === "" ? calls : [{ type: "assistant", text, ...meta }, ...calls];
-    if (text === "" && calls[0]) Object.assign(calls[0], meta);
+    const messages: Message[] = text === "" ? calls : [{ type: "assistant", text, ...textMeta }, ...calls];
+    // Thinking with nothing after it, or before a call that was cut off, goes with the last message.
+    const last = messages.at(-1);
+    if (last && pending.length > 0) {
+        const kept = "providerMeta" in last && last.providerMeta?.thinking ? (last.providerMeta.thinking as ClaudeBlock[]) : [];
+        Object.assign(last, withThinking([...kept, ...pending]));
+    }
 
     const { input_tokens, output_tokens = 0, cache_creation_input_tokens = 0, cache_read_input_tokens = 0 } = usage;
     return {

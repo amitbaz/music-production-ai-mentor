@@ -208,6 +208,45 @@ const minimalReply = sse([
     { type: "message_stop" },
 ]);
 
+test("thinking that comes after the text rides on the call it precedes, so replay keeps the streamed order", async (t) => {
+    fakeStream(t, [
+        sse([
+            { type: "message_start", message: { usage: { input_tokens: 5, output_tokens: 1 } } },
+            { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } },
+            { type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "sig_first" } },
+            { type: "content_block_stop", index: 0 },
+            { type: "content_block_start", index: 1, content_block: { type: "text", text: "" } },
+            { type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "Checking." } },
+            { type: "content_block_stop", index: 1 },
+            { type: "content_block_start", index: 2, content_block: { type: "thinking", thinking: "" } },
+            { type: "content_block_delta", index: 2, delta: { type: "signature_delta", signature: "sig_second" } },
+            { type: "content_block_stop", index: 2 },
+            { type: "content_block_start", index: 3, content_block: { type: "tool_use", id: "toolu_1", name: "set_tempo", input: {} } },
+            { type: "content_block_delta", index: 3, delta: { type: "input_json_delta", partial_json: '{"bpm":128}' } },
+            { type: "content_block_stop", index: 3 },
+            { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 3 } },
+            { type: "message_stop" },
+        ]),
+    ]);
+
+    const reply = await createClaudeModel("test-key", "test-model").call(hi, [setTempo]);
+
+    const first = { type: "thinking", thinking: "", signature: "sig_first" };
+    const second = { type: "thinking", thinking: "", signature: "sig_second" };
+    assert.deepEqual(reply.messages, [
+        { type: "assistant", text: "Checking.", providerMeta: { provider: "claude", thinking: [first] } },
+        { type: "tool_call", id: "toolu_1", name: "set_tempo", args: { bpm: 128 }, providerMeta: { provider: "claude", thinking: [second] } },
+    ]);
+    // Sent back, the blocks are in the order they streamed.
+    const { messages } = toClaudeRequest([...hi, ...reply.messages], [setTempo]);
+    assert.deepEqual(messages[1]?.content, [
+        first,
+        { type: "text", text: "Checking." },
+        second,
+        { type: "tool_use", id: "toolu_1", name: "set_tempo", input: { bpm: 128 } },
+    ]);
+});
+
 test("a null in message_delta usage does not erase a count from message_start", async (t) => {
     fakeStream(t, [
         sse([
