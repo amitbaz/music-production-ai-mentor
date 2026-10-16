@@ -18,12 +18,12 @@ type LiveSet = Map<string, Record<string, unknown>>;
 export const PASSWORD = "the-right-password";
 
 // The version of the pinned script the repo installs, read from its own file.
-const PINNED_VERSION = readFileSync(new URL("../../../remote-scripts/ableton-js/version.py", import.meta.url), "utf8").match(
+export const PINNED_VERSION = readFileSync(new URL("../../../remote-scripts/ableton-js/version.py", import.meta.url), "utf8").match(
     /"(.+)"/,
 )?.[1];
 if (!PINNED_VERSION) throw new Error("No version found in the pinned script's version.py");
 // The version of our own file in the script, read from its own file.
-const MENTOR_VERSION = readFileSync(new URL("../../../remote-scripts/ableton-js/Mentor.py", import.meta.url), "utf8").match(
+export const MENTOR_VERSION = readFileSync(new URL("../../../remote-scripts/ableton-js/Mentor.py", import.meta.url), "utf8").match(
     /^VERSION = "(.+)"$/m,
 )?.[1];
 if (!MENTOR_VERSION) throw new Error("No VERSION found in the script's Mentor.py");

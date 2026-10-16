@@ -1,6 +1,7 @@
 import { type TestContext, test } from "node:test";
 import assert from "node:assert/strict";
 import type { CallOptions, Message, Model, Tool } from "@mentor/harness";
+import { MENTOR_VERSION, PINNED_VERSION } from "@mentor/tools/daws/ableton/stand-in-live";
 import { createMentor, keysFromEnv } from "./mentor.ts";
 import { systemPrompt } from "./system-prompt.ts";
 
@@ -53,16 +54,16 @@ class StandInSocket extends EventTarget {
             uuid: string;
             commands: { ns: string; name: string; args?: { prop: string } }[];
         };
-        // A property comes from the table, the versions are ones the client accepts (our own file
-        // has its own), and a shown value is always 0.0 dB.
-        const versions: Record<string, unknown> = { get_version: "5.0.4", get_major_version: 12, get_minor_version: 4 };
+        // A property comes from the table, the versions are the pinned script's and our file's, read
+        // from the script as the tools' stand-in Live does, and a shown value is always 0.0 dB.
+        const versions: Record<string, unknown> = { get_version: PINNED_VERSION, get_major_version: 12, get_minor_version: 4 };
         const data = commands.map((command) => ({
             ok: true,
             data:
                 command.name === "get_prop"
                     ? StandInSocket.props[command.args?.prop ?? ""]
                     : command.ns === "mentor" && command.name === "get_version"
-                      ? "4"
+                      ? MENTOR_VERSION
                       : (versions[command.name] ?? "0.0 dB"),
         }));
         setTimeout(() => this.reply({ event: "result", uuid, data }));
