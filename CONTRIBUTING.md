@@ -17,11 +17,11 @@ A pnpm workspace. Packages export their TypeScript source; there is no build ste
 
 | Path | What it holds |
 |---|---|
-| `packages/harness/` | The agent loop, the message format, tools, and the provider adapters. Knows nothing about music. |
-| `packages/tools/` | Tool sets, one per outside source, such as `src/daws/ableton/`. |
-| `packages/mentor/` | The product: the system prompt, the model and the tool sets, joined by `createMentor`. The only place the harness and the tool sets meet. |
-| `apps/cli/` | The terminal app. Owns what the user sees and keeps the conversation. |
-| `evals/` | The evals: base Live Sets, the faults planted on them, and the runner (`pnpm eval <case>`). |
+| [`packages/harness/`](packages/harness/README.md) | The agent loop, the message format, tools, and the provider adapters. Knows nothing about music. |
+| [`packages/tools/`](packages/tools/README.md) | Tool sets, one per outside source, such as `src/daws/ableton/`. |
+| [`packages/mentor/`](packages/mentor/README.md) | The product: the system prompt, the model and the tool sets, joined by `createMentor`. The only place the harness and the tool sets meet. |
+| [`apps/cli/`](apps/cli/README.md) | The terminal app. Owns what the user sees and keeps the conversation. |
+| [`evals/`](evals/README.md) | The evals: base Live Sets, the faults planted on them, and the runner (`pnpm eval <case>`). |
 
 The harness is written by hand on purpose, to keep every request, reply and stop reason in view, and it is the only thing the mentor runs on: the user brings an API key for the model they pick ([ADR 0022](docs/adr/0022-one-harness-and-the-user-brings-a-key.md)). A dependency is taken when it saves real code that would teach nothing ([ADR 0021](docs/adr/0021-a-dependency-is-allowed-when-it-saves-real-code.md)). [`docs/reference.md`](docs/reference.md) lists the harnesses read for ideas along the way.
 
