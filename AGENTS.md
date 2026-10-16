@@ -21,35 +21,26 @@ Question: You cancel while set_tempo is running, and create_track has not starte
 
 ## Boundaries
 
-The repo is a pnpm workspace. Packages export their `.ts` source; there is no build step.
+A pnpm workspace with no build step: packages export their `.ts` source. Each package's README says what it holds. Who may import whom:
 
-- `packages/harness/` is `@mentor/harness` and depends on no other package. It knows about messages, tools and providers, and nothing about music or any tool set.
-- `packages/tools/` is `@mentor/tools` and holds the tool sets, as `src/<kind>/<name>/`, each with its own entry such as `@mentor/tools/daws/ableton`. It depends only on the harness.
-- `packages/mentor/` is `@mentor/mentor`, the product: the system prompt, the model and the tool sets, joined by `createMentor`. It is the only place the harness and the tool sets meet.
-- `apps/` holds the apps. `apps/cli/` is the terminal. An app depends only on `@mentor/mentor` and owns what the user sees.
-- `evals/` is `@mentor/evals`, the evals (ADR 0020): the base Sets under `sets/`, their plants, and the runner. It is a development package, not an app: it depends on `@mentor/mentor` and `@mentor/tools`, because it plants and reads the Live Set itself. `pnpm plant` applies or reverts a plant on the Set open in Live; `pnpm eval` runs a case on it.
+- `@mentor/harness` imports no other package, and knows nothing about music or any tool set.
+- `@mentor/tools` imports only the harness.
+- `@mentor/mentor` is the only place the harness and the tool sets meet.
+- An app in `apps/` imports only `@mentor/mentor`.
+- `@mentor/evals` imports `@mentor/mentor` and `@mentor/tools`, because it plants and reads the Live Set itself.
 
-A package can import another only by name, and only when it lists it as a dependency. `pnpm check` fails on an import that breaks this, including a relative path into another package.
+A package imports another by name, and only when it lists it as a dependency; `pnpm check` fails on anything else, including a relative path into another package.
 
 ## Tool sets
 
-A tool set is a group of tools for one outside source. Each kind of source has a folder under `packages/tools/src/` and a heading below.
-
 A tool whose answer grows with its source, such as one that reads the whole Live Set, keeps that answer under the result limit of 40,000 characters itself (ADR 0018). It answers short by default and takes arguments for more. The harness cuts anything past the limit, but only as a safety net.
 
-### Supported DAWs (`packages/tools/src/daws/`)
-
-- **Ableton Live**, in `ableton/`. Its tools reach the Live Set open in Live through the ableton-js Remote Script.
-  - `ableton.ts` makes the client and lists the tools; `ableton.test.ts` tests what belongs to the whole tool set (the connection, object ids, batching) through a tool.
-  - `client.ts` is the connection to the Remote Script; `live.ts` holds what Live sends back; `stand-in-live.ts` is the stand-in WebSocket the tests use, which can also replay replies recorded from a real Live; `recorded-live.test.ts` runs the reads against `recorded-reads.json`, replies recorded from a real Live; its header says how they were recorded.
-  - `remote-script.ts` installs and removes the Remote Script; the pinned ableton-js copy it installs lives outside `src`, in `packages/tools/remote-scripts/ableton-js/`.
-  - Each group folder has an `index.ts` exporting its tools, and `tools/index.ts` re-exports the groups, for `ableton.ts` to import every tool in one line.
-  - Each tool has one file and its test under `tools/`, in the folder of its group from ADR 0013: `reads/`, `changes/`, `removals/` or `general/`. The file exports a function that takes the client and returns the tool.
+Before adding a tool or a tool set, read "Adding a tool" in `packages/tools/README.md`.
 
 ## Constraints
 
 - A dependency is allowed when it saves real code that would teach nothing (ADR 0021). Raise it with the maintainer first, and say in the pull request what it buys. The agent loop, the message format, summarising and retry stay hand-written.
-- `pnpm check` runs the type check, the linter and the tests in every package. It passes before every commit.
+- `pnpm check` passes before every commit.
 - API keys and any other sensitive values live in a `.env` file inside each app (`apps/cli/.env`), which is not committed. Keep their values out of output, logs, tests and commits.
 - When a change adds, removes or replaces something a user can do, or starts or finishes an item under Planned, update the What it does today and Planned sections of `docs/features.md` in the same commit. Touch `README.md` only when the change alters its short lists (What it can do, What it can't do yet, Roadmap) or its quick start.
 
@@ -59,10 +50,9 @@ There are three kinds of test. Choose by what could be wrong: our code, our read
 
 ### Offline tests: is our code right?
 
-- Write them first, and see them fail, before the implementation.
 - They run with no network. A scripted model stands in for the model, and adapter tests replace `fetch`.
 - Assert on what a caller can see: the messages returned, the stop reason, the request that was sent.
-- `pnpm test` runs all of them. One runs the Remote Script's dispatch, so it needs `python3`.
+- One runs the Remote Script's dispatch, so `pnpm test` needs `python3`.
 
 ### Recorded replies: do we read real responses correctly?
 
@@ -72,29 +62,18 @@ There are three kinds of test. Choose by what could be wrong: our code, our read
 ### Evals: does the model behave, given our prompt and tools?
 
 - Use them for anything the model decides: which tool it picks, whether it follows the system prompt. A scripted model cannot test these, because it does what the script says.
-- They call the real API, so they run on demand, apart from `pnpm test`, and a commit never depends on them.
-- Each case states a request and an expectation that can be checked: for a fault planted on a base Set, that the Set read back equals its base (ADR 0020); for a case about process, which tools were called and in what order.
-- Run each case several times and report how many passed. One passing run proves little, because the model varies.
-- `pnpm eval <case>` runs a case on the base Set open in Live, 30 times unless `--runs` says otherwise, on the mentor's model unless `--model` names another, and prints the rate. Every run is saved in full under `~/.mentor/evals/runs/`, outside the repo so it outlasts the worktree; read the failing ones before changing anything.
-- The score of every series goes in `evals/scores.md`. When it is not clear what to work on, run the loop in `evals/README.md`: lowest-scoring case, read the failing runs, change one thing, run again on every supported model, keep it only if the panel goes up.
+- They call the real API, so a commit never depends on them.
+- Before running, writing or reporting one, read `evals/README.md`. Report every series as runs passed out of runs made.
 - A behaviour no case covers yet is checked with a throwaway script outside the repo, and reported as observed, with the number of runs.
 
 ## Before changing a design
 
 `docs/adr/` records why the loop, the message format and the provider interface are shaped as they are. Read the records that touch what you are about to change, and write a new one when a decision replaces an old one. Use the terms in `GLOSSARY.md` in code, tests and commit messages.
 
-`docs/reference.md` lists other harnesses to read for ideas when designing a harness feature. The harness itself stays hand-written.
+`docs/reference.md` lists other harnesses to read for ideas when designing a harness feature.
 
 ## Agent skills
 
-### Issue tracker
-
-Issues live in GitHub Issues for `amitbaz/music-production-ai-mentor`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+- Issues: GitHub Issues for `amitbaz/music-production-ai-mentor`, via `gh`. See `docs/agents/issue-tracker.md`.
+- Triage labels: the default five. See `docs/agents/triage-labels.md`.
+- Domain docs: one `GLOSSARY.md` and `docs/adr/` at the root. See `docs/agents/domain.md`.
