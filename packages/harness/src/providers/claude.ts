@@ -26,7 +26,9 @@ export function toClaudeRequest(conversation: Message[], tools: Tool[], system?:
             message.type === "user" || message.type === "summary" || message.type === "tool_result"
                 ? "user"
                 : "assistant";
-        const blocks = toClaudeBlocks(message);
+        const blocks = toClaudeBlocks(message, tools.length === 0);
+        // Claude refuses a message with no content, so one with nothing to send is left out.
+        if (blocks.length === 0) continue;
 
         // Consecutive messages from the same side are one Claude message.
         const last = messages.at(-1);
@@ -35,6 +37,14 @@ export function toClaudeRequest(conversation: Message[], tools: Tool[], system?:
         } else {
             messages.push({ role, content: blocks });
         }
+    }
+
+    // Claude wants the tool results first in a user message, ahead of any text merged in with them.
+    for (const message of messages) {
+        message.content = [
+            ...message.content.filter((block) => block.type === "tool_result"),
+            ...message.content.filter((block) => block.type !== "tool_result"),
+        ];
     }
 
     return {
@@ -60,7 +70,9 @@ export function toClaudeRequest(conversation: Message[], tools: Tool[], system?:
     };
 }
 
-function toClaudeBlocks(message: Message): ClaudeBlock[] {
+// With no tools in the request, as the summary request has, the tool calls and results go out as
+// text: Claude answers a request with tool_use or tool_result blocks and no tools with a 400.
+function toClaudeBlocks(message: Message, flattenTools: boolean): ClaudeBlock[] {
     switch (message.type) {
         case "user":
             return [{ type: "text", text: message.text }];
@@ -81,9 +93,15 @@ function toClaudeBlocks(message: Message): ClaudeBlock[] {
         case "tool_call":
             return [
                 ...thinkingFrom(message.providerMeta),
-                { type: "tool_use", id: message.id, name: message.name, input: message.args },
+                flattenTools
+                    ? { type: "text", text: `Called ${message.name} with ${JSON.stringify(message.args)}` }
+                    : { type: "tool_use", id: message.id, name: message.name, input: message.args },
             ];
         case "tool_result":
+            if (flattenTools) {
+                const outcome = message.isError ? "failed" : "returned";
+                return [{ type: "text", text: `${message.name} ${outcome}: ${message.output}` }];
+            }
             return [
                 {
                     type: "tool_result",

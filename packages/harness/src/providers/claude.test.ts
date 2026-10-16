@@ -482,6 +482,65 @@ test("an assistant message with no text sends no empty text block", () => {
     assert.deepEqual(messages[1], { role: "assistant", content: thinkingBlocks });
 });
 
+test("an assistant message with nothing to send is left out, not sent as empty content", () => {
+    const { messages } = toClaudeRequest(
+        [
+            { type: "user", text: "Hi" },
+            { type: "assistant", text: "" },
+            { type: "user", text: "Well?" },
+        ],
+        [setTempo],
+    );
+
+    // The two user messages become one; Claude refuses `content: []`.
+    assert.deepEqual(messages, [
+        { role: "user", content: [{ type: "text", text: "Hi" }, { type: "text", text: "Well?" }] },
+    ]);
+});
+
+test("tool results come before the text in a user message that holds both", () => {
+    const { messages } = toClaudeRequest(
+        [
+            { type: "user", text: "Add a track" },
+            { type: "tool_call", id: "toolu_1", name: "create_track", args: {} },
+            { type: "user", text: "Make it a bass" },
+            { type: "tool_result", callId: "toolu_1", name: "create_track", output: "ok", isError: false },
+        ],
+        [createTrack],
+    );
+
+    assert.deepEqual(messages[2], {
+        role: "user",
+        content: [
+            { type: "tool_result", tool_use_id: "toolu_1", content: "ok", is_error: false },
+            { type: "text", text: "Make it a bass" },
+        ],
+    });
+});
+
+test("a request with no tools, as the summary request, holds no tool blocks: Claude 400s on them without tools", () => {
+    const request = toClaudeRequest(
+        [
+            { type: "user", text: "Set the tempo to 128" },
+            { type: "tool_call", id: "toolu_1", name: "set_tempo", args: { bpm: 128 }, providerMeta: { provider: "claude", thinking: thinkingBlocks } },
+            { type: "tool_result", callId: "toolu_1", name: "set_tempo", output: '{"tempo":128}', isError: false },
+            { type: "assistant", text: "Done." },
+            { type: "user", text: "Write the summary now." },
+        ],
+        [],
+    );
+
+    assert.equal("tools" in request, false);
+    const blockTypes = request.messages.flatMap((m) => m.content.map((b) => b.type));
+    assert.equal(blockTypes.includes("tool_use"), false);
+    assert.equal(blockTypes.includes("tool_result"), false);
+    // The summariser still reads what was called and what came back.
+    const text = JSON.stringify(request.messages);
+    assert.match(text, /set_tempo/);
+    assert.match(text, /\{\\"bpm\\":128\}/);
+    assert.match(text, /tempo\\":128/);
+});
+
 // ---- Errors ----
 
 // A failed request as Claude answers it: an error body, and sometimes a retry-after header in seconds.
