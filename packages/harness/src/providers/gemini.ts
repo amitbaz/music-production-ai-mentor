@@ -117,7 +117,7 @@ type GeminiResponse = {
     // because Gemini does not send it back on the next call.
     usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
     // Present instead of candidates when Gemini refuses the prompt
-    promptFeedback?: { blockReason?: string };
+    promptFeedback?: { blockReason?: string; blockReasonMessage?: string };
     // Present instead of candidates when the request itself was rejected
     error?: {
         message?: string;
@@ -219,7 +219,12 @@ async function readReply(
     }
 
     if (!replied) {
-        // Happens when Gemini refuses the prompt; the reply then says why.
+        // Gemini blocked the prompt (ADR 0023): the block reason is the category.
+        const blocked = piece.promptFeedback;
+        if (blocked?.blockReason) {
+            const explanation = blocked.blockReasonMessage ?? "Gemini blocked the prompt";
+            return { messages, cutOff, refused: { category: blocked.blockReason, explanation } };
+        }
         throw new Error(`Gemini returned no reply: ${JSON.stringify(piece)}`);
     }
     const tokens =

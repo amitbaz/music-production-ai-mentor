@@ -215,12 +215,35 @@ test("translates function calls into tool calls", async (t) => {
     ]);
 });
 
-test("throws when Gemini returns no reply", async (t) => {
-    fakeFetch(t, 200, { promptFeedback: { blockReason: "SAFETY" } });
+test("a prompt Gemini blocks comes back as refused, with the block reason as the category", async (t) => {
+    fakeFetch(t, 200, {
+        promptFeedback: { blockReason: "SAFETY", blockReasonMessage: "The prompt was blocked." },
+    });
+
+    const reply = await createGeminiModel("test-key", "test-model").call(hi, []);
+
+    assert.deepEqual(reply, {
+        messages: [],
+        cutOff: false,
+        refused: { category: "SAFETY", explanation: "The prompt was blocked." },
+    });
+});
+
+test("a blocked prompt without a message still says it was blocked", async (t) => {
+    fakeFetch(t, 200, { promptFeedback: { blockReason: "OTHER" } });
+
+    const reply = await createGeminiModel("test-key", "test-model").call(hi, []);
+
+    assert.equal(reply.refused?.category, "OTHER");
+    assert.match(reply.refused?.explanation ?? "", /blocked/);
+});
+
+test("throws when Gemini returns no reply and gives no block reason", async (t) => {
+    fakeFetch(t, 200, {});
 
     await assert.rejects(
         createGeminiModel("test-key", "test-model").call(hi, []),
-        /Gemini returned no reply.*SAFETY/,
+        /Gemini returned no reply/,
     );
 });
 
