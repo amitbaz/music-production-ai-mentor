@@ -8,6 +8,7 @@ import {
     type SupportedModel,
     type Tool,
 } from "../types.ts";
+import { lines } from "./sse.ts";
 
 // The shapes Claude expects. A message holds blocks; the block types used here are text, tool_use,
 // tool_result and the thinking blocks Claude gave us.
@@ -196,8 +197,6 @@ async function readReply(
     let stopReason: string | undefined;
     let stopDetails: NonNullable<ClaudeEvent["delta"]>["stop_details"];
     let stopped = false;
-    // The end of what was read so far, when it stops in the middle of a line
-    let rest = "";
 
     // One line of the stream; only "data:" lines hold an event.
     function readLine(line: string) {
@@ -247,14 +246,7 @@ async function readReply(
         }
     }
 
-    const decoder = new TextDecoder();
-    for await (const bytes of body) {
-        const lines = (rest + decoder.decode(bytes, { stream: true })).split("\n");
-        rest = lines.pop() ?? "";
-        for (const line of lines) readLine(line);
-    }
-    // The last line has no newline after it when the stream ends there.
-    readLine(rest + decoder.decode());
+    for await (const line of lines(body)) readLine(line);
 
     if (!stopped) {
         throw new ModelCallError("Claude request failed: the stream ended before the reply was whole", {

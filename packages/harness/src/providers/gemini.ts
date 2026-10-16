@@ -8,6 +8,7 @@ import {
     type SupportedModel,
     type Tool,
 } from "../types.ts";
+import { lines } from "./sse.ts";
 
 // The shapes Gemini expects. A "content" is one turn and "parts" are the pieces of that turn.
 type GeminiPart = Record<string, unknown>;
@@ -197,8 +198,6 @@ async function readReply(
     let replied = false;
     let usage: GeminiResponse["usageMetadata"];
     let cutOff = false;
-    // The end of what was read so far, when it stops in the middle of a line
-    let rest = "";
 
     // One line of the stream; only "data:" lines hold a piece.
     function readLine(line: string) {
@@ -212,14 +211,7 @@ async function readReply(
         addParts(messages, candidate.content?.parts ?? [], onText);
     }
 
-    const decoder = new TextDecoder();
-    for await (const bytes of body) {
-        const lines = (rest + decoder.decode(bytes, { stream: true })).split("\n");
-        rest = lines.pop() ?? "";
-        for (const line of lines) readLine(line);
-    }
-    // The last line has no newline after it when the stream ends there.
-    readLine(rest + decoder.decode());
+    for await (const line of lines(body)) readLine(line);
 
     if (!replied) {
         // Gemini blocked the prompt (ADR 0023): the block reason is the category.
