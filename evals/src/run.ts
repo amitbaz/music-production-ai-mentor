@@ -49,20 +49,27 @@ type Options = {
 // read back, grade against that snapshot. A run passes when the Set equals it. Every run connects
 // afresh, so object ids from an earlier run are never used. If the base does not come back, the series
 // stops: a screenshot goes into `folder` and the sandbox is closed with `keep`, and `stopped` says why
-// and which VM to look at. A series that finishes closes the sandbox and deletes it.
-export async function runCase({ connect, sandbox, folder, model, case: { name, plant, message }, runs, onRun }: Options): Promise<{ passed: number; runs: number; stopped?: { reason: string; vm: string } }> {
+// and which VM to look at. A series that finishes closes the sandbox and deletes it; if that fails, `closeError` says so.
+export async function runCase({ connect, sandbox, folder, model, case: { name, plant, message }, runs, onRun }: Options): Promise<{ passed: number; runs: number; stopped?: { reason: string; vm: string }; closeError?: string }> {
     let passed = 0;
     for (let run = 1; run <= runs; run++) {
         try {
             await sandbox.reopenBase();
         } catch (error) {
-            mkdirSync(folder, { recursive: true });
+            // Whatever else fails on the way out, the VM is kept and the reason is returned.
+            let reason = (error as Error).message;
             try {
+                mkdirSync(folder, { recursive: true });
                 await sandbox.screenshot(join(folder, "stopped.png"));
-            } finally {
-                await sandbox.close({ keep: true });
+            } catch (shotError) {
+                reason += ` (no screenshot: ${(shotError as Error).message})`;
             }
-            return { passed, runs: run - 1, stopped: { reason: (error as Error).message, vm: sandbox.name } };
+            try {
+                await sandbox.close({ keep: true });
+            } catch (closeError) {
+                reason += ` (closing the VM failed: ${(closeError as Error).message})`;
+            }
+            return { passed, runs: run - 1, stopped: { reason, vm: sandbox.name } };
         }
         const { tools, mentor } = connect();
         const base = await snapshot(tools);
@@ -85,6 +92,11 @@ export async function runCase({ connect, sandbox, folder, model, case: { name, p
             messages: result.messages,
         });
     }
-    await sandbox.close();
+    // The rate is the result; a VM that would not go away is reported beside it.
+    try {
+        await sandbox.close();
+    } catch (error) {
+        return { passed, runs, closeError: (error as Error).message };
+    }
     return { passed, runs };
 }

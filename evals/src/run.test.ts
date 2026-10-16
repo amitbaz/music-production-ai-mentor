@@ -34,7 +34,7 @@ const fix = [call("read_set", {}), call("set_parameters", { changes: [{ target: 
 // the call; it throws on the reopen numbered `failReopen`. `screenshot` and `close` record what they
 // were given. `used` lists every tool the runner's tools ran and every call of the mentor's model, by
 // the pair that did it; `events` lists the reopens and those uses in the order they happened.
-function open(t: TestContext, replies: Message[][] | Model, { failReopen }: { failReopen?: number } = {}) {
+function open(t: TestContext, replies: Message[][] | Model, { failReopen, failScreenshot, failClose }: { failReopen?: number; failScreenshot?: boolean; failClose?: boolean } = {}) {
     const { live, track, set } = liveSet({ tempo: 167, numerator: 4, denominator: 4 });
     const gain = { name: "Gain", value: 0, min: -35, max: 35, shown: (v: number) => `${v.toFixed(1)} dB` };
     const baseSet = () =>
@@ -58,8 +58,14 @@ function open(t: TestContext, replies: Message[][] | Model, { failReopen }: { fa
             if (++reopens === failReopen) throw new Error("Patience did not come back");
             baseSet();
         },
-        screenshot: async (file) => void screenshots.push(file),
-        close: async (options) => void closes.push(options),
+        screenshot: async (file) => {
+            screenshots.push(file);
+            if (failScreenshot) throw new Error("screencapture failed");
+        },
+        close: async (options) => {
+            closes.push(options);
+            if (failClose) throw new Error("Could not delete the VM mentor-eval-test");
+        },
     };
     let pairs = 0;
     const connect = () => {
@@ -215,4 +221,28 @@ test("a series that finishes closes the sandbox without keeping it", async (t) =
     assert.equal(closes.length, 1);
     assert.notEqual(closes[0]?.keep, true);
     assert.deepEqual(screenshots, []);
+});
+
+test("a screenshot that fails does not stop the VM being kept, and the series still reports why it stopped", async (t) => {
+    const { connect, sandbox, folder, closes, onRun } = open(t, [...fix, ...fix], { failReopen: 2, failScreenshot: true });
+
+    const result = await runCase({ connect, sandbox, folder, model: "gemini:test", case: lowEndHot, runs: 3, onRun });
+
+    assert.deepEqual(closes, [{ keep: true }]);
+    assert.equal(result.passed, 1);
+    assert.equal(result.runs, 1);
+    assert.match(result.stopped?.reason ?? "", /Patience did not come back/);
+    assert.match(result.stopped?.reason ?? "", /screencapture failed/);
+    assert.equal(result.stopped?.vm, "mentor-eval-test");
+});
+
+test("a sandbox that cannot be closed after a finished series still gives the rate, and says what is left over", async (t) => {
+    const { connect, sandbox, folder, onRun } = open(t, [...fix, ...fix], { failClose: true });
+
+    const result = await runCase({ connect, sandbox, folder, model: "gemini:test", case: lowEndHot, runs: 2, onRun });
+
+    assert.equal(result.passed, 2);
+    assert.equal(result.runs, 2);
+    assert.equal(result.stopped, undefined);
+    assert.match(result.closeError ?? "", /Could not delete the VM mentor-eval-test/);
 });

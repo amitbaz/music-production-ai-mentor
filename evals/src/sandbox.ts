@@ -23,6 +23,7 @@ export type Host = {
     sleep: (ms: number) => Promise<void>;
 };
 
+// These four are also in scripts/build-sandbox-image.sh (REMOTE_SCRIPT_PORT, GUEST_USER, LIVE_APP, PATIENCE): change them together.
 const REMOTE_SCRIPT_PORT = 39031;
 const USER = "admin";
 const LIVE_APP = "/Applications/Ableton Live 12 Suite.app";
@@ -127,9 +128,13 @@ const realHost: Host = {
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 
+// The text of Tart's own refusal when macOS will not run another VM.
+const VM_LIMIT = /number of VMs exceeds the system limit/i;
+
 // Copies the image under a new name, starts the copy, waits for ssh and opens the tunnel to its Live.
-// Throws, saying what to do, when the Mac, Tart or the image is not ready or the VM will not start.
-export async function startSandbox({ host = realHost, image = "mentor-sandbox" }: { host?: Host; image?: string } = {}): Promise<Sandbox & { address: string; password: string }> {
+// Throws, saying what to do, when the Mac, Tart or the image is not ready or the VM will not start. When
+// it throws, or `signal` aborts the start (Ctrl-C), the VM is stopped and the copy deleted, so nothing is left.
+export async function startSandbox({ host = realHost, image = "mentor-sandbox", signal }: { host?: Host; image?: string; signal?: AbortSignal } = {}): Promise<Sandbox & { address: string; password: string }> {
     if (host.platform !== "darwin" || host.arch !== "arm64") throw new Error("pnpm eval needs a Mac with Apple Silicon: Tart runs macOS VMs only there.");
     const tart = host.env.TART || "tart";
     if ((await host.run(tart, ["--version"])).code !== 0) {
@@ -147,25 +152,17 @@ export async function startSandbox({ host = realHost, image = "mentor-sandbox" }
         readFileSync(key);
     } catch {}
     if (!password) throw new Error(`The pairing password or the ssh key is missing from ${dir}. ${build}`);
+    if (signal?.aborted) throw new Error("Interrupted.");
 
     const name = `mentor-eval-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-    const clone = await host.run(tart, ["clone", image, name]);
-    if (clone.code !== 0) throw new Error(`Could not copy the sandbox image ${image} (about 60 GB of free disk are needed): ${clone.stderr.trim()}`);
-    // tart clone gives the copy a new MAC address, and Live's authorization is tied to it: with another
-    // one, Live asks to be authorized again. Only one copy can run at a time with it.
-    const keepMac = await host.run(tart, ["set", name, "--mac", mac]);
-    if (keepMac.code !== 0) {
-        await host.run(tart, ["delete", name]);
-        throw new Error(`Could not give the copy ${name} the image's MAC address: ${keepMac.stderr.trim()}`);
-    }
-
     const sshOptions = ["-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=15"];
-    const vm = host.start(tart, ["run", "--no-graphics", "--no-audio", name]);
+    let vm: Process | undefined;
     let tunnel: Process | undefined;
     let tunnelExited = false;
     let closed = false;
     const stop = async () => {
         tunnel?.kill();
+        if (!vm) return;
         await host.run(tart, ["stop", name]);
         vm.kill();
         await Promise.race([vm.exited, host.sleep(30_000)]);
@@ -176,22 +173,35 @@ export async function startSandbox({ host = realHost, image = "mentor-sandbox" }
     };
 
     try {
-        // Whichever comes first: what a step waits for, or the VM stopping under it.
-        const died = vm.exited.then((code) => {
-            throw new Error(`The VM stopped (exit ${code}).`);
+        // Whichever comes first: what a step waits for, or the start being aborted or the VM stopping under it.
+        let fail: (error: Error) => void = () => {};
+        const failed = new Promise<never>((_, reject) => {
+            fail = reject;
         });
-        died.catch(() => {});
-        const guard = <T>(promise: Promise<T>) => Promise.race([promise, died]);
+        failed.catch(() => {});
+        signal?.addEventListener("abort", () => fail(new Error("Interrupted.")), { once: true });
+        const guard = <T>(promise: Promise<T>) => Promise.race([promise, failed]);
+
+        // The copy is made inside the try: one that fails or is interrupted may be left half made, and is deleted below.
+        const clone = await guard(host.run(tart, ["clone", image, name]));
+        if (clone.code !== 0) throw new Error(`Could not copy the sandbox image ${image} (about 60 GB of free disk are needed): ${clone.stderr.trim()}`);
+        // tart clone gives the copy a new MAC address, and Live's authorization is tied to it: with another
+        // one, Live asks to be authorized again. Only one copy can run at a time with it.
+        const keepMac = await guard(host.run(tart, ["set", name, "--mac", mac]));
+        if (keepMac.code !== 0) throw new Error(`Could not give the copy ${name} the image's MAC address: ${keepMac.stderr.trim()}`);
+        const started = host.start(tart, ["run", "--no-graphics", "--no-audio", name]);
+        vm = started;
+        void started.exited.then((code) => fail(new Error(`The VM stopped (exit ${code}).`)));
 
         const ip = (await guard(host.run(tart, ["ip", name, "--wait", "180"]))).stdout.trim();
         if (!ip) throw new Error("The VM got no IP address.");
         const target = `${USER}@${ip}`;
-        const ssh = (...command: string[]) => host.run("ssh", [...sshOptions, target, ...command]);
+        const ssh = (command: string[], options?: { input?: string }) => host.run("ssh", [...sshOptions, target, ...command], options);
 
         // Up, with auto-login done: open, osascript and System Events need the desktop session.
         let ready = false;
         for (let attempt = 0; attempt < 90 && !ready; attempt++) {
-            ready = (await guard(ssh('[ "$(stat -f %Su /dev/console)" = admin ]'))).code === 0;
+            ready = (await guard(ssh(['[ "$(stat -f %Su /dev/console)" = admin ]']))).code === 0;
             if (!ready) await guard(host.sleep(2000));
         }
         if (!ready) throw new Error("The VM did not take ssh within 3 minutes.");
@@ -208,12 +218,12 @@ export async function startSandbox({ host = realHost, image = "mentor-sandbox" }
             address: `ws://127.0.0.1:${port}`,
             password,
             reopenBase: async () => {
-                const result = await host.run("ssh", [...sshOptions, target, "bash", "-s"], { input: REOPEN });
+                const result = await ssh(["bash", "-s"], { input: REOPEN });
                 if (result.code !== 0) throw new Error(result.stderr.trim() || `the reopen script failed (exit ${result.code})`);
                 if (tunnelExited) throw new Error("The tunnel to the VM's Live is down.");
             },
             screenshot: async (file) => {
-                const shot = await ssh("screencapture", "-x", SHOT);
+                const shot = await ssh(["screencapture", "-x", SHOT]);
                 if (shot.code !== 0) throw new Error(shot.stderr.trim() || "screencapture failed");
                 const copy = await host.run("scp", [...sshOptions, `${target}:${SHOT}`, file]);
                 if (copy.code !== 0) throw new Error(copy.stderr.trim() || "could not copy the screenshot");
@@ -228,12 +238,11 @@ export async function startSandbox({ host = realHost, image = "mentor-sandbox" }
     } catch (error) {
         // Give the VM's exit a moment to register: then its output says why it stopped.
         await new Promise((resolve) => setImmediate(resolve));
-        const output = vm.output().trim();
-        const vmStopped = /^The VM stopped/.test((error as Error).message) || /limit|exceeds/i.test(output);
+        const output = vm?.output().trim() ?? "";
         await stop().catch(() => {});
         await remove().catch(() => {});
-        if (!vmStopped) throw error;
-        if (/limit|exceeds/i.test(output)) {
+        if (!/^The VM stopped/.test((error as Error).message)) throw error;
+        if (VM_LIMIT.test(output)) {
             throw new Error(`The VM would not start: macOS allows at most two macOS VMs running at once. Look with "tart list" and stop another with "tart stop <name>". Tart said: ${output}`);
         }
         throw new Error(`The VM stopped before it was ready. Tart said: ${output || "nothing"}`);

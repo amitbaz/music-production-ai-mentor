@@ -22,16 +22,27 @@ if (!chosen) {
 const runs = Number(values.runs);
 if (!Number.isInteger(runs) || runs < 1) throw new Error(`--runs must be a whole number above 0, got ${values.runs}`);
 
+// Ctrl-C ends the series: the VM is stopped and deleted, not left running. The handler is in place before
+// the VM starts, so a Ctrl-C while it is being copied or booted deletes the copy too (startSandbox does).
+const interrupt = new AbortController();
+let started: Awaited<ReturnType<typeof startSandbox>> | undefined;
+process.once("SIGINT", () => {
+    interrupt.abort();
+    if (started) void started.close().catch(() => {}).finally(() => process.exit(130));
+});
 // The sandbox and where its Live answers: the tunnel's address and the pairing password.
-let sandbox: Awaited<ReturnType<typeof startSandbox>>;
 try {
-    sandbox = await startSandbox();
+    started = await startSandbox({ signal: interrupt.signal });
 } catch (error) {
     console.error((error as Error).message);
-    process.exit(1);
+    process.exit(interrupt.signal.aborted ? 130 : 1);
 }
-// Ctrl-C ends the series: the VM is stopped and deleted, not left running.
-process.once("SIGINT", () => void sandbox.close().catch(() => {}).finally(() => process.exit(130)));
+// A Ctrl-C that came as the start finished.
+const sandbox = started;
+if (interrupt.signal.aborted) {
+    await sandbox.close().catch(() => {});
+    process.exit(130);
+}
 const kept = (vm: string) => `The VM ${vm} is kept: open it with "tart run ${vm}", delete it with "tart delete ${vm}".`;
 
 const keys = keysFromEnv(process.env);
@@ -55,6 +66,10 @@ try {
         },
     });
     console.log(`${chosen.name} on ${model}: ${result.passed}/${result.runs} passed. Runs in ${folder}`);
+    if (result.closeError) {
+        console.error(`${result.closeError}\nThe VM may be left over: look with "tart list".`);
+        process.exitCode = 1;
+    }
     if (result.stopped) {
         console.error(`Stopped after ${result.runs} runs: ${result.stopped.reason}\nScreenshot: ${join(folder, "stopped.png")}\n${kept(result.stopped.vm)}`);
         process.exitCode = 1;

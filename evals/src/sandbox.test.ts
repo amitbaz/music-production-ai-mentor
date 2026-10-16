@@ -17,7 +17,7 @@ const DEFAULTS: Record<string, Reply> = {
 
 // A fake machine: records every command, answers the ones a test scripts (matched on the command line,
 // first match wins; anything else succeeds), and starts "processes" that stay up until killed.
-function fake({ arch = "arm64", replies = [], vmOutput = "", vmExits = false }: { arch?: string; replies?: [RegExp, Reply][]; vmOutput?: string; vmExits?: boolean } = {}) {
+function fake({ arch = "arm64", replies = [], vmOutput = "", vmExits = false, hang }: { arch?: string; replies?: [RegExp, Reply][]; vmOutput?: string; vmExits?: boolean; hang?: RegExp } = {}) {
     const home = mkdtempSync(join(tmpdir(), "sandbox-home-"));
     mkdirSync(join(home, ".mentor", "sandbox"), { recursive: true });
     writeFileSync(join(home, ".mentor", "sandbox", "pairing-password"), "s3cret\n");
@@ -38,6 +38,8 @@ function fake({ arch = "arm64", replies = [], vmOutput = "", vmExits = false }: 
             if (args[0] === "stop") for (const stop of stops) stop();
             // The VM that never starts never gets an address.
             if (vmExits && args[0] === "ip") return new Promise(() => {});
+            // A command that never answers, until the test aborts the start.
+            if (hang?.test(line(call))) return new Promise(() => {});
             const reply = replies.find(([pattern]) => pattern.test(line(call)))?.[1] ?? DEFAULTS[args[0] ?? ""] ?? {};
             return { code: reply.code ?? 0, stdout: reply.stdout ?? "", stderr: reply.stderr ?? "" };
         },
@@ -146,6 +148,64 @@ test("when macOS will not run another VM the error says so, and the copy is dele
 
     await assert.rejects(startSandbox({ host }), /at most two macOS VMs.*tart list/s);
     assert.equal(tart("delete").length, 1);
+});
+
+test("only Tart's message about the limit is taken for the limit; other output with the same words is shown as Tart said it", async () => {
+    const { host } = fake({ vmExits: true, vmOutput: "Error: disk quota limit exceeds what the volume allows" });
+
+    await assert.rejects(startSandbox({ host }), (error: Error) => error.message.includes("disk quota limit exceeds") && !/at most two/.test(error.message));
+});
+
+test("a copy that fails is deleted, in case it was left half made", async () => {
+    const { host, tart } = fake({ replies: [[/tart clone/, { code: 1, stderr: "no space left" }]] });
+
+    await assert.rejects(startSandbox({ host }), /Could not copy.*no space left/s);
+    assert.equal(tart("delete").length, 1);
+    assert.equal(tart("run").length, 0);
+});
+
+test("a start that fails after the copy deletes the copy", async () => {
+    const { host, tart } = fake({ replies: [[/tart ip/, { stdout: "" }]] });
+
+    await assert.rejects(startSandbox({ host }), /no IP address/);
+    assert.equal(tart("stop").length, 1);
+    assert.equal(tart("delete").length, 1);
+});
+
+test("Ctrl-C while the VM boots stops it and deletes the copy", async () => {
+    const { host, tart } = fake({ hang: /tart ip/ });
+    const controller = new AbortController();
+    const starting = startSandbox({ host, signal: controller.signal });
+    const outcome = assert.rejects(starting, /Interrupted/);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    controller.abort();
+    await outcome;
+
+    assert.equal(tart("stop").length, 1);
+    assert.equal(tart("delete").length, 1);
+});
+
+test("Ctrl-C while the image is being copied deletes the partial copy", async () => {
+    const { host, tart } = fake({ hang: /tart clone/ });
+    const controller = new AbortController();
+    const outcome = assert.rejects(startSandbox({ host, signal: controller.signal }), /Interrupted/);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    controller.abort();
+    await outcome;
+
+    assert.equal(tart("delete").length, 1);
+    assert.equal(tart("run").length, 0);
+});
+
+test("a Ctrl-C that came before the start deletes nothing and starts nothing", async () => {
+    const { host, tart } = fake();
+    const controller = new AbortController();
+    controller.abort();
+
+    await assert.rejects(startSandbox({ host, signal: controller.signal }), /Interrupted/);
+    assert.equal(tart("run").length, 0);
 });
 
 test("a VM that dies for another reason shows what Tart said", async () => {

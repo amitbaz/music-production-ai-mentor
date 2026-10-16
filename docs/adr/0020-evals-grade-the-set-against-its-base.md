@@ -1,6 +1,6 @@
 # 0020 — Evals grade the Live Set against its base
 
-Date: 2026-10-16 · Status: accepted
+Date: 2026-10-16 · Status: accepted · Amended by [0025](0025-evals-run-in-a-throwaway-vm.md)
 
 ## Context
 
