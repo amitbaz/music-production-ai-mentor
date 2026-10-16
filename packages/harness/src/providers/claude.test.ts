@@ -609,6 +609,31 @@ test("the model keeps the status of a failure whose body is not JSON", async (t)
     assert.match(error.message, /Claude request failed \(502\): <html>Bad Gateway<\/html>/);
 });
 
+test("a failure whose body is the JSON null keeps its status and is not retried as a dropped connection", async (t) => {
+    t.mock.method(globalThis, "fetch", async () => new Response("null", { status: 400 }));
+
+    const error = await failureOf(createClaudeModel("test-key", "test-model").call(hi, []));
+
+    assert.equal(error.retryable, false);
+    assert.match(error.message, /Claude request failed \(400\): null/);
+});
+
+test("an assistant message of only whitespace is left out, as Claude refuses a blank text block", () => {
+    const { messages } = toClaudeRequest(
+        [
+            { type: "user", text: "Hi" },
+            { type: "assistant", text: "\n\n" },
+            { type: "tool_call", id: "toolu_1", name: "create_track", args: {} },
+        ],
+        [createTrack],
+    );
+
+    assert.deepEqual(messages[1], {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "toolu_1", name: "create_track", input: {} }],
+    });
+});
+
 test("the model marks a dropped connection as retryable", async (t) => {
     t.mock.method(globalThis, "fetch", async () => {
         throw new TypeError("fetch failed");

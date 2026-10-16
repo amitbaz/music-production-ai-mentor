@@ -86,10 +86,10 @@ function toClaudeBlocks(message: Message, flattenTools: boolean): ClaudeBlock[] 
                 },
             ];
         case "assistant":
-            // Claude refuses an empty text block; a message with thinking and no text is thinking alone.
+            // Claude refuses an empty or blank text block; a message with thinking and no text is thinking alone.
             return [
                 ...thinkingFrom(message.providerMeta),
-                ...(message.text === "" ? [] : [{ type: "text", text: message.text }]),
+                ...(message.text.trim() === "" ? [] : [{ type: "text", text: message.text }]),
             ];
         case "tool_call":
             return [
@@ -165,7 +165,8 @@ const RETRYABLE_TYPES = ["rate_limit_error", "api_error", "overloaded_error"];
 function failedRequest(response: Response, text: string): ModelCallError {
     let body: ClaudeError = {};
     try {
-        body = JSON.parse(text);
+        // "null" is valid JSON too
+        body = JSON.parse(text) ?? {};
     } catch {
         // An error page from a proxy; the raw text is the reason.
     }

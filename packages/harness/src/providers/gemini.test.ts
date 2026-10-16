@@ -337,6 +337,15 @@ test("reads a streamed reply whose lines are cut in the middle", async (t) => {
     assert.deepEqual(reply, recordedReply);
 });
 
+test("reads the last line of a stream that ends without a newline", async (t) => {
+    const last = `data: ${JSON.stringify({ promptFeedback: { blockReason: "SAFETY" } })}`;
+    fakeStream(t, [last]);
+
+    const reply = await createGeminiModel("test-key", "test-model").call(hi, []);
+
+    assert.equal(reply.refused?.category, "SAFETY");
+});
+
 test("the model marks a connection dropped in the middle of a reply as retryable", async (t) => {
     const body = new ReadableStream({
         start(controller) {

@@ -200,21 +200,26 @@ async function readReply(
     // The end of what was read so far, when it stops in the middle of a line
     let rest = "";
 
+    // One line of the stream; only "data:" lines hold a piece.
+    function readLine(line: string) {
+        if (!line.startsWith("data:")) return;
+        piece = JSON.parse(line.slice("data:".length));
+        usage = { ...usage, ...piece.usageMetadata };
+        const candidate = piece.candidates?.[0];
+        if (!candidate) return;
+        replied = true;
+        if (candidate.finishReason === "MAX_TOKENS") cutOff = true;
+        addParts(messages, candidate.content?.parts ?? [], onText);
+    }
+
     const decoder = new TextDecoder();
     for await (const bytes of body) {
         const lines = (rest + decoder.decode(bytes, { stream: true })).split("\n");
         rest = lines.pop() ?? "";
-        for (const line of lines) {
-            if (!line.startsWith("data:")) continue;
-            piece = JSON.parse(line.slice("data:".length));
-            usage = { ...usage, ...piece.usageMetadata };
-            const candidate = piece.candidates?.[0];
-            if (!candidate) continue;
-            replied = true;
-            if (candidate.finishReason === "MAX_TOKENS") cutOff = true;
-            addParts(messages, candidate.content?.parts ?? [], onText);
-        }
+        for (const line of lines) readLine(line);
     }
+    // The last line has no newline after it when the stream ends there.
+    readLine(rest + decoder.decode());
 
     if (!replied) {
         // Gemini blocked the prompt (ADR 0023): the block reason is the category.
