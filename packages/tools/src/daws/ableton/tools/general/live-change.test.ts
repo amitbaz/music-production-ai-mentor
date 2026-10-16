@@ -79,7 +79,7 @@ test("after live_change deletes a track with Live's own function, its id says it
 test("live_change refuses the script's own functions, which are not Live's", async (t) => {
     const { tool } = await setup(t);
 
-    for (const name of ["add_listener", "remove_listener", "get_prop", "set_prop", "dispatch", "get_obj", "save_obj"]) {
+    for (const name of ["add_listener", "remove_listener", "get_prop", "set_prop", "dispatch", "get_obj", "save_obj", "serialize_track", "serialize_clip"]) {
         await assert.rejects(async () => tool.run({ object: "song", function: name }), new RegExp(`${name} belongs to the script`));
     }
 });
