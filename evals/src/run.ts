@@ -23,8 +23,8 @@ export type Run = {
 };
 
 type Options = {
-    tools: Tool[];
-    mentor: ReturnType<typeof createMentor>;
+    // Makes the runner's tools and a mentor, each pair on a connection of its own.
+    connect: () => { tools: Tool[]; mentor: ReturnType<typeof createMentor> };
     model: string;
     case: Case;
     runs: number;
@@ -33,11 +33,13 @@ type Options = {
 
 // Runs a case `runs` times on the Set open in Live: plant, one mentor turn, read back, grade against
 // the snapshot taken first, restore. A run passes when the Set equals that snapshot. The series stops
-// at a run whose changes the runner cannot undo; `left` says what still differs.
-export async function runCase({ tools, mentor, model, case: { name, plant, message }, runs, onRun }: Options): Promise<{ passed: number; runs: number; left?: string[] }> {
-    const base = await snapshot(tools);
+// at a run whose changes the runner cannot undo; `left` says what still differs. Every run connects
+// afresh and takes its own base snapshot, so object ids from an earlier run are never used.
+export async function runCase({ connect, model, case: { name, plant, message }, runs, onRun }: Options): Promise<{ passed: number; runs: number; left?: string[] }> {
     let passed = 0;
     for (let run = 1; run <= runs; run++) {
+        const { tools, mentor } = connect();
+        const base = await snapshot(tools);
         await applyPlant(tools, plant);
         // Nobody is at the keyboard: the mentor's removals are approved, as a trusting user would.
         const result = await mentor.generate([], message, { approve: () => true });

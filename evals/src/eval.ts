@@ -22,12 +22,14 @@ const runs = Number(values.runs);
 if (!Number.isInteger(runs) || runs < 1) throw new Error(`--runs must be a whole number above 0, got ${values.runs}`);
 
 const ableton = { abletonAddress: process.env.ABLETON_ADDRESS, abletonPassword: process.env.ABLETON_PASSWORD };
-const mentor = createMentor({ keys: keysFromEnv(process.env), model: values.model, ...ableton });
+const keys = keysFromEnv(process.env);
 const model = values.model ?? MODEL_ID;
 const folder = join(homedir(), ".mentor", "evals", "runs", `${new Date().toISOString().replace(/[:.]/g, "-")}-${chosen.name}`);
 const result = await runCase({
-    tools: createAbleton({ address: ableton.abletonAddress, password: ableton.abletonPassword }),
-    mentor,
+    connect: () => ({
+        tools: createAbleton({ address: ableton.abletonAddress, password: ableton.abletonPassword }),
+        mentor: createMentor({ keys, model: values.model, ...ableton }),
+    }),
     model,
     case: chosen,
     runs,

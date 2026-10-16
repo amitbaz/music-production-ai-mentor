@@ -26,8 +26,9 @@ const say = (text: string): Message[] => [{ type: "assistant", text }];
 // The mentor's own connection reads Sub Sub Bass as t1 and its Utility as d1.
 const fix = [call("read_set", {}), call("set_parameters", { changes: [{ target: "t1", parameter: "volume", value: -1 }] }), say("Down to -1 dB.")];
 
-// A stand-in Live Set with the sub bass at its base volume and a Utility on it, the runner's tools
-// and a mentor with a scripted model, each on its own connection.
+// A stand-in Live Set with the sub bass at its base volume and a Utility on it, and a way to connect
+// that gives the runner's tools and a mentor with a scripted model, each pair on its own connection.
+// `used` lists every tool the runner's tools ran and every call of the mentor's model, by the pair that did it.
 function open(t: TestContext, replies: Message[][] | Model) {
     const { live, track, set } = liveSet({ tempo: 167, numerator: 4, denominator: 4 });
     const gain = { name: "Gain", value: 0, min: -35, max: 35, shown: (v: number) => `${v.toFixed(1)} dB` };
@@ -37,17 +38,40 @@ function open(t: TestContext, replies: Message[][] | Model) {
         master_track: track({ name: "Main", type: "main", volume: db(0), pan }),
     });
     useStandIn(t, live);
+    const model = Array.isArray(replies) ? scripted(replies) : replies;
+    const used: { pair: number; tool: string }[] = [];
+    let pairs = 0;
+    const connect = () => {
+        const pair = pairs++;
+        const tools: Tool[] = createAbleton({ address: ADDRESS }).map((tool) => ({
+            ...tool,
+            run: async (args: Record<string, unknown>) => {
+                used.push({ pair, tool: tool.name });
+                return tool.run(args);
+            },
+        }));
+        const mentor = createMentor({
+            model: {
+                call: async (...args) => {
+                    used.push({ pair, tool: "model" });
+                    return model.call(...args);
+                },
+            },
+            abletonAddress: ADDRESS,
+        });
+        return { tools, mentor };
+    };
+    // The test's own view of the Set, on a connection of its own.
     const tools: Tool[] = createAbleton({ address: ADDRESS });
-    const mentor = createMentor({ model: Array.isArray(replies) ? scripted(replies) : replies, abletonAddress: ADDRESS });
     const runs: Run[] = [];
-    return { tools, mentor, runs, onRun: async (run: Run) => void runs.push(run) };
+    return { connect, tools, runs, used, onRun: async (run: Run) => void runs.push(run) };
 }
 
 test("a run passes when the mentor puts the planted value back, and is kept in full", async (t) => {
-    const { tools, mentor, runs, onRun } = open(t, [...fix, ...fix]);
+    const { connect, tools, runs, onRun } = open(t, [...fix, ...fix]);
     const base = await snapshot(tools);
 
-    const result = await runCase({ tools, mentor, model: "gemini:test", case: lowEndHot, runs: 2, onRun });
+    const result = await runCase({ connect, model: "gemini:test", case: lowEndHot, runs: 2, onRun });
 
     assert.deepEqual(result, { passed: 2, runs: 2 });
     assert.equal(runs.length, 2);
@@ -60,7 +84,7 @@ test("a run passes when the mentor puts the planted value back, and is kept in f
 });
 
 test("a run fails when the mentor changes anything else, and the Set is restored before the next run", async (t) => {
-    const { tools, mentor, runs, onRun } = open(t, [
+    const { connect, tools, runs, onRun } = open(t, [
         call("read_set", {}),
         call("set_parameters", { changes: [{ target: "t1", parameter: "volume", value: -1 }, { target: "d1", parameter: "Gain", value: 3 }] }),
         call("edit_devices", { edits: [{ action: "add", name: "EQ Eight", to: "t1" }] }),
@@ -69,7 +93,7 @@ test("a run fails when the mentor changes anything else, and the Set is restored
     ]);
     const base = await snapshot(tools);
 
-    const result = await runCase({ tools, mentor, model: "gemini:test", case: lowEndHot, runs: 2, onRun });
+    const result = await runCase({ connect, model: "gemini:test", case: lowEndHot, runs: 2, onRun });
 
     assert.deepEqual(result, { passed: 1, runs: 2 });
     const [first, second] = runs as [Run, Run];
@@ -89,9 +113,9 @@ test("a refused run is a failed run, though the Set was left as it was", async (
     const refusesLast: Model = {
         call: async () => replies.length ? { messages: replies.shift() ?? [], cutOff: false } : { messages: [], cutOff: false, refused: { category: "cyber", explanation: "No." } },
     };
-    const { tools, mentor, runs, onRun } = open(t, refusesLast);
+    const { connect, runs, onRun } = open(t, refusesLast);
 
-    const result = await runCase({ tools, mentor, model: "gemini:test", case: lowEndHot, runs: 1, onRun });
+    const result = await runCase({ connect, model: "gemini:test", case: lowEndHot, runs: 1, onRun });
 
     assert.deepEqual(result, { passed: 0, runs: 1 });
     const [only] = runs as [Run];
@@ -100,14 +124,14 @@ test("a refused run is a failed run, though the Set was left as it was", async (
 });
 
 test("the mentor's removals are approved, and a change the runner cannot undo stops the series", async (t) => {
-    const { tools, mentor, runs, onRun } = open(t, [
+    const { connect, runs, onRun } = open(t, [
         call("read_set", {}),
         call("delete", { ids: ["d1"] }),
         call("set_parameters", { changes: [{ target: "t1", parameter: "volume", value: -1 }] }),
         say("Removed the Utility and brought it down."),
     ]);
 
-    const result = await runCase({ tools, mentor, model: "gemini:test", case: lowEndHot, runs: 3, onRun });
+    const result = await runCase({ connect, model: "gemini:test", case: lowEndHot, runs: 3, onRun });
 
     assert.equal(result.passed, 0);
     assert.equal(result.runs, 1);
@@ -117,4 +141,17 @@ test("the mentor's removals are approved, and a change the runner cannot undo st
     const deleted = only.messages.find((message) => message.type === "tool_result" && message.name === "delete");
     assert.match(deleted?.type === "tool_result" ? deleted.output : "", /Utility/);
     assert.deepEqual(only.left, result.left);
+});
+
+test("each run connects afresh, so ids read in the first run are never sent in the second", async (t) => {
+    const { connect, runs, used, onRun } = open(t, [...fix, ...fix]);
+
+    await runCase({ connect, model: "gemini:test", case: lowEndHot, runs: 2, onRun });
+
+    assert.equal(runs.length, 2);
+    // Every use of the first pair comes before every use of the second, and each pair starts by reading.
+    const pairs = used.map(({ pair }) => pair);
+    assert.deepEqual(pairs, [...pairs].sort());
+    assert.deepEqual([...new Set(pairs)], [0, 1]);
+    for (const pair of [0, 1]) assert.equal(used.find((use) => use.pair === pair && use.tool !== "model")?.tool, "read_set");
 });
