@@ -32,6 +32,21 @@ low-end-hot-told on claude:claude-haiku-5-5: 0/30 passed. Runs in ~/.mentor/eval
 
 Every run is saved in full under `~/.mentor/evals/runs/`, outside the repo: the conversation, the verdict, and how the Set differed from its base. If the base Set does not come back after a reopen, the series stops, saves a screenshot in the series folder and keeps the VM, and says its name.
 
+## Building the sandbox image
+
+A series runs in a sandbox copied from a **sandbox image** (ADR 0025). Build it once, and again after a Live or macOS update:
+
+```sh
+scripts/build-sandbox-image.sh <live-installer.dmg> <licence.auz> [image-name]   # image-name defaults to mentor-sandbox
+```
+
+- The machine needs Apple Silicon, [Tart](https://tart.run) (`tart` on PATH, or `TART=/path/to/tart`), `pnpm install` done, and about 60 GB of free disk.
+- You pass the Live 12 Suite installer and the licence file (`.auz`) from outside the repo. The script refuses a file inside it, and keeps neither: the installer and the licence file are deleted from the VM after use. What stays is Live's authorization inside the image.
+- It copies the Cirrus Labs macOS base, boots it with no window and no sound, installs Live, authorizes it, pairs it (the same install as `pnpm pair ableton`, with a new password), sets auto-login and Patience at login, checks the System Events permission the "Don't Save" click needs, then reboots the VM and reads Patience's tracks through an SSH tunnel on a port other than 39031. It prints the image's size and the boot-to-Patience time. A failed build stops the VM and deletes the half-built image (`SANDBOX_KEEP_ON_FAIL=1` keeps it).
+- It leaves two files on your Mac in `~/.mentor/sandbox/`: `pairing-password` and the SSH key `id_ed25519`. The sandbox reads them.
+- The image never leaves your Mac: the script never calls `tart push`. Do not push it.
+- Live's Control Surface choice and its first-launch dialogs cannot be scripted. If the final check says the Remote Script does not answer, build again with `SANDBOX_GUI=1`: the VM then shows a window and the script waits for you to choose MusicMentor in Live's settings (and to allow System Events, if macOS asks). The header of the script lists every setting.
+
 ## Don't know what to do? Run the loop
 
 ```text
