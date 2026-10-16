@@ -16,7 +16,7 @@ Claude adds its own. Its replies carry hidden thinking blocks, which the API wan
 - Provider meta carries an owner tag: `{ provider: "gemini", thoughtSignature }`, `{ provider: "claude", … }`. An adapter reads provider meta only when the tag is its own, and ignores the rest.
 - A tool call id is letters, digits, `_` and `-`. Each adapter has an offline test that the ids it makes fit, and sends ids from the conversation as they are. Gemini's `call_…` and Claude's `toolu_…` both fit.
 - A safety refusal ends the turn with a new stop reason, `refused`, carrying the category and the model's explanation. Text that arrived before it is kept, as with `cut_off`. Gemini's safety block lands on the same stop reason.
-- The adapter sends no thinking or effort field: the model's defaults. The user picks the model, not its knobs; a knob can join the model id later if a score asks for it.
+- The adapter sends `thinking.type: "adaptive"`, which the binding control requires and which is Haiku 5.5's default anyway, and no effort field: the model's defaults. The user picks the model, not its knobs; a knob can join the model id later if a score asks for it.
 - The adapter puts one `cache_control` mark on the last tool definition, so the system prompt and the tool list are read from Claude's cache on every round and every eval run. The prefix is byte-identical between requests, since the prompt is a constant and the tool list is fixed.
 
 Rejected:
