@@ -53,7 +53,17 @@ The tests need no Live. They run against a stand-in WebSocket ([`stand-in-live.t
 > [!IMPORTANT]
 > Before a release, run through [`remote-scripts/checklist.md`](remote-scripts/checklist.md) in a real Live: the stand-in cannot prove Live behaves the same.
 
-To add a tool or a tool set, follow the file layout and the result-size rule under "Tool sets" in [`AGENTS.md`](../../AGENTS.md#tool-sets).
+## Adding a tool
+
+A tool set lives in `src/<kind>/<name>/`, with its own entry in `package.json`, such as `@mentor/tools/daws/ableton`. For an Ableton tool:
+
+- One file and its test under `tools/<group>/`, in its group from ADR 0013. The file exports a function that takes the client and returns the tool.
+- Export it from the group's `index.ts`; `tools/index.ts` re-exports the groups, and `ableton.ts` lists every tool.
+- What reading or changing tools share goes in `reading.ts` or `changing.ts`; what Live sends back is typed in `live.ts`.
+- The tool's test runs against the stand-in Live. `ableton.test.ts` is only for what belongs to the whole tool set: the connection, object ids, batching.
+- A read whose answer grows with the Set keeps it under `RESULT_LIMIT` itself ([ADR 0018](../../docs/adr/0018-a-long-conversation-is-summarised.md)).
+
+`recorded-reads.json` holds replies recorded from a real Live; the header of `recorded-live.test.ts` says how to record them again.
 
 ## Why it's shaped this way
 
