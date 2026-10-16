@@ -4,6 +4,7 @@ import {
     ModelCallError,
     type Model,
     type ModelReply,
+    type ProviderMeta,
     type SupportedModel,
     type Tool,
 } from "../types.ts";
@@ -94,12 +95,9 @@ function toGeminiPart(message: Message): GeminiPart {
 }
 
 // Reads back the thoughtSignature this adapter stored in providerMeta, if there is one.
-function signtatureFrom(providerMeta: unknown): GeminiPart {
-    if (
-        typeof providerMeta === "object" &&
-        providerMeta !== null &&
-        "thoughtSignature" in providerMeta
-    ) {
+// Meta tagged for another provider is not ours to read.
+function signtatureFrom(providerMeta: ProviderMeta | undefined): GeminiPart {
+    if (providerMeta?.provider === "gemini" && "thoughtSignature" in providerMeta) {
         return { thoughtSignature: providerMeta.thoughtSignature };
     }
 
@@ -117,7 +115,7 @@ type GeminiResponse = {
     // because Gemini does not send it back on the next call.
     usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
     // Present instead of candidates when Gemini refuses the prompt
-    promptFeedback?: { blockReason?: string };
+    promptFeedback?: { blockReason?: string; blockReasonMessage?: string };
     // Present instead of candidates when the request itself was rejected
     error?: {
         message?: string;
@@ -162,7 +160,7 @@ function addParts(
 ) {
     for (const part of parts) {
         const meta = part.thoughtSignature
-            ? { providerMeta: { thoughtSignature: part.thoughtSignature } }
+            ? { providerMeta: { provider: "gemini", thoughtSignature: part.thoughtSignature } }
             : {};
 
         if (part.functionCall) {
@@ -202,24 +200,34 @@ async function readReply(
     // The end of what was read so far, when it stops in the middle of a line
     let rest = "";
 
+    // One line of the stream; only "data:" lines hold a piece.
+    function readLine(line: string) {
+        if (!line.startsWith("data:")) return;
+        piece = JSON.parse(line.slice("data:".length));
+        usage = { ...usage, ...piece.usageMetadata };
+        const candidate = piece.candidates?.[0];
+        if (!candidate) return;
+        replied = true;
+        if (candidate.finishReason === "MAX_TOKENS") cutOff = true;
+        addParts(messages, candidate.content?.parts ?? [], onText);
+    }
+
     const decoder = new TextDecoder();
     for await (const bytes of body) {
         const lines = (rest + decoder.decode(bytes, { stream: true })).split("\n");
         rest = lines.pop() ?? "";
-        for (const line of lines) {
-            if (!line.startsWith("data:")) continue;
-            piece = JSON.parse(line.slice("data:".length));
-            usage = { ...usage, ...piece.usageMetadata };
-            const candidate = piece.candidates?.[0];
-            if (!candidate) continue;
-            replied = true;
-            if (candidate.finishReason === "MAX_TOKENS") cutOff = true;
-            addParts(messages, candidate.content?.parts ?? [], onText);
-        }
+        for (const line of lines) readLine(line);
     }
+    // The last line has no newline after it when the stream ends there.
+    readLine(rest + decoder.decode());
 
     if (!replied) {
-        // Happens when Gemini refuses the prompt; the reply then says why.
+        // Gemini blocked the prompt (ADR 0023): the block reason is the category.
+        const blocked = piece.promptFeedback;
+        if (blocked?.blockReason) {
+            const explanation = blocked.blockReasonMessage ?? "Gemini blocked the prompt";
+            return { messages, cutOff, refused: { category: blocked.blockReason, explanation } };
+        }
         throw new Error(`Gemini returned no reply: ${JSON.stringify(piece)}`);
     }
     const tokens =

@@ -1,5 +1,6 @@
 import { type RetryOptions, withRetry } from "../retry.ts";
 import type { Model, SupportedModel } from "../types.ts";
+import { claudeModels, createClaudeModel } from "./claude.ts";
 import { createGeminiModel, geminiModels } from "./gemini.ts";
 
 // One API key per provider name. A provider whose key is missing cannot be used.
@@ -11,6 +12,7 @@ export const adapters: Record<
     { create: (apiKey: string, name: string) => Model; models: SupportedModel[] }
 > = {
     gemini: { create: createGeminiModel, models: geminiModels },
+    claude: { create: createClaudeModel, models: claudeModels },
 };
 
 // The provider lookup: gives the model for a model id, written provider:model.

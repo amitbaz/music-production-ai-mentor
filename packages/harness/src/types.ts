@@ -1,16 +1,21 @@
+// Provider-specific extras on a message (e.g. Gemini's thoughtSignature). `provider` names the adapter
+// that wrote it. An adapter reads only meta tagged with its own name and ignores the rest; the loop never reads it.
+export type ProviderMeta = { provider: string; [key: string]: unknown };
+
 // One entry in the conversation. `type` says which of the five kinds it is.
-// providerMeta holds provider-specific extras (e.g. Gemini's thoughtSignature); the loop never reads it.
 export type Message =
     | { type: "user"; text: string }
     // Stands in for everything before it; the model is sent only the latest one (ADR 0018). It has no providerMeta.
     | { type: "summary"; text: string }
-    | { type: "assistant"; text: string; providerMeta?: unknown }
+    | { type: "assistant"; text: string; providerMeta?: ProviderMeta }
     | {
           type: "tool_call";
+          // Letters, digits, "_" and "-". A user may switch provider between turns, so every provider
+          // must accept an id another one made. Each adapter's tests prove the ids it makes fit; nothing checks at run time.
           id: string;
           name: string;
           args: Record<string, unknown>;
-          providerMeta?: unknown;
+          providerMeta?: ProviderMeta;
       }
     | {
           type: "tool_result";
@@ -43,6 +48,8 @@ export type ModelReply = {
     tokens?: number;
     // The reply was cut off by the output limit
     cutOff: boolean;
+    // The model declined the request on safety grounds: the provider's category and the model's explanation (ADR 0023)
+    refused?: { category: string; explanation: string };
 };
 
 // A model API. Takes the whole conversation and returns the model's reply.

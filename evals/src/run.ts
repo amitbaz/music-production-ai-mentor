@@ -45,13 +45,15 @@ export async function runCase({ tools, mentor, model, case: { name, plant, messa
         const diff = difference(base, after);
         const restored = diff.length ? await restore(tools, base, after) : [];
         const left = diff.length ? difference(base, await snapshot(tools)) : [];
-        if (!diff.length) passed++;
+        // A refused turn is a failed run, even when the Set equals its base.
+        const ok = !diff.length && result.stop !== "refused";
+        if (ok) passed++;
         await onRun({
             case: name,
             run,
             model,
             message,
-            passed: !diff.length,
+            passed: ok,
             difference: diff,
             stop: result.stop,
             ...(result.stop === "error" && { error: result.error.message }),

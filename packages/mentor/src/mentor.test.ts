@@ -1,7 +1,7 @@
 import { type TestContext, test } from "node:test";
 import assert from "node:assert/strict";
 import type { CallOptions, Message, Model, Tool } from "@mentor/harness";
-import { createMentor } from "./mentor.ts";
+import { createMentor, keysFromEnv } from "./mentor.ts";
 import { systemPrompt } from "./system-prompt.ts";
 
 type Call = {
@@ -210,4 +210,9 @@ test("with a model id, a turn goes to that model in place of the mentor's own", 
 
     assert.equal(result.stop, "error");
     assert.match(result.stop === "error" ? result.error.message : "", /gemini-0-unknown/);
+});
+
+test("keysFromEnv reads each provider's key from its variable", () => {
+    assert.deepEqual(keysFromEnv({ GEMINI_API_KEY: "g", ANTHROPIC_API_KEY: "a", OTHER: "x" }), { gemini: "g", claude: "a" });
+    assert.deepEqual(keysFromEnv({}), { gemini: undefined, claude: undefined });
 });

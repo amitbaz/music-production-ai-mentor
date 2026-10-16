@@ -60,6 +60,8 @@ export async function runCli({ mentor, input, output, errors, terminal, color, w
                 errors.write("(no reply)\n");
             } else if (result.stop === "cut_off") {
                 errors.write("(reply cut off)\n");
+            } else if (result.stop === "refused") {
+                errors.write(`refused (${result.category}): ${result.explanation}\n`);
             } else if (result.stop === "cancelled") {
                 output.write("cancelled\n");
             } else if (result.stop === "round_limit") {
