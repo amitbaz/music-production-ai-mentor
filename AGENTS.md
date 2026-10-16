@@ -27,7 +27,7 @@ The repo is a pnpm workspace. Packages export their `.ts` source; there is no bu
 - `packages/tools/` is `@mentor/tools` and holds the tool sets, as `src/<kind>/<name>/`, each with its own entry such as `@mentor/tools/daws/ableton`. It depends only on the harness.
 - `packages/mentor/` is `@mentor/mentor`, the product: the system prompt, the model and the tool sets, joined by `createMentor`. It is the only place the harness and the tool sets meet.
 - `apps/` holds the apps. `apps/cli/` is the terminal. An app depends only on `@mentor/mentor` and owns what the user sees.
-- `evals/` is `@mentor/evals`, the evals (ADR 0020): the base Sets under `sets/`, their plants, and the runner. It is a development package, not an app: it depends on `@mentor/mentor` and `@mentor/tools`, because it plants and reads the Live Set itself. `pnpm plant` applies or reverts a plant on the Set open in Live.
+- `evals/` is `@mentor/evals`, the evals (ADR 0020): the base Sets under `sets/`, their plants, and the runner. It is a development package, not an app: it depends on `@mentor/mentor` and `@mentor/tools`, because it plants and reads the Live Set itself. `pnpm plant` applies or reverts a plant on the Set open in Live; `pnpm eval` runs a case on it.
 
 A package can import another only by name, and only when it lists it as a dependency. `pnpm check` fails on an import that breaks this, including a relative path into another package.
 
@@ -73,9 +73,10 @@ There are three kinds of test. Choose by what could be wrong: our code, our read
 
 - Use them for anything the model decides: which tool it picks, whether it follows the system prompt. A scripted model cannot test these, because it does what the script says.
 - They call the real API, so they run on demand, apart from `pnpm test`, and a commit never depends on them.
-- Each case states a request and an expectation that can be checked in the conversation, such as which tools were called and in what order.
+- Each case states a request and an expectation that can be checked: for a fault planted on a base Set, that the Set read back equals its base (ADR 0020); for a case about process, which tools were called and in what order.
 - Run each case several times and report how many passed. One passing run proves little, because the model varies.
-- There is no eval runner yet. Until there is, check model behaviour with a throwaway script outside the repo, and report what you saw as observed, with the number of runs.
+- `pnpm eval <case>` runs a case on the base Set open in Live, ten times unless `--runs` says otherwise, on the mentor's model unless `--model` names another, and prints the rate. Every run is saved in full under `evals/runs/`, which git ignores; read the failing ones before changing anything.
+- A behaviour no case covers yet is checked with a throwaway script outside the repo, and reported as observed, with the number of runs.
 
 ## Before changing a design
 

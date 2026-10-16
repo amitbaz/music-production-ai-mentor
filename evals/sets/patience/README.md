@@ -41,3 +41,14 @@ A plant is only written when Live holds its before values, so a Set that was alr
 | `chorus-flat` The chorus does not lift | Coffee Leaf / Volume: -4.0 → -20.0 dB | 17–25 against 9–17 | "The chorus is no bigger than the verse; the pad that should carry it is buried." |
 
 Sections, by locator: Intro 1, Verse 1 9, Chorus 17, Verse 2 25, Chorus 33, Breakdown 41, Instrumental 57, Chorus 81, Outro 89.
+
+## Cases
+
+A case is a plant and what the user says about it (ADR 0020); they live in `cases.ts`. A run passes when the Set read back equals the base. With Patience open in Live, unsaved:
+
+```
+pnpm eval                                   # lists the cases
+pnpm eval <case> [--runs 10] [--model provider:model]
+```
+
+Each run is saved under `evals/runs/`. Between runs the runner puts the Set back; if it cannot, it stops and Patience is reopened without saving.
