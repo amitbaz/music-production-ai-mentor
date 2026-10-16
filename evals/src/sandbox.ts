@@ -31,31 +31,45 @@ const BUILD = "scripts/build-sandbox-image.sh <live-installer.dmg> <licence.auz>
 const SHOT = "/private/tmp/mentor-eval-screen.png";
 
 // Runs in the VM before every run. Reopens Patience, answers Live's "Save changes?" with "Don't Save",
-// and waits until Live shows Patience and the Remote Script's port answers. Exits 1, saying why, if not.
+// and waits until Live's log says Patience loaded and the Remote Script listens again. The window title
+// cannot tell: Live calls the demo Set "Untitled". Exits 1, saying why, if Patience does not come back.
 const REOPEN = `set -u
 app=${shellQuote(LIVE_APP)}
 patience=${shellQuote(PATIENCE)}
+log=$(echo "$HOME/Library/Preferences/Ableton/"Live*/Log.txt)
+# Whether, after line $1 of the log, Live loaded Patience and the Remote Script listens again: after the
+# "Loading document", Live logs both lines, in either order.
+loaded_after() {
+    local after
+    after=$(tail -n +$(($1 + 1)) "$log" | sed -n '/Loading document .*Patience/,$p')
+    case "$after" in *"End ExchangeDocument"*) case "$after" in *"listening on 127.0.0.1:${REMOTE_SCRIPT_PORT}"*) return 0 ;; esac ;; esac
+    return 1
+}
+# Live opens Patience at login. Wait for that load first, so its lines are not taken for the reopen's.
+# The log keeps every session; this boot's lines are those stamped after it.
+boot=$(date -u -r "$(sysctl -n kern.boottime | sed 's/.*sec = \\([0-9]*\\).*/\\1/')" +%Y-%m-%dT%H:%M:%S)
+for _ in $(seq 1 90); do
+    first=$(awk -v boot="$boot" 'substr($0, 1, 19) >= boot { print NR - 1; exit }' "$log" 2>/dev/null)
+    [ -n "$first" ] && loaded_after "$first" && break
+    sleep 2
+done
+start=$(wc -l <"$log" | tr -d ' ')
 open -a "$app" "$patience" || { echo "open failed" >&2; exit 1; }
-# Live asks whether to save the Set it has open, unless nothing changed; then there is nothing to click.
+# Live asks whether to save the Set it has open, even an unchanged one. Its dialog's buttons have no
+# name; "Don’t Save" is the description.
 for _ in $(seq 1 10); do
     osascript <<'AS' >/dev/null 2>&1 && break
 tell application "System Events" to tell process "Live"
-    try
-        click (first button of sheet 1 of window 1 whose name ends with "t Save")
-    on error
-        click (first button of window 1 whose name ends with "t Save")
-    end try
+    click (first button of group 1 of window 1 whose description ends with "t Save")
 end tell
 AS
     sleep 1
 done
-sleep 3
 for _ in $(seq 1 90); do
-    title=$(osascript -e 'tell application "System Events" to tell process "Live" to get name of window 1' 2>/dev/null || true)
-    case "$title" in *Patience*) nc -z 127.0.0.1 ${REMOTE_SCRIPT_PORT} && exit 0 ;; esac
+    loaded_after "$start" && exit 0
     sleep 2
 done
-echo "Live did not show Patience with the Remote Script answering within 3 minutes (window: \${title:-none})" >&2
+echo "Live did not load Patience with the Remote Script listening within 3 minutes" >&2
 exit 1
 `;
 
@@ -122,7 +136,9 @@ export async function startSandbox({ host = realHost, image = "mentor-sandbox" }
         throw new Error("Tart is not installed. Install it with `brew install cirruslabs/cli/tart`, or set TART to the path of the tart binary.");
     }
     const build = `Build the sandbox image once with ${BUILD} (see evals/README.md).`;
-    if ((await host.run(tart, ["get", image])).code !== 0) throw new Error(`The sandbox image ${image} does not exist. ${build}`);
+    const got = await host.run(tart, ["get", image, "--format", "json"]);
+    if (got.code !== 0) throw new Error(`The sandbox image ${image} does not exist. ${build}`);
+    const { MACAddress: mac } = JSON.parse(got.stdout) as { MACAddress: string };
     const dir = join(host.home, ".mentor", "sandbox");
     const key = join(dir, "id_ed25519");
     let password = "";
@@ -135,6 +151,13 @@ export async function startSandbox({ host = realHost, image = "mentor-sandbox" }
     const name = `mentor-eval-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const clone = await host.run(tart, ["clone", image, name]);
     if (clone.code !== 0) throw new Error(`Could not copy the sandbox image ${image} (about 60 GB of free disk are needed): ${clone.stderr.trim()}`);
+    // tart clone gives the copy a new MAC address, and Live's authorization is tied to it: with another
+    // one, Live asks to be authorized again. Only one copy can run at a time with it.
+    const keepMac = await host.run(tart, ["set", name, "--mac", mac]);
+    if (keepMac.code !== 0) {
+        await host.run(tart, ["delete", name]);
+        throw new Error(`Could not give the copy ${name} the image's MAC address: ${keepMac.stderr.trim()}`);
+    }
 
     const sshOptions = ["-i", key, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=15"];
     const vm = host.start(tart, ["run", "--no-graphics", "--no-audio", name]);

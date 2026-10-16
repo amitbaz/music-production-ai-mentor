@@ -9,6 +9,12 @@ import { type Host, type Process, startSandbox } from "./sandbox.ts";
 type Call = { command: string; args: string[]; input?: string };
 type Reply = { code?: number; stdout?: string; stderr?: string };
 
+// What Tart answers when a test does not script it: the image's details, and the copy's address.
+const DEFAULTS: Record<string, Reply> = {
+    get: { stdout: JSON.stringify({ MACAddress: "7a:43:e7:63:73:72", State: "stopped" }) },
+    ip: { stdout: "192.168.64.7\n" },
+};
+
 // A fake machine: records every command, answers the ones a test scripts (matched on the command line,
 // first match wins; anything else succeeds), and starts "processes" that stay up until killed.
 function fake({ arch = "arm64", replies = [], vmOutput = "", vmExits = false }: { arch?: string; replies?: [RegExp, Reply][]; vmOutput?: string; vmExits?: boolean } = {}) {
@@ -32,7 +38,7 @@ function fake({ arch = "arm64", replies = [], vmOutput = "", vmExits = false }: 
             if (args[0] === "stop") for (const stop of stops) stop();
             // The VM that never starts never gets an address.
             if (vmExits && args[0] === "ip") return new Promise(() => {});
-            const reply = replies.find(([pattern]) => pattern.test(line(call)))?.[1] ?? (args[0] === "ip" ? { stdout: "192.168.64.7\n" } : {});
+            const reply = replies.find(([pattern]) => pattern.test(line(call)))?.[1] ?? DEFAULTS[args[0] ?? ""] ?? {};
             return { code: reply.code ?? 0, stdout: reply.stdout ?? "", stderr: reply.stderr ?? "" };
         },
         start: (command, args) => {
@@ -57,6 +63,17 @@ function fake({ arch = "arm64", replies = [], vmOutput = "", vmExits = false }: 
 }
 
 const BUILD = "scripts/build-sandbox-image.sh";
+
+test("a copy keeps the image's MAC address, which Live's authorization is tied to", async () => {
+    const { host, calls, started } = fake();
+
+    const sandbox = await startSandbox({ host });
+
+    const set = calls.findIndex((call) => call.args[0] === "set");
+    assert.ok(set > calls.findIndex((call) => call.args[0] === "clone"), "set comes after clone");
+    assert.deepEqual(calls[set]?.args, ["set", sandbox.name, "--mac", "7a:43:e7:63:73:72"]);
+    assert.equal(started[0]?.args[0], "run");
+});
 
 test("a sandbox is a copy of the image, started with no graphics and no audio, reached through a tunnel", async () => {
     const { host, calls, started, line } = fake();
@@ -152,8 +169,16 @@ test("reopenBase runs the fixed script in the VM over ssh", async () => {
     assert.match(script, /Patience/);
     assert.match(script, /osascript/);
     assert.match(script, /System Events/);
-    assert.match(script, /t Save/);
-    assert.match(script, /39031/);
+    // Live's dialog buttons have no name; "Don’t Save" is the description.
+    assert.match(script, /description ends with "t Save"/);
+    // Patience is back when Live's log shows it loaded and the Remote Script listening again: the window
+    // title cannot tell, as Live calls the demo Set "Untitled".
+    assert.match(script, /Loading document/);
+    assert.match(script, /End ExchangeDocument/);
+    assert.match(script, /listening on 127\.0\.0\.1:39031/);
+    // The first reopen after boot waits for the load Live started at login, so that load's log lines
+    // are not taken for the reopen's.
+    assert.match(script, /kern\.boottime/);
     // The script is valid bash, so it cannot fail on its own syntax in the VM.
     assert.equal(spawnSync("bash", ["-n"], { input: script }).status, 0);
 });
