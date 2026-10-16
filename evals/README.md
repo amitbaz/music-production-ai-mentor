@@ -5,7 +5,7 @@ The evals say whether Mentor, with the prompt and tools it has, fixes what is pl
 ## Don't know what to do? Run the loop
 
 ```
-1. Take the case with the lowest score. No cases? Write one: a plant and what the user says.
+1. Take the case with the lowest score, skipping any marked "out of the loop" in scores.md. No cases? Write one: a plant and what the user says.
 2. Run it 10 times. Read every failing run under ~/.mentor/evals/runs/.
 3. Change ONE thing, cheapest first: system prompt → a tool's description → a tool's shape → a new tool.
 4. Run it 30 times, on every model in the panel. Add a line per model to scores.md.
@@ -22,6 +22,10 @@ The user brings the model (ADR 0022), so a case runs on every supported model, n
 - Low on all models → a product problem: prompt, tool or knowledge. Fix it.
 - Low on one model → a model problem. Don't fix it; the line in `scores.md` records it.
 - A change is kept when it lifts the panel, never for one model.
+
+## Judgment plants
+
+A plant with one fix, such as a muted track, passes when its values are back at the base. A judgment plant, such as a level, passes within a range around the base, and the range comes from how far apart good engineers set the same element (ADR 0023). A judgment case with no range yet is marked "out of the loop" in scores.md: its score is a baseline, not something to tune toward.
 
 ## scores.md
 
