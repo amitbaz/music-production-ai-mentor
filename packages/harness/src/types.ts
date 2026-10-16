@@ -43,6 +43,8 @@ export type ModelReply = {
     tokens?: number;
     // The reply was cut off by the output limit
     cutOff: boolean;
+    // The model declined the request on safety grounds: the provider's category and the model's explanation (ADR 0023)
+    refused?: { category: string; explanation: string };
 };
 
 // A model API. Takes the whole conversation and returns the model's reply.

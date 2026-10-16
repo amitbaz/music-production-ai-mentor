@@ -19,6 +19,8 @@ export type LoopResult =
           stop: "finished" | "empty" | "cut_off" | "round_limit" | "cancelled";
           conversationSize: number;
       }
+    // The model declined on safety grounds (ADR 0023)
+    | { messages: Message[]; stop: "refused"; category: string; explanation: string; conversationSize: number }
     | { messages: Message[]; stop: "error"; error: Error; conversationSize: number };
 
 // Something reported to the caller while a turn runs
@@ -70,7 +72,7 @@ export async function runAgentLoop(
             : estimateTokens(fixedChars(tools, options.system) + messagesChars(fromLatestSummary(messages)), model.charsPerToken);
 
     // Ends the turn
-    const stopWith = (stop: Exclude<LoopResult["stop"], "error">): LoopResult => ({
+    const stopWith = (stop: "finished" | "empty" | "cut_off" | "round_limit" | "cancelled"): LoopResult => ({
         messages,
         stop,
         conversationSize: conversationSize(),
@@ -142,9 +144,9 @@ export async function runAgentLoop(
             return { messages, stop: "error", error, conversationSize: conversationSize() };
         }
 
-        // Cut off by the output limit (ADR 0018): the text is kept, and no tool call runs
-        // because its arguments may be incomplete. Every call still gets a result.
-        if (reply.cutOff) {
+        // Cut off by the output limit (ADR 0018) or refused (ADR 0023): the text is kept, and no tool
+        // call runs, because its arguments may be incomplete or the model declined. Every call still gets a result.
+        if (reply.cutOff || reply.refused) {
             const kept = reply.messages.filter(
                 (message) => message.type !== "assistant" || message.text.trim() !== "",
             );
@@ -157,9 +159,12 @@ export async function runAgentLoop(
                     type: "tool_result",
                     callId: message.id,
                     name: message.name,
-                    output: "Not run: the reply was cut off",
+                    output: reply.refused ? "Not run: the model refused" : "Not run: the reply was cut off",
                     isError: true,
                 });
+            }
+            if (reply.refused) {
+                return { messages, stop: "refused", ...reply.refused, conversationSize: conversationSize() };
             }
             return stopWith("cut_off");
         }

@@ -681,3 +681,55 @@ test("a reply cut off before any text arrived is not kept", async () => {
         conversationSize: 31,
     });
 });
+
+const refusal = { category: "cyber", explanation: "I can't help with that." };
+
+test("a refused reply keeps its text, gives its tool calls an error result and stops the turn as refused", async () => {
+    let ran = 0;
+    const counting: Tool[] = tools.map((tool) => ({ ...tool, run: () => (ran++, "HELLO") }));
+    const { model, calls } = scriptedModel([
+        {
+            messages: [
+                { type: "assistant", text: "Let me start" },
+                { type: "tool_call", id: "call_1", name: "shout", args: { text: "a" } },
+            ],
+            cutOff: false,
+            refused: refusal,
+        },
+    ]);
+
+    const result = await runAgentLoop(model, counting, [{ type: "user", text: "Shout" }]);
+
+    assert.equal(ran, 0);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(result, {
+        messages: [
+            { type: "user", text: "Shout" },
+            { type: "assistant", text: "Let me start" },
+            { type: "tool_call", id: "call_1", name: "shout", args: { text: "a" } },
+            {
+                type: "tool_result",
+                callId: "call_1",
+                name: "shout",
+                output: "Not run: the model refused",
+                isError: true,
+            },
+        ],
+        stop: "refused",
+        ...refusal,
+        // The tool and all four messages, as in the cut-off tests
+        conversationSize: 45,
+    });
+});
+
+test("a refused reply with no text keeps nothing of it, and the size is the provider's count", async () => {
+    const { model } = scriptedModel([
+        { messages: [{ type: "assistant", text: "" }], tokens: 500, cutOff: false, refused: refusal },
+    ]);
+
+    const result = await runAgentLoop(model, tools, [{ type: "user", text: "Hello" }]);
+
+    assert.deepEqual(result.messages, [{ type: "user", text: "Hello" }]);
+    assert.equal(result.stop, "refused");
+    assert.equal(result.conversationSize, 500);
+});
