@@ -97,6 +97,9 @@ class Interface:
                 kwargs = dict(args)
                 kwargs.pop("connection", None)
                 result = getattr(self, name)(ns=ns, connection=connection, **kwargs)
+            # Ours, not upstream's (ADR 0012): a list goes in order, as Live's own functions take it.
+            elif isinstance(args, list):
+                result = getattr(self, name)(ns, *args)
             else:
                 result = getattr(self, name)(ns=ns, **args)
             return self.format_result(result, etag, cache)

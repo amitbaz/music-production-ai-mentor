@@ -6,9 +6,10 @@ import Live
 from .Namespaces.Interface import Interface
 from .Namespaces.Track import Track
 
-# The version of this file, which the client checks on connect. Raise it with every change here,
-# and the client's MENTOR_VERSION with it, so a copy installed earlier is told to pair again.
-VERSION = "3"
+# The version of this file, which the client checks on connect. Raise it with every change here or
+# to our edit of the script's dispatch, and the client's MENTOR_VERSION with it, so a copy installed
+# earlier is told to pair again.
+VERSION = "4"
 
 
 class Mentor(Interface):

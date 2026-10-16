@@ -21,7 +21,7 @@ export function liveChange(client: Client): Tool {
                 value: { description: "The value to set the property to, as Live takes it." },
                 function: { type: "string", description: "Live's name of the function to call." },
                 args: {
-                    description: "The function's arguments: a list in order for Live's own functions, or an object by name. None when left out.",
+                    description: "The function's arguments: a list in order, or an object by name. None when left out.",
                 },
             },
             required: ["object"],

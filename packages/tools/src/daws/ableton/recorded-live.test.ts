@@ -1,5 +1,7 @@
 // The reads against replies a real Live 12.4.6 sent, recorded with the ableton-js script 5.0.4 and
 // our file at version 3. Track, clip, chain, locator and rack names were replaced before saving.
+// The file's version reply was raised to 4 by hand: 4 only lets a list of args reach the script's own
+// functions, and no read sends one.
 // Each message must send the commands that were recorded, so a change to what a read sends fails
 // here until the reads are recorded again.
 import { test } from "node:test";

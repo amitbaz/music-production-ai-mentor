@@ -13,8 +13,8 @@ export type Client = ReturnType<typeof createClient>;
 // The version of the pinned script that pairing installs, in remote-scripts/ableton-js/version.py.
 const SCRIPT_VERSION = "5.0.4";
 // The version of our own file in that script, VERSION in remote-scripts/ableton-js/Mentor.py. It is
-// asked for apart from the script's, so the script's files stay as they are upstream.
-const MENTOR_VERSION = "3";
+// asked for apart from the script's, so the script's version.py stays as upstream has it.
+const MENTOR_VERSION = "4";
 
 // How long Live has to greet a new connection, accept the password and give its versions, so a
 // stalled Live, or another program on the port, cannot hang a tool.

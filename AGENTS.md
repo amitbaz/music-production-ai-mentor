@@ -62,7 +62,7 @@ There are three kinds of test. Choose by what could be wrong: our code, our read
 - Write them first, and see them fail, before the implementation.
 - They run with no network. A scripted model stands in for the model, and adapter tests replace `fetch`.
 - Assert on what a caller can see: the messages returned, the stop reason, the request that was sent.
-- `pnpm test` runs all of them.
+- `pnpm test` runs all of them. One runs the Remote Script's dispatch, so it needs `python3`.
 
 ### Recorded replies: do we read real responses correctly?
 
