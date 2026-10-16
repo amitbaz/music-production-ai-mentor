@@ -109,7 +109,8 @@ function toClaudeBlocks(message: Message, flattenTools: boolean): ClaudeBlock[] 
                 {
                     type: "tool_result",
                     tool_use_id: message.callId,
-                    content: message.output,
+                    // Claude rejects an error result with empty content.
+                    content: message.isError && !message.output ? `${message.name} failed with no message` : message.output,
                     is_error: message.isError,
                 },
             ];
@@ -233,7 +234,8 @@ async function readReply(
         } else if (event.type === "message_delta") {
             stopReason = delta?.stop_reason ?? stopReason;
             stopDetails = delta?.stop_details ?? stopDetails;
-            usage = { ...usage, ...event.usage };
+            // A null count must not erase the one from message_start.
+            usage = { ...usage, ...Object.fromEntries(Object.entries(event.usage ?? {}).filter(([, n]) => n != null)) };
         } else if (event.type === "message_stop") {
             stopped = true;
         } else if (event.type === "error") {

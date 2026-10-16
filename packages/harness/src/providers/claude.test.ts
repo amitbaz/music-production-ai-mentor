@@ -165,6 +165,21 @@ test("a request with no tools and no system prompt leaves both fields out, as th
     assert.equal("system" in request, false);
 });
 
+test("a failed result with no output still says something, since Claude rejects an empty error result", () => {
+    const conversation: Message[] = [
+        { type: "user", text: "Go" },
+        { type: "tool_call", id: "toolu_1", name: "create_track", args: {} },
+        { type: "tool_result", callId: "toolu_1", name: "create_track", output: "", isError: true },
+    ];
+
+    const { messages } = toClaudeRequest(conversation, [createTrack]);
+
+    assert.deepEqual(messages[2], {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "create_track failed with no message", is_error: true }],
+    });
+});
+
 // ---- The wire ----
 
 // A streamed reply as Claude sends it: an event line and a data line for each event, with a blank line after.
@@ -192,6 +207,23 @@ const minimalReply = sse([
     { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 3 } },
     { type: "message_stop" },
 ]);
+
+test("a null in message_delta usage does not erase a count from message_start", async (t) => {
+    fakeStream(t, [
+        sse([
+            { type: "message_start", message: { usage: { input_tokens: 5, output_tokens: 1 } } },
+            { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+            { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Hi" } },
+            { type: "content_block_stop", index: 0 },
+            { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { input_tokens: null, output_tokens: 3 } },
+            { type: "message_stop" },
+        ]),
+    ]);
+
+    const reply = await createClaudeModel("test-key", "test-model").call([{ type: "user", text: "Hi" }], []);
+
+    assert.equal(reply.tokens, 5 + 3);
+});
 
 test("the model posts the translated request with the version, key and beta headers", async (t) => {
     const fetchMock = fakeStream(t, [minimalReply]);
