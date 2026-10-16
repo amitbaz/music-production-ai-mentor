@@ -280,6 +280,8 @@ unset PASSWORD
 say "Copying the base image $BASE as $NAME (the first copy downloads it)"
 CREATED=1
 tart clone "$BASE" "$NAME"
+# the base disk has only ~13 GB free; the guest grows its disk on boot (checked on macOS 26.6.2)
+tart set "$NAME" --disk-size "${SANDBOX_DISK_GB:-100}"
 
 say "Booting $NAME (graphics: $([ "$GUI" = 1 ] && echo window || echo none), audio: $([ "${SANDBOX_AUDIO:-0}" = 1 ] && echo on || echo none))"
 start_vm first
