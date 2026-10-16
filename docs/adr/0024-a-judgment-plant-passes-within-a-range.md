@@ -1,4 +1,4 @@
-# 0023 — A judgment plant passes within a range
+# 0024 — A judgment plant passes within a range
 
 Date: 2026-10-16 · Status: accepted · Amends 0020
 

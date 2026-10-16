@@ -25,7 +25,7 @@ The user brings the model (ADR 0022), so a case runs on every supported model, n
 
 ## Judgment plants
 
-A plant with one fix, such as a muted track, passes when its values are back at the base. A judgment plant, such as a level, passes within a range around the base, and the range comes from how far apart good engineers set the same element (ADR 0023). A judgment case with no range yet is marked "out of the loop" in scores.md: its score is a baseline, not something to tune toward.
+A plant with one fix, such as a muted track, passes when its values are back at the base. A judgment plant, such as a level, passes within a range around the base, and the range comes from how far apart good engineers set the same element (ADR 0024). A judgment case with no range yet is marked "out of the loop" in scores.md: its score is a baseline, not something to tune toward.
 
 ## scores.md
 
