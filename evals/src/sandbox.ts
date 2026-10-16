@@ -48,7 +48,7 @@ loaded_after() {
 }
 # Live opens Patience at login. Wait for that load first, so its lines are not taken for the reopen's.
 # The log keeps every session; this boot's lines are those stamped after it.
-boot=$(date -u -r "$(sysctl -n kern.boottime | sed 's/.*sec = \\([0-9]*\\).*/\\1/')" +%Y-%m-%dT%H:%M:%S)
+boot=$(date -u -r "$(sysctl -n kern.boottime | sed 's/^{ sec = \\([0-9]*\\).*/\\1/')" +%Y-%m-%dT%H:%M:%S)
 for _ in $(seq 1 90); do
     first=$(awk -v boot="$boot" 'substr($0, 1, 19) >= boot { print NR - 1; exit }' "$log" 2>/dev/null)
     [ -n "$first" ] && loaded_after "$first" && break

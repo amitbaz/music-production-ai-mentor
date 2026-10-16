@@ -243,6 +243,21 @@ test("reopenBase runs the fixed script in the VM over ssh", async () => {
     assert.equal(spawnSync("bash", ["-n"], { input: script }).status, 0);
 });
 
+// date -r takes seconds on macOS only, as in the VM.
+test("the reopen script reads the boot time from sysctl's seconds, not its microseconds", { skip: process.platform !== "darwin" }, async () => {
+    const { host, calls } = fake();
+    const sandbox = await startSandbox({ host });
+    await sandbox.reopenBase();
+    const script = calls.at(-1)?.input ?? "";
+    const bin = mkdtempSync(join(tmpdir(), "sysctl-"));
+    writeFileSync(join(bin, "sysctl"), "#!/bin/sh\necho '{ sec = 1792179701, usec = 866195 } Fri Oct 16 19:41:41 2026'\n", { mode: 0o755 });
+    const line = script.split("\n").find((l) => l.startsWith("boot="));
+
+    const result = spawnSync("bash", ["-c", `${line}; echo "$boot"`], { env: { PATH: `${bin}:/usr/bin:/bin` }, encoding: "utf8" });
+
+    assert.equal(result.stdout, "2026-10-16T19:41:41\n");
+});
+
 test("reopenBase throws, with what the script said, when Patience does not come back", async () => {
     const { host } = fake({ replies: [[/bash -s/, { code: 1, stderr: "Live did not open Patience within 3 minutes" }]] });
     const sandbox = await startSandbox({ host });
