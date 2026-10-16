@@ -1,6 +1,7 @@
 // What the Remote Script sends back for Live's objects; only the fields the tools use.
 export type LiveTrack = { id: string; name: string; type: string; mute: boolean; solo: boolean };
-export type LiveDevice = { id: string; name: string; class_name: string };
+// type is what Live calls the kind of device, such as "instrument" or "audio_effect".
+export type LiveDevice = { id: string; name: string; class_name: string; type?: string };
 export type LiveParameter = { id: string; value: number };
 export type LiveDeviceParameter = LiveParameter & { name: string; is_quantized: boolean };
 export type LiveChain = { id: string; name: string; mute: boolean; solo: boolean };

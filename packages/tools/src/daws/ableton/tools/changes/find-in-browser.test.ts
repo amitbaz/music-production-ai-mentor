@@ -45,9 +45,9 @@ test("find_in_browser finds by name, ignoring case, and says what kind each matc
     const { matches } = await find({ query: "COMPRESSOR" });
 
     assert.deepEqual(matches, [
-        { name: "Compressor", kind: "device", path: "audio_effects/Dynamics" },
-        { name: "Glue Compressor", kind: "device", path: "audio_effects/Dynamics" },
-        { name: "Bass Compressor.adv", kind: "preset", path: "audio_effects/Dynamics/Compressor" },
+        { name: "Compressor", kind: "device", path: "audio_effects/Dynamics/Compressor" },
+        { name: "Glue Compressor", kind: "device", path: "audio_effects/Dynamics/Glue Compressor" },
+        { name: "Bass Compressor.adv", kind: "preset", path: "audio_effects/Dynamics/Compressor/Bass Compressor.adv" },
     ]);
 });
 
@@ -67,7 +67,7 @@ test("find_in_browser with a kind gives only that kind, and does not walk the re
 
     const { matches } = await find({ query: "bass", kind: "sample" });
 
-    assert.deepEqual(matches, [{ name: "Bass Loop.wav", kind: "sample", path: "samples/Loops" }]);
+    assert.deepEqual(matches, [{ name: "Bass Loop.wav", kind: "sample", path: "samples/Loops/Bass Loop.wav" }]);
     assert.equal(requestedProps().includes("audio_effects"), false);
     assert.equal(requestedProps().includes("instruments"), false);
 });

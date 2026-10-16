@@ -8,7 +8,9 @@ const ROOTS = {
     preset: ["instruments", "audio_effects", "midi_effects", "drums", "sounds", "user_library"],
     sample: ["samples", "user_library"],
 };
-const ALL_ROOTS = ["instruments", "audio_effects", "midi_effects", "drums", "sounds", "samples", "user_library", "max_for_live"];
+// The file names of the samples Live's browser holds.
+export const SAMPLE_FILE = /\.(wav|aiff?|mp3|flac|ogg|m4a)$/i;
+export const ALL_ROOTS = ["instruments", "audio_effects", "midi_effects", "drums", "sounds", "samples", "user_library", "max_for_live"];
 
 // The most items looked at, and the most folders asked for their children in one message, so a
 // large library neither runs for long nor makes Live miss its answer time.
@@ -26,7 +28,7 @@ export function findInBrowser(client: Client): Tool {
     return {
         name: "find_in_browser",
         description:
-            "Finds devices, presets and samples in Ableton Live's browser by name: every item whose name contains `query`, ignoring case. Each match is {name, kind, path}: kind is device, preset, sample or folder, and path is where it is, such as \"audio_effects/Dynamics\". Give kind to look only for devices, presets or samples; this is also faster. Use it to find the exact name of a native device before adding it with edit_devices, or to tell the user where something is. It looks at the first 5000 items, shallowest first, and says when it stopped early. Loading what it finds is not offered.",
+            "Finds devices, presets and samples in Ableton Live's browser by name: every item whose name contains `query`, ignoring case. Each match is {name, kind, path}: kind is device, preset, sample or folder, and path is its browser path, the folders down to it and then its name, such as \"audio_effects/Glue Compressor/Glue Punch.adv\". Give kind to look only for devices, presets or samples; this is also faster. Use it to find the exact name of a native device before adding it with edit_devices, to find a preset, kit or sample to load with edit_devices, giving its path as item, or to tell the user where something is. It looks at the first 5000 items, shallowest first, and says when it stopped early.",
         params: {
             type: "object",
             properties: {
@@ -45,7 +47,7 @@ export function findInBrowser(client: Client): Tool {
 function kindOf(item: LiveBrowserItem, root: string): Kind | "folder" | undefined {
     if (item.is_device) return "device";
     if (!item.is_loadable) return item.is_folder ? "folder" : undefined;
-    return root === "samples" || /\.(wav|aiff?|mp3|flac|ogg|m4a)$/i.test(item.name) ? "sample" : "preset";
+    return root === "samples" || SAMPLE_FILE.test(item.name) ? "sample" : "preset";
 }
 
 async function find(client: Client, args: Record<string, unknown>) {
@@ -67,7 +69,7 @@ async function find(client: Client, args: Record<string, unknown>) {
             seen++;
             const itemKind = kindOf(item, path.split("/")[0] as string);
             if (!itemKind || (kind !== undefined && itemKind !== kind) || !item.name.toLowerCase().includes(wanted)) continue;
-            matches.push({ name: item.name, kind: itemKind, path });
+            matches.push({ name: item.name, kind: itemKind, path: `${path}/${item.name}` });
             if (matches.length === limit) return answer(matches, `Stopped at the first ${limit} matches; ask again with a more exact name for others.`);
         }
         if (seen >= MAX_ITEMS) return answer(matches, `Stopped after ${MAX_ITEMS} items, so some folders have not been searched. Ask again with a more exact name, or a kind.`);
