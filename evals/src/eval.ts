@@ -1,6 +1,6 @@
 // Runs a case against the real model on the base Set open in Live, and prints its rate (ADR 0020):
 //     pnpm eval                                        lists the cases
-//     pnpm eval <case> [--runs 10] [--model provider:model]
+//     pnpm eval <case> [--runs 30] [--model provider:model]
 // Every run is kept in full under ~/.mentor/evals/runs/, outside the repo, so runs outlast the worktree they ran in.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -11,7 +11,7 @@ import { createAbleton } from "@mentor/tools/daws/ableton";
 import { cases } from "../sets/patience/cases.ts";
 import { runCase } from "./run.ts";
 
-const { positionals, values } = parseArgs({ allowPositionals: true, options: { runs: { type: "string", default: "10" }, model: { type: "string" } } });
+const { positionals, values } = parseArgs({ allowPositionals: true, options: { runs: { type: "string", default: "30" }, model: { type: "string" } } });
 const chosen = cases.find((c) => c.name === positionals[0]);
 if (!chosen) {
     if (positionals[0]) console.error(`No case ${positionals[0]}.`);

@@ -48,7 +48,7 @@ A case is a plant and what the user says about it (ADR 0020); they live in `case
 
 ```
 pnpm eval                                   # lists the cases
-pnpm eval <case> [--runs 10] [--model provider:model]
+pnpm eval <case> [--runs 30] [--model provider:model]
 ```
 
 Each run is saved under `~/.mentor/evals/runs/`, outside the repo. Between runs the runner puts the Set back; if it cannot, it stops and Patience is reopened without saving.
