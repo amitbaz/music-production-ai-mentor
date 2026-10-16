@@ -26,9 +26,9 @@ export const DEVICE_VIEW = "Detail/DeviceChain";
 
 export const showView = (view: string) => ({ ns: "application-view", name: "show_view", args: [view] });
 
-// Every device of the Live Set, also inside racks, with the track it is on. Live does not say
-// which track a device is on, so this walks down from the tracks, three messages for each level
-// of racks inside racks.
+// Every device and rack chain of the Live Set, also inside racks, with the track it is on. Live does
+// not say which track a device is on, so this walks down from the tracks, three messages for each
+// level of racks inside racks.
 export async function findTracksOfDevices(client: Client) {
     const [tracks, returns, main] = (await client.send([
         getProp("song", "tracks"),
@@ -47,6 +47,7 @@ export async function findTracksOfDevices(client: Client) {
         const racks = native.filter((_, index) => canHaveChains[index]?.[0]);
         const chainLists = await client.sendEach(racks, ({ device }) => [getProp("device", "chains", device.id)]);
         const chains = racks.flatMap(({ track }, index) => (chainLists[index] as [LiveChain[]])[0].map((chain) => ({ chain, track })));
+        for (const { chain, track } of chains) tracksOf.set(chain.id, { id: track.id, name: track.name });
         const deviceLists = await client.sendEach(chains, ({ chain }) => [getProp("chain", "devices", chain.id)]);
         level = chains.flatMap(({ track }, index) => (deviceLists[index] as [LiveDevice[]])[0].map((device) => ({ device, track })));
     }

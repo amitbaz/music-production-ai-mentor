@@ -205,7 +205,7 @@ test("edit_devices has no way to delete a device", async (t) => {
         { action: "remove", device: eq, to: track },
     ]);
 
-    for (const result of results) assert.match(result.error, /add, move or switch/i);
+    for (const result of results) assert.match(result.error, /add, load, move or switch/i);
     assert.match(results[0].error, /delete/);
     assert.equal(sentNames().length, before);
     assert.equal(sentNames().some((name) => name.includes("delete")), false);
@@ -252,4 +252,220 @@ test("edit_devices is not marked as needing approval", async (t) => {
     const { tool } = await setup(t);
 
     assert.equal(tool.needsApproval, undefined);
+});
+
+// A Live Set to load into: Bass, a MIDI track with Pitch, Drift and EQ Eight; Keys, a MIDI track with
+// only Pitch; and Pad, an audio track with Utility and a rack. The browser holds what Live loads, as
+// the device each item becomes. The user has Pad selected.
+async function setupLoad(t: TestContext) {
+    const { live, track, set, browser } = liveSet({ tempo: 120, numerator: 4, denominator: 4 });
+    const pitch = { name: "Pitch", class_name: "MidiPitcher", type: "midi_effect" as const };
+    const bass = track({
+        name: "Bass",
+        type: "midi",
+        volume: "0.0 dB",
+        pan: "C",
+        devices: [pitch, { name: "Drift", class_name: "Drift", type: "instrument" }, { name: "EQ Eight", class_name: "Eq8" }],
+    });
+    const keys = track({ name: "Keys", type: "midi", volume: "0.0 dB", pan: "C", devices: [pitch] });
+    const pad = track({
+        name: "Pad",
+        type: "audio",
+        volume: "0.0 dB",
+        pan: "C",
+        devices: [
+            { name: "Utility", class_name: "StereoGain" },
+            { name: "Audio Effect Rack", class_name: "AudioEffectGroupDevice", chains: [{ name: "Wet", devices: [{ name: "Reverb", class_name: "Reverb" }] }] },
+        ],
+    });
+    const main = track({ name: "Main", type: "main", volume: "0.0 dB", pan: "C" });
+    set({ tracks: [bass, keys, pad], return_tracks: [], master_track: main });
+    browser({
+        instruments: [{ name: "Drift", device: true, children: [{ name: "Bass", children: [{ name: "808 Drifter.adg", loads: { name: "808 Drifter", class_name: "InstrumentGroupDevice", type: "instrument" } }] }] }],
+        drums: [
+            { name: "505 Core Kit.adg", loads: { name: "505 Core Kit", class_name: "DrumGroupDevice", type: "instrument" } },
+            { name: "Kit", children: [{ name: "Kit", loads: { name: "Kit", class_name: "DrumGroupDevice", type: "instrument" } }] },
+        ],
+        audio_effects: [
+            { name: "Glue Compressor", device: true, children: [{ name: "Glue Punch.adv", loads: { name: "Glue Punch", class_name: "GlueCompressor" } }] },
+        ],
+        user_library: [
+            {
+                name: "Presets",
+                children: [
+                    { name: "Audio Effects", children: [{ name: "My Glue.adv", loads: { name: "My Glue", class_name: "GlueCompressor" } }] },
+                    { name: "My Keys.adg", loads: { name: "My Keys", class_name: "InstrumentGroupDevice", type: "instrument" } },
+                    { name: "Keys with Audio Effects.adg", loads: { name: "Keys with Audio Effects", class_name: "InstrumentGroupDevice", type: "instrument" } },
+                ],
+            },
+        ],
+        samples: [{ name: "Kick.wav", loads: { name: "Kick", class_name: "OriginalSimpler", type: "instrument", sample: true } }],
+    });
+    (live.get("song-view") as Record<string, unknown>).selected_track = pad.id;
+    useStandIn(t, live);
+    const client = createClient(ADDRESS);
+    const tool = editDevices(client);
+    const overview = async () => JSON.parse(await readSet(client).run({})) as { tracks: { id: string; name: string; devices: { id: string; name: string }[] }[] };
+    const tracks = (await overview()).tracks;
+    const ids = Object.fromEntries(tracks.map((read) => [read.name, read.id])) as Record<"Bass" | "Keys" | "Pad", string>;
+    const [, rack] = (tracks[2] as { devices: { id: string }[] }).devices;
+    const chains = JSON.parse(await readTracks(client).run({ tracks: [ids.Pad], devices: [] })).tracks[0].devices[1].chains;
+    const edit = async (edits: unknown[]) => JSON.parse(await tool.run({ edits })).edits;
+    const names = async (trackId: string) => (await overview()).tracks.find((read) => read.id === trackId)?.devices.map((device) => device.name);
+    const chainNames = async () => JSON.parse(await readTracks(client).run({ tracks: [ids.Pad], devices: [] })).tracks[0].devices[1].chains[0].devices.map((device: { name: string }) => device.name);
+    const drift = (tracks[0] as { devices: { id: string }[] }).devices[1]?.id as string;
+    return { live, edit, names, chainNames, ...ids, pad: pad.id, rack: rack?.id as string, chain: chains[0].id as string, drift };
+}
+
+test("edit_devices loads an effect preset from the browser at a position and gives its object id and the new order", async (t) => {
+    const { edit, names, Pad } = await setupLoad(t);
+
+    const [loaded] = await edit([{ action: "load", item: "audio_effects/Glue Compressor/Glue Punch.adv", to: Pad, position: 1 }]);
+
+    assert.match(loaded.device, /^d\d+$/);
+    assert.deepEqual([loaded.action, loaded.name, loaded.in, loaded.position], ["load", "Glue Punch", Pad, 1]);
+    assert.equal(loaded.item, "audio_effects/Glue Compressor/Glue Punch.adv");
+    assert.deepEqual(
+        loaded.order.map((device: { name: string }) => device.name),
+        ["Glue Punch", "Utility", "Audio Effect Rack"],
+    );
+    assert.deepEqual(await names(Pad), ["Glue Punch", "Utility", "Audio Effect Rack"]);
+});
+
+test("edit_devices loads an effect preset into a rack chain, at its end when no position is given", async (t) => {
+    const { edit, names, chainNames, Pad, chain } = await setupLoad(t);
+
+    const [loaded] = await edit([{ action: "load", item: "audio_effects/Glue Compressor/Glue Punch.adv", to: chain }]);
+
+    assert.deepEqual([loaded.in, loaded.position], [chain, 2]);
+    assert.deepEqual(await chainNames(), ["Reverb", "Glue Punch"]);
+    assert.deepEqual(await names(Pad), ["Utility", "Audio Effect Rack"]);
+});
+
+test("edit_devices loads a kit onto a MIDI track in the instrument's place", async (t) => {
+    const { edit, names, Keys } = await setupLoad(t);
+
+    const [kit] = await edit([{ action: "load", item: "drums/505 Core Kit.adg", to: Keys }]);
+    assert.deepEqual([kit.name, kit.in, kit.position], ["505 Core Kit", Keys, 2]);
+    assert.deepEqual(await names(Keys), ["Pitch", "505 Core Kit"]);
+});
+
+test("edit_devices loads a sample onto a MIDI track with no instrument, as a Simpler", async (t) => {
+    const { edit, names, Keys } = await setupLoad(t);
+
+    const [sample] = await edit([{ action: "load", item: "samples/Kick.wav", to: Keys }]);
+
+    assert.deepEqual([sample.name, sample.position], ["Kick", 2]);
+    assert.deepEqual(await names(Keys), ["Pitch", "Kick"]);
+});
+
+test("edit_devices selects the user's track again after a load", async (t) => {
+    const { live, edit, Keys, pad } = await setupLoad(t);
+
+    await edit([{ action: "load", item: "drums/505 Core Kit.adg", to: Keys }]);
+
+    assert.equal((live.get("song-view") as { selected_track: string }).selected_track, pad);
+});
+
+test("edit_devices refuses to load an instrument or sample where the track has an instrument, and points to delete", async (t) => {
+    const { edit, names, Bass, drift } = await setupLoad(t);
+
+    const results = await edit([
+        { action: "load", item: "instruments/Drift/Bass/808 Drifter.adg", to: Bass },
+        { action: "load", item: "samples/Kick.wav", to: Bass },
+    ]);
+
+    for (const result of results) {
+        assert.match(result.error, new RegExp(`${Bass} already has an instrument, ${drift} Drift`));
+        assert.match(result.error, /delete it first with delete/i);
+    }
+    assert.deepEqual(await names(Bass), ["Pitch", "Drift", "EQ Eight"]);
+});
+
+test("edit_devices refuses to load an instrument or sample onto an audio track", async (t) => {
+    const { edit, names, Pad } = await setupLoad(t);
+
+    const [result] = await edit([{ action: "load", item: "drums/505 Core Kit.adg", to: Pad }]);
+
+    assert.match(result.error, /MIDI track/);
+    assert.deepEqual(await names(Pad), ["Utility", "Audio Effect Rack"]);
+});
+
+test("edit_devices loads an instrument only onto a track, with no position", async (t) => {
+    const { edit, names, Keys, chain } = await setupLoad(t);
+
+    const results = await edit([
+        { action: "load", item: "drums/505 Core Kit.adg", to: chain },
+        { action: "load", item: "samples/Kick.wav", to: Keys, position: 1 },
+    ]);
+
+    for (const result of results) assert.match(result.error, /An instrument goes onto a track, in the instrument's place\. Give a track as to, with no position\./);
+    assert.deepEqual(await names(Keys), ["Pitch"]);
+});
+
+test("edit_devices says which part of a browser path is not there, and that a folder cannot be loaded", async (t) => {
+    const { edit, Keys } = await setupLoad(t);
+
+    const results = await edit([
+        { action: "load", item: "instruments/Drift/Lead/Saw Lead.adg", to: Keys },
+        { action: "load", item: "instruments/Drift/Bass", to: Keys },
+        { action: "load", item: "Glue Punch.adv", to: Keys },
+        { action: "load", to: Keys },
+    ]);
+
+    assert.match(results[0].error, /instruments\/Drift has no Lead/);
+    assert.match(results[0].error, /find_in_browser/);
+    assert.match(results[1].error, /instruments\/Drift\/Bass is a folder/);
+    for (const result of results.slice(2)) assert.match(result.error, /item must be a browser path/);
+});
+
+test("edit_devices reports a load that Live did not make", async (t) => {
+    const { edit, names, Keys } = await setupLoad(t);
+
+    // The stand-in browser's Drift has no device to load, as when Live loads nothing and says nothing.
+    const [result] = await edit([{ action: "load", item: "instruments/Drift", to: Keys }]);
+
+    assert.match(result.error, /Live loaded nothing from instruments\/Drift/);
+    assert.deepEqual(await names(Keys), ["Pitch"]);
+});
+
+test("edit_devices finds an item in a folder of the same name", async (t) => {
+    const { edit, names, Keys } = await setupLoad(t);
+
+    const [loaded] = await edit([{ action: "load", item: "drums/Kit/Kit", to: Keys }]);
+
+    assert.equal(loaded.name, "Kit");
+    assert.deepEqual(await names(Keys), ["Pitch", "Kit"]);
+});
+
+test("edit_devices loads an effect from the user library's Audio Effects onto a track with an instrument", async (t) => {
+    const { edit, names, Bass } = await setupLoad(t);
+
+    const [loaded] = await edit([{ action: "load", item: "user_library/Presets/Audio Effects/My Glue.adv", to: Bass, position: 3 }]);
+
+    assert.equal(loaded.position, 3);
+    assert.deepEqual(await names(Bass), ["Pitch", "Drift", "My Glue", "EQ Eight"]);
+});
+
+test("edit_devices tells an instrument from an effect by its folders, not by its own name", async (t) => {
+    const { edit, names, Bass } = await setupLoad(t);
+
+    const [refused] = await edit([{ action: "load", item: "user_library/Presets/Keys with Audio Effects.adg", to: Bass }]);
+
+    assert.match(refused.error, /already has an instrument/);
+    assert.deepEqual(await names(Bass), ["Pitch", "Drift", "EQ Eight"]);
+});
+
+test("edit_devices reports an item the path did not show to be an instrument where Live put it", async (t) => {
+    const { edit, names, Keys, Pad } = await setupLoad(t);
+
+    const [loaded, onAudio] = await edit([
+        { action: "load", item: "user_library/Presets/My Keys.adg", to: Keys, position: 1 },
+        { action: "load", item: "user_library/Presets/My Keys.adg", to: Pad },
+    ]);
+
+    assert.deepEqual([loaded.name, loaded.in, loaded.position], ["My Keys", Keys, 2]);
+    assert.deepEqual(await names(Keys), ["Pitch", "My Keys"]);
+    assert.match(onAudio.error, /Live loaded nothing/);
+    assert.match(onAudio.error, /MIDI track/);
 });

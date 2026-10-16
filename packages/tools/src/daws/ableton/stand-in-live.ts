@@ -217,6 +217,10 @@ function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
         if (object.group && prop === "arrangement_clips") {
             return { ok: false, error: "Main, Group and Return Tracks have no arrangement clips", errorType: "Exception" };
         }
+        // The script gives the selected track as it gives any track; the stand-in keeps only its id.
+        if (object.ns === "song-view" && prop === "selected_track") {
+            return { ok: true, data: (live.get(object.selected_track as string)?.serialized as unknown) ?? null };
+        }
         // The shown number of a parameter: its value times the shown units per internal unit.
         if (object.ns === "device-parameter" && prop === "display_value") return { ok: true, data: (object.value as number) * ((object.scale as number) ?? 1) };
         if (object.routing && ROUTING.test(prop)) {
@@ -378,6 +382,8 @@ export type MixerSpec = string | Omit<Extract<ParameterSpec, { min: number }>, "
 export type DeviceSpec = {
     name: string;
     class_name: string;
+    // What Live calls the kind of device; an audio effect unless given.
+    type?: "instrument" | "audio_effect" | "midi_effect";
     parameters?: ParameterSpec[];
     // A rack's chains, each with its own devices.
     chains?: { name: string; mute?: boolean; solo?: boolean; devices?: DeviceSpec[] }[];
@@ -536,10 +542,12 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
 
     function device(spec: DeviceSpec): { id: string; name: string; type: string; class_name: string } {
         const deviceId = id();
+        const type = spec.type ?? "audio_effect";
         live.set(deviceId, {
             ns: "device",
             name: spec.name,
             class_name: spec.class_name,
+            type,
             parameters: (spec.parameters ?? []).map(deviceParameter),
             can_have_chains: spec.chains !== undefined,
             chains: (spec.chains ?? []).map((chain) => {
@@ -548,7 +556,7 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
                 return { id: chainId, name: chain.name, color: 0, mute: chain.mute ?? false, solo: chain.solo ?? false };
             }),
         });
-        return { id: deviceId, name: spec.name, type: "audio_effect", class_name: spec.class_name };
+        return { id: deviceId, name: spec.name, type, class_name: spec.class_name };
     }
 
     // Puts a new device, with a "Device On" switch, into the devices of a track or chain, at the
@@ -619,6 +627,7 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
             view: { ns: "track-view", is_collapsed: spec.collapsed ?? false },
             routing: spec.routing,
             clipless: spec.type === "return" || spec.type === "main",
+            has_midi_input: spec.type === "midi",
             group: spec.type === "group",
             devices: (spec.devices ?? []).map(device),
             insertDevice: inserter(trackId),
@@ -833,14 +842,16 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
 
     // The browser as Live's script describes it: root items that hold their children, where a
     // folder has `children`, a device is_device, and anything else loadable is a preset or sample.
-    type ItemSpec = { name: string; device?: boolean; loadable?: boolean; children?: ItemSpec[] };
+    // `loads` is the device Live makes of the item when it is loaded; `sample` marks one Live makes
+    // into a Simpler.
+    type ItemSpec = { name: string; device?: boolean; loadable?: boolean; children?: ItemSpec[]; loads?: DeviceSpec & { sample?: true } };
     function browserItem(spec: ItemSpec): Record<string, unknown> {
         const itemId = id();
-        live.set(itemId, { ns: "browser-item", children: (spec.children ?? []).map(browserItem) });
+        live.set(itemId, { ns: "browser-item", children: (spec.children ?? []).map(browserItem), loads: spec.loads });
         return {
             id: itemId,
             name: spec.name,
-            is_loadable: spec.loadable ?? spec.device ?? false,
+            is_loadable: spec.loadable ?? (spec.device || spec.loads !== undefined),
             is_selected: false,
             is_device: spec.device ?? false,
             is_folder: spec.children !== undefined,
@@ -849,7 +860,33 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
         };
     }
     function browser(roots: Record<string, ItemSpec[]>) {
-        live.set("browser", { ns: "browser", ...Object.fromEntries(Object.entries(roots).map(([root, items]) => [root, items.map(browserItem)])) });
+        live.set("browser", {
+            ns: "browser",
+            ...Object.fromEntries(Object.entries(roots).map(([root, items]) => [root, items.map(browserItem)])),
+            load_item: ({ id: itemId }: { id: string }) => load(live.get(itemId)?.loads as ItemSpec["loads"]),
+        });
+    }
+
+    // Loads onto the selected track as Live 12 did through the script, answering nothing either way
+    // (#66): an effect goes last, whatever device is selected; an instrument goes after the MIDI
+    // effects, or replaces the instrument there; a sample becomes a Simpler only where there is no
+    // instrument; and an audio track takes no instrument.
+    function load(spec: ItemSpec["loads"]) {
+        const held = live.get((live.get("song-view") as { selected_track: string }).selected_track) as { devices: { id: string; type: string }[]; has_midi_input: boolean };
+        const devices = held.devices;
+        if (!spec) return null;
+        if (spec.type !== "instrument") {
+            devices.push(device(spec));
+            return null;
+        }
+        if (!held.has_midi_input) return null;
+        const at = devices.findIndex((candidate) => candidate.type === "instrument");
+        if (at >= 0 && spec.sample) return null;
+        if (at >= 0) {
+            kill((devices[at] as { id: string }).id);
+            devices.splice(at, 1, device(spec));
+        } else devices.splice(devices.filter((candidate) => candidate.type === "midi_effect").length, 0, device(spec));
+        return null;
     }
 
     // A locator, as the script gives it in the song's cue_points; its name can be set.
