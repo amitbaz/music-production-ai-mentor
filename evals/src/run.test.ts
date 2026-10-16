@@ -21,7 +21,6 @@ const lowEndHot: Case = {
 function scripted(replies: Message[][]): Model {
     return { call: async () => ({ messages: replies.shift() ?? [], cutOff: false }) };
 }
-
 const call = (name: string, args: Record<string, unknown>): Message[] => [{ type: "tool_call", id: name, name, args }];
 const say = (text: string): Message[] => [{ type: "assistant", text }];
 // The mentor's own connection reads Sub Sub Bass as t1 and its Utility as d1.
@@ -29,7 +28,7 @@ const fix = [call("read_set", {}), call("set_parameters", { changes: [{ target: 
 
 // A stand-in Live Set with the sub bass at its base volume and a Utility on it, the runner's tools
 // and a mentor with a scripted model, each on its own connection.
-function open(t: TestContext, replies: Message[][]) {
+function open(t: TestContext, replies: Message[][] | Model) {
     const { live, track, set } = liveSet({ tempo: 167, numerator: 4, denominator: 4 });
     const gain = { name: "Gain", value: 0, min: -35, max: 35, shown: (v: number) => `${v.toFixed(1)} dB` };
     set({
@@ -39,7 +38,7 @@ function open(t: TestContext, replies: Message[][]) {
     });
     useStandIn(t, live);
     const tools: Tool[] = createAbleton({ address: ADDRESS });
-    const mentor = createMentor({ model: scripted(replies), abletonAddress: ADDRESS });
+    const mentor = createMentor({ model: Array.isArray(replies) ? scripted(replies) : replies, abletonAddress: ADDRESS });
     const runs: Run[] = [];
     return { tools, mentor, runs, onRun: async (run: Run) => void runs.push(run) };
 }
@@ -82,6 +81,22 @@ test("a run fails when the mentor changes anything else, and the Set is restored
     assert.deepEqual(first.left, []);
     assert.equal(second.passed, true);
     assert.deepEqual(await snapshot(tools), base);
+});
+
+test("a refused run is a failed run, though the Set was left as it was", async (t) => {
+    // The model fixes the Set, then declines on the next round: the Set equals its base, the turn was refused.
+    const replies = [call("read_set", {}), call("set_parameters", { changes: [{ target: "t1", parameter: "volume", value: -1 }] })];
+    const refusesLast: Model = {
+        call: async () => replies.length ? { messages: replies.shift() ?? [], cutOff: false } : { messages: [], cutOff: false, refused: { category: "cyber", explanation: "No." } },
+    };
+    const { tools, mentor, runs, onRun } = open(t, refusesLast);
+
+    const result = await runCase({ tools, mentor, model: "gemini:test", case: lowEndHot, runs: 1, onRun });
+
+    assert.deepEqual(result, { passed: 0, runs: 1 });
+    const [only] = runs as [Run];
+    assert.equal(only.stop, "refused");
+    assert.equal(only.passed, false);
 });
 
 test("the mentor's removals are approved, and a change the runner cannot undo stops the series", async (t) => {

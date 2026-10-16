@@ -686,7 +686,11 @@ const refusal = { category: "cyber", explanation: "I can't help with that." };
 
 test("a refused reply keeps its text, gives its tool calls an error result and stops the turn as refused", async () => {
     let ran = 0;
-    const counting: Tool[] = tools.map((tool) => ({ ...tool, run: () => (ran++, "HELLO") }));
+    const counting: Tool[] = tools.map((tool) => ({ ...tool, run: () => {
+            ran++;
+            return "HELLO";
+        },
+    }));
     const { model, calls } = scriptedModel([
         {
             messages: [

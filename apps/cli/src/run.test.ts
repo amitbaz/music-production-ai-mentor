@@ -99,6 +99,11 @@ test("a turn that did not finish is kept, and says why", async () => {
         [{ messages: [kept], stop: "error", error: new Error("boom"), conversationSize: 0 }, "err", "error: boom"],
         [{ messages: [kept], stop: "empty", conversationSize: 0 }, "err", "(no reply)"],
         [{ messages: [kept], stop: "cut_off", conversationSize: 0 }, "err", "(reply cut off)"],
+        [
+            { messages: [kept], stop: "refused", category: "cyber", explanation: "I can't help with that.", conversationSize: 0 },
+            "err",
+            "refused (cyber): I can't help with that.",
+        ],
         [{ messages: [kept], stop: "round_limit", conversationSize: 0 }, "err", "stopped: too many rounds without finishing"],
         [{ messages: [kept], stop: "cancelled", conversationSize: 0 }, "out", "cancelled"],
     ];
