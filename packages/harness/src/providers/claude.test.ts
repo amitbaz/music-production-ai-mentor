@@ -46,7 +46,8 @@ test("translates a conversation and its tools into a Claude request", () => {
     ];
 
     assert.deepEqual(toClaudeRequest(conversation, [setTempo, createTrack], "Be brief"), {
-        system: "Be brief",
+        // The system prompt is a block with its own mark, since the cache reads tools, then system, then messages.
+        system: [{ type: "text", text: "Be brief", cache_control: { type: "ephemeral" } }],
         // Streaming on, a generous output limit, the model's own thinking defaults plus the binding control (ADR 0023).
         stream: true,
         max_tokens: 64_000,
@@ -57,7 +58,7 @@ test("translates a conversation and its tools into a Claude request", () => {
                 name: "create_track",
                 description: "Adds a track",
                 input_schema: createTrack.params,
-                // One mark, on the last tool: the tools and the system prompt before it are cached.
+                // A mark on the last tool caches the tool list; the system prompt has its own.
                 cache_control: { type: "ephemeral" },
             },
         ],
@@ -777,7 +778,7 @@ test("a turn with a tool: Claude's thinking is sent back with the tool results, 
     assert.deepEqual(ran, [{ bpm: 128 }]);
     // The second request holds the first reply with its thinking whole, then both results.
     const second = bodyOf(fetchMock, 1);
-    assert.equal(second.system, "You are a test.");
+    assert.deepEqual(second.system, [{ type: "text", text: "You are a test.", cache_control: { type: "ephemeral" } }]);
     assert.deepEqual(second.messages.slice(1), [
         {
             role: "assistant",

@@ -49,7 +49,9 @@ export function toClaudeRequest(conversation: Message[], tools: Tool[], system?:
     }
 
     return {
-        ...(system ? { system } : {}),
+        // A block with its own mark: the cache reads tools, then system, then messages, so the mark
+        // on the last tool does not cover the system prompt.
+        ...(system ? { system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }] } : {}),
         stream: true,
         max_tokens: MAX_TOKENS,
         // No effort and no thinking knobs: the model's defaults. A block that no longer fits its
@@ -63,7 +65,7 @@ export function toClaudeRequest(conversation: Message[], tools: Tool[], system?:
                       name: tool.name,
                       description: tool.description,
                       input_schema: tool.params,
-                      // The mark on the last tool caches the tools and the system prompt before it.
+                      // The mark on the last tool caches the tool list.
                       ...(i === tools.length - 1 ? { cache_control: { type: "ephemeral" } } : {}),
                   })),
               }),
