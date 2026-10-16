@@ -8,7 +8,7 @@ Early. The mentor runs on Gemini, or on Claude when asked, in the terminal (`pnp
 
 ## What it does today
 
-- Talk to the mentor in the terminal, with its reply shown as it is written.
+- Talk to the mentor in the terminal, with its reply shown as it is written, on Gemini by default or on any supported model with `pnpm start --model provider:model`.
 - It tells explaining from acting by how you ask, and looks at the current state before changing anything.
 - Its system prompt tells it how to work in Live: read before acting and name tracks, devices and clips by the object ids of the latest read; after a change, give each one as track / device / parameter: before → after, such as `Kick / Volume: 0.0 dB → -3.0 dB`; for what the tools cannot do, such as a plug-in's settings, automation or freezing, give the exact steps; and say it cannot hear the audio rather than claim to.
 - `pnpm pair ableton` pairs the mentor with Ableton Live on macOS: it installs the Remote Script with a new random password that only the mentor knows, and says which Control Surface to choose in Live. Running it again replaces both. `pnpm unpair ableton` removes them again. The mentor can be talked to whether Live is paired or not, and when it cannot reach Live it says whether Live is not paired or not answering.
