@@ -8,6 +8,7 @@ export {
     type Model,
     type ModelReply,
     ModelCallError,
+    type ProviderMeta,
     type Tool,
     type ToolCall,
 } from "./types.ts";

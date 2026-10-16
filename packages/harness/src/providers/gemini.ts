@@ -4,6 +4,7 @@ import {
     ModelCallError,
     type Model,
     type ModelReply,
+    type ProviderMeta,
     type SupportedModel,
     type Tool,
 } from "../types.ts";
@@ -94,12 +95,9 @@ function toGeminiPart(message: Message): GeminiPart {
 }
 
 // Reads back the thoughtSignature this adapter stored in providerMeta, if there is one.
-function signtatureFrom(providerMeta: unknown): GeminiPart {
-    if (
-        typeof providerMeta === "object" &&
-        providerMeta !== null &&
-        "thoughtSignature" in providerMeta
-    ) {
+// Meta tagged for another provider is not ours to read.
+function signtatureFrom(providerMeta: ProviderMeta | undefined): GeminiPart {
+    if (providerMeta?.provider === "gemini" && "thoughtSignature" in providerMeta) {
         return { thoughtSignature: providerMeta.thoughtSignature };
     }
 
@@ -162,7 +160,7 @@ function addParts(
 ) {
     for (const part of parts) {
         const meta = part.thoughtSignature
-            ? { providerMeta: { thoughtSignature: part.thoughtSignature } }
+            ? { providerMeta: { provider: "gemini", thoughtSignature: part.thoughtSignature } }
             : {};
 
         if (part.functionCall) {
