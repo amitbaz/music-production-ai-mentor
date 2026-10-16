@@ -36,6 +36,7 @@
 - **Native device** — an instrument or effect that is part of Ableton Live, such as EQ Eight or Compressor. A third-party plug-in is not one.
 - **Browser item** — a device, preset, kit or sample in Live's browser. It is named by its browser path: the folders from the browser's top level down to it, then its own name, such as `drums/Kit-Core 808.adg`. Unlike an object id, a browser path lasts across connections.
 - **Loading** — putting a browser item onto a track or rack chain as a device, as Live does when one is dragged from the browser: a preset or kit becomes its device, and a sample becomes a Simpler. Placing a sample on the timeline as a clip is not loading.
+- **Placing a sample** — putting an audio file from disk onto an audio track's timeline in the Arrangement View, as a clip that starts at a bar and is as long as the file. It is not loading: no device is added.
 - **Rack chain** — one of the parallel signal paths inside a rack device, such as an Audio Effect Rack, each with its own devices in order. A rack can hold racks.
 - **Object id** — a short name such as `t17`, `d204`, `c3`, `ch2`, `n12` or `l2` that a read gives to a track, device, clip, rack chain, note or locator, and that a later tool call uses to say which one it means. It follows the object through renames and reorders, and lasts as long as the connection to Live.
 - **Round** — one model call plus the tool calls it triggers. The agent loop is capped at 10 rounds per turn.
