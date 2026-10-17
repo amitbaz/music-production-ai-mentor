@@ -98,6 +98,8 @@ test("live_change refuses a function that takes a Live object, says what to do i
         ["create_automation_envelope", /give the user the steps/],
         ["clear_envelope", /give the user the steps/],
         ["export_to_clip_slot", /give the user the steps/],
+        ["move_device", /edit_devices.*move/],
+        ["find_device_position", /edit_devices.*move/],
     ] as const) {
         await assert.rejects(async () => tool.run({ object: bass, function: name, args: ["c2"] }), new RegExp(`${name}.*${instead.source}`));
     }

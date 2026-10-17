@@ -9,8 +9,8 @@ const SCRIPT_FUNCTIONS = new Set(["add_listener", "remove_listener", "get_prop",
 
 const AUTOMATION_STEPS = "The mentor cannot reach automation yet, so give the user the steps instead.";
 
-// The functions, and the one property, that take a Live object in their args or value. The script
-// looks it up by its own id, which the model never has (#100), so each is refused with what to do instead.
+// The functions, and the one property, that take a Live object in their args or value. An object id
+// there reaches the script or Live as it is, and is not found (#100), so each is refused with what to do instead.
 const TAKES_A_LIVE_OBJECT: Record<string, string> = {
     delete_clip: "Use delete with the clip's object id.",
     duplicate_clip_to_arrangement: "Use edit_arrangement with duplicate.",
@@ -18,6 +18,8 @@ const TAKES_A_LIVE_OBJECT: Record<string, string> = {
     create_automation_envelope: AUTOMATION_STEPS,
     clear_envelope: AUTOMATION_STEPS,
     export_to_clip_slot: "The mentor cannot reach clip slots, so give the user the steps instead.",
+    move_device: "Use edit_devices with move.",
+    find_device_position: "Use edit_devices with move, which finds the position itself.",
     appointed_device: "Use show with the device's object id.",
 };
 
