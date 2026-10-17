@@ -15,7 +15,7 @@ function connectEcho(t: TestContext, ...args: string[]) {
 test("the server's tools are listed as it describes them", async (t) => {
     const tools = await connectEcho(t).tools;
     const echo = tools.find((tool) => tool.name === "echo");
-    assert.deepEqual(tools.map((tool) => tool.name), ["echo", "fail", "exit"]);
+    assert.deepEqual(tools.map((tool) => tool.name), ["echo", "fail", "picture", "exit"]);
     assert.equal(echo?.description, "Says the text back.");
     assert.deepEqual((echo?.params as { properties?: unknown } | undefined)?.properties, {
         text: { type: "string", description: "What to say" },
@@ -34,6 +34,18 @@ test("a result the server marks as an error fails the call", async (t) => {
     await assert.rejects(async () => fail?.run({}), { message: "It went wrong." });
 });
 
+test("an empty text is still an answer", async (t) => {
+    const tools = await connectEcho(t).tools;
+    const echo = tools.find((tool) => tool.name === "echo");
+    assert.equal(await echo?.run({ text: "" }), "");
+});
+
+test("a result with no text fails the call, naming what came instead", async (t) => {
+    const tools = await connectEcho(t).tools;
+    const picture = tools.find((tool) => tool.name === "picture");
+    await assert.rejects(async () => picture?.run({}), { message: "The tool answered with no text, only: image" });
+});
+
 test("a server that can't start gives the reason", async (t) => {
     const connection = connectMcp({ command: process.execPath, args: ["/no/such/server.ts"] });
     t.after(() => connection.close());
@@ -48,7 +60,8 @@ test("a server that doesn't answer in time is given up on", async (t) => {
 
 test("after the server dies, the next call fails", async (t) => {
     const tools = await connectEcho(t).tools;
-    const [echo, , exit] = tools;
+    const echo = tools.find((tool) => tool.name === "echo");
+    const exit = tools.find((tool) => tool.name === "exit");
     await assert.rejects(async () => exit?.run({}));
     await assert.rejects(async () => echo?.run({ text: "still there?" }));
 });

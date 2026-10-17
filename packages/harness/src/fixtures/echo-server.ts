@@ -20,6 +20,11 @@ if (process.argv[2] === "hang") {
             async () => ({ content: [{ type: "text", text: "It went wrong." }], isError: true }),
         );
         server.registerTool(
+            "picture",
+            { description: "Answers with an image only.", inputSchema: z.object({}) },
+            async () => ({ content: [{ type: "image", data: "iVBORw0KGgo=", mimeType: "image/png" }] }),
+        );
+        server.registerTool(
             "exit",
             { description: "Ends the server.", inputSchema: z.object({}) },
             async () => process.exit(1),

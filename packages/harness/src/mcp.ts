@@ -38,9 +38,14 @@ export function connectMcp({ command, args = [], timeoutMs = 60_000 }: McpServer
                 params: tool.inputSchema,
                 run: async (args) => {
                     const result = await client.callTool({ name: tool.name, arguments: args });
-                    const text = result.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n");
+                    const texts = result.content.flatMap((block) => (block.type === "text" ? [block.text] : []));
+                    const text = texts.join("\n");
                     // A thrown error becomes a failed tool result in the agent loop.
                     if (result.isError) throw new Error(text);
+                    // Only text reaches the model for now; an answer without any is not a success.
+                    if (!texts.length && result.content.length) {
+                        throw new Error(`The tool answered with no text, only: ${result.content.map((block) => block.type).join(", ")}`);
+                    }
                     return text;
                 },
             }),

@@ -36,10 +36,12 @@ if (kbPath && knowledgeBase) {
         await knowledgeBase.close();
         process.exit(1);
     }
-    // The commit, with "-dirty" for notes changed and not committed: a score compares only at the same notes.
+    // The commit, with "-dirty" for any change not committed, new notes included: a score compares only at
+    // the same notes. ponytail: two dirty states share a line; commit the notes before a series that counts.
     let commit = "unknown commit";
     try {
-        commit = execFileSync("git", ["-C", kbPath, "describe", "--always", "--dirty", "--exclude=*"], { encoding: "utf8" }).trim();
+        const git = (...args: string[]) => execFileSync("git", ["-C", kbPath, ...args], { encoding: "utf8" }).trim();
+        commit = `${git("rev-parse", "--short", "HEAD")}${git("status", "--porcelain", "--untracked-files=normal") ? "-dirty" : ""}`;
     } catch {}
     kbLine = `knowledge base: mentor-kb @ ${commit}`;
 }
