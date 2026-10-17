@@ -31,7 +31,7 @@ export function findInBrowser(client: Client): Tool {
     return {
         name: "find_in_browser",
         description:
-            "Finds devices, presets and samples in Ableton Live's browser by name: every item whose name contains `query`, ignoring case. Each match is {name, kind, path}: kind is device, preset, sample or folder, and path is its browser path, the folders down to it and then its name, such as \"audio_effects/Glue Compressor/Glue Punch.adv\". Give kind to look only for devices, presets or samples; this is also faster. Devices include the user's third-party plug-ins, each given once, in the format to load. Use it to find the exact name of a native device before adding it with edit_devices, to find a plug-in, preset, kit or sample to load with edit_devices, giving its path as item, or to tell the user where something is. It looks at the first 5000 items, shallowest first, and says when it stopped early.",
+            "Finds devices, presets and samples in Ableton Live's browser by name: every item whose name contains `query`, ignoring case. Each match is {name, kind, path}: kind is device, preset, sample or folder, and path is its browser path, the folders down to it and then its name, such as \"audio_effects/Glue Compressor/Glue Punch.adv\". Give kind to look only for devices, presets or samples; this is also faster. Devices include the user's third-party plug-ins, found by maker or name and each given once, in the format to load; a plug-in is loaded with edit_devices load by its path, never added by name. Use it to find the exact name of a native device before adding it with edit_devices, to find a plug-in, preset, kit or sample to load with edit_devices, giving its path as item, or to tell the user where something is. It looks at the first 5000 items, shallowest first, and says when it stopped early.",
         params: {
             type: "object",
             properties: {
@@ -66,26 +66,33 @@ async function find(client: Client, args: Record<string, unknown>) {
 
     const matches: { name: string; kind: string; path: string }[] = [];
     const rootItems = (await client.send(roots.map((root) => getProp("browser", root)))) as (LiveBrowserItem[] | null)[];
-    // The format folders go best first, so the walk meets the copy of a plug-in to keep first.
+    // The format folders go best first, so the walk meets the copy of a plug-in to keep first, since
+    // Live puts every copy at the same depth.
     let level: Found[] = rootItems.flatMap((items, index) => {
         const root = roots[index] as string;
-        const sorted = root === "plugins" ? (items ?? []).toSorted((a, b) => formatRank(a.name) - formatRank(b.name)) : (items ?? []);
+        const listed = items ?? [];
+        const sorted = root === "plugins" ? listed.toSorted((a, b) => formatRank(a.name) - formatRank(b.name)) : listed;
         return sorted.map((item) => ({ item, path: root }));
     });
-    // The plug-ins already matched, by maker folder and name. A VST2 name carries the maker, such as
+    // The plug-ins met so far, by maker folder and name. A VST2 name carries the maker, such as
     // "FabFilter Pro-C 2", so a name alone matches one too.
-    const plugins = new Set<string>();
+    const metPlugins = new Set<string>();
     let seen = 0;
     while (level.length > 0) {
         for (const { item, path } of level) {
             seen++;
-            const itemKind = kindOf(item, path.split("/")[0] as string);
-            if (!itemKind || (kind !== undefined && itemKind !== kind) || !item.name.toLowerCase().includes(wanted)) continue;
-            if (itemKind === "device" && path.startsWith("plugins/")) {
-                const maker = path.split("/").at(-1);
-                if (plugins.has(`${maker} ${item.name}`) || plugins.has(item.name)) continue;
-                plugins.add(`${maker} ${item.name}`);
+            const root = path.split("/")[0] as string;
+            const itemKind = kindOf(item, root);
+            if (!itemKind || (kind !== undefined && itemKind !== kind)) continue;
+            // A plug-in is looked for by its maker and name, and a copy met after the first is passed
+            // over whether it matches or not, so the query cannot change which copy is given.
+            let named = item.name;
+            if (root === "plugins" && itemKind === "device") {
+                named = `${path.split("/").at(-1)} ${item.name}`;
+                if (metPlugins.has(named) || metPlugins.has(item.name)) continue;
+                metPlugins.add(named);
             }
+            if (!named.toLowerCase().includes(wanted)) continue;
             matches.push({ name: item.name, kind: itemKind, path: `${path}/${item.name}` });
             if (matches.length === limit) return answer(matches, `Stopped at the first ${limit} matches; ask again with a more exact name for others.`);
         }

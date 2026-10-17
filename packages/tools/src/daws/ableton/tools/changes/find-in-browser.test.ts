@@ -103,6 +103,14 @@ test("find_in_browser counts plug-ins as devices, and gives each plug-in once, a
     ]);
 });
 
+test("find_in_browser finds a plug-in by its maker and name, still in its best format", async (t) => {
+    const find = setup(t, { plugins });
+
+    const { matches } = await find({ query: "FabFilter Pro-C", kind: "device" });
+
+    assert.deepEqual(matches, [{ name: "Pro-C 2", kind: "device", path: "plugins/VST3/FabFilter/Pro-C 2" }]);
+});
+
 test("find_in_browser does not count the plug-in copies it leaves out toward the limit", async (t) => {
     const find = setup(t, { plugins });
 
