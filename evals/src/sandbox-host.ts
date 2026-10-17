@@ -7,6 +7,12 @@ import { REOPEN } from "./sandbox.ts";
 // Throwaway: the real host sandbox is a client work item named by the spec.
 const REMOTE_SCRIPT_PORT = 39031;
 
+// Unauthorized Live asks "Changes will be lost. Proceed?" (Cancel / OK) instead of "Save changes?", since it
+// cannot save. The host reopen answers either.
+const SAVE_CLICK = 'whose description ends with "t Save"';
+if (!REOPEN.includes(SAVE_CLICK)) throw new Error("REOPEN no longer clicks Don't Save the way the host sandbox expects");
+const HOST_REOPEN = REOPEN.replace(SAVE_CLICK, 'whose (description ends with "t Save" or description is "OK")');
+
 function run(command: string, args: string[], input?: string): Promise<{ code: number; stderr: string }> {
     return new Promise((resolve) => {
         const child = spawn(command, args, { stdio: ["pipe", "inherit", "pipe"] });
@@ -28,7 +34,7 @@ export async function startHostSandbox(_options: { signal?: AbortSignal } = {}):
         address: `ws://127.0.0.1:${REMOTE_SCRIPT_PORT}`,
         password,
         reopenBase: async () => {
-            const result = await run("bash", ["-s"], REOPEN);
+            const result = await run("bash", ["-s"], HOST_REOPEN);
             if (result.code !== 0) throw new Error(result.stderr.trim() || `the reopen script failed (exit ${result.code})`);
         },
         screenshot: async (file) => {
