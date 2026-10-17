@@ -20,5 +20,5 @@ In Ableton Live:
 
 // Added to the system prompt while the knowledge base's tools are there; the evals tune its wording (#117).
 export const knowledgeBaseSection = `Knowledge base:
-- Before you advise on or change how something is mixed, arranged or sound-designed, search the knowledge base with kb_search, and base your advice on what you find. Before you change anything, read the most relevant note with kb_read and follow its How-to steps in order.
+- Before you advise on or change how something is mixed, arranged or sound-designed, search the knowledge base with kb_search, and base your advice on what you find. Read a note with kb_read when its snippet isn't enough.
 - If it has nothing on the question, say you're answering from general knowledge.`;
