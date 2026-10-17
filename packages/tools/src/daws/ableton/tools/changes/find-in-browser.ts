@@ -4,13 +4,16 @@ import type { LiveBrowserItem } from "../../live.ts";
 
 // Where each kind of thing is kept in Live's browser, so a search for one does not walk the others.
 const ROOTS = {
-    device: ["instruments", "audio_effects", "midi_effects", "max_for_live"],
+    device: ["instruments", "audio_effects", "midi_effects", "max_for_live", "plugins"],
     preset: ["instruments", "audio_effects", "midi_effects", "drums", "sounds", "user_library"],
     sample: ["samples", "user_library"],
 };
 // The file names of the samples Live's browser holds.
 export const SAMPLE_FILE = /\.(wav|aiff?|mp3|flac|ogg|m4a)$/i;
-export const ALL_ROOTS = ["instruments", "audio_effects", "midi_effects", "drums", "sounds", "samples", "user_library", "max_for_live", "plugins"];
+// Devices and plug-ins come before samples, so a large sample library does not fill the walk first.
+export const ALL_ROOTS = ["instruments", "audio_effects", "midi_effects", "max_for_live", "plugins", "drums", "sounds", "samples", "user_library"];
+// The plug-ins folder holds a folder per format. The one to load is VST3, then AU, then VST2.
+const formatRank = (folder: string) => (folder.startsWith("VST3") ? 0 : folder.startsWith("AU") ? 1 : 2);
 
 // The most items looked at, and the most folders asked for their children in one message, so a
 // large library neither runs for long nor makes Live miss its answer time.
@@ -28,7 +31,7 @@ export function findInBrowser(client: Client): Tool {
     return {
         name: "find_in_browser",
         description:
-            "Finds devices, presets and samples in Ableton Live's browser by name: every item whose name contains `query`, ignoring case. Each match is {name, kind, path}: kind is device, preset, sample or folder, and path is its browser path, the folders down to it and then its name, such as \"audio_effects/Glue Compressor/Glue Punch.adv\". Give kind to look only for devices, presets or samples; this is also faster. Use it to find the exact name of a native device before adding it with edit_devices, to find a preset, kit or sample to load with edit_devices, giving its path as item, or to tell the user where something is. It looks at the first 5000 items, shallowest first, and says when it stopped early.",
+            "Finds devices, presets and samples in Ableton Live's browser by name: every item whose name contains `query`, ignoring case. Each match is {name, kind, path}: kind is device, preset, sample or folder, and path is its browser path, the folders down to it and then its name, such as \"audio_effects/Glue Compressor/Glue Punch.adv\". Give kind to look only for devices, presets or samples; this is also faster. Devices include the user's third-party plug-ins, each given once, in the format to load. Use it to find the exact name of a native device before adding it with edit_devices, to find a plug-in, preset, kit or sample to load with edit_devices, giving its path as item, or to tell the user where something is. It looks at the first 5000 items, shallowest first, and says when it stopped early.",
         params: {
             type: "object",
             properties: {
@@ -43,9 +46,10 @@ export function findInBrowser(client: Client): Tool {
 }
 
 // What an item is, from the flags Live gives it. Nothing marks a sample, so a sample is any other
-// loadable item in the sample folders or named like an audio file.
+// loadable item in the sample folders or named like an audio file. A plug-in is a device, whatever
+// Live marks it.
 function kindOf(item: LiveBrowserItem, root: string): Kind | "folder" | undefined {
-    if (item.is_device) return "device";
+    if (item.is_device || (root === "plugins" && item.is_loadable)) return "device";
     if (!item.is_loadable) return item.is_folder ? "folder" : undefined;
     return root === "samples" || SAMPLE_FILE.test(item.name) ? "sample" : "preset";
 }
@@ -62,13 +66,26 @@ async function find(client: Client, args: Record<string, unknown>) {
 
     const matches: { name: string; kind: string; path: string }[] = [];
     const rootItems = (await client.send(roots.map((root) => getProp("browser", root)))) as (LiveBrowserItem[] | null)[];
-    let level: Found[] = rootItems.flatMap((items, index) => (items ?? []).map((item) => ({ item, path: roots[index] as string })));
+    // The format folders go best first, so the walk meets the copy of a plug-in to keep first.
+    let level: Found[] = rootItems.flatMap((items, index) => {
+        const root = roots[index] as string;
+        const sorted = root === "plugins" ? (items ?? []).toSorted((a, b) => formatRank(a.name) - formatRank(b.name)) : (items ?? []);
+        return sorted.map((item) => ({ item, path: root }));
+    });
+    // The plug-ins already matched, by maker folder and name. A VST2 name carries the maker, such as
+    // "FabFilter Pro-C 2", so a name alone matches one too.
+    const plugins = new Set<string>();
     let seen = 0;
     while (level.length > 0) {
         for (const { item, path } of level) {
             seen++;
             const itemKind = kindOf(item, path.split("/")[0] as string);
             if (!itemKind || (kind !== undefined && itemKind !== kind) || !item.name.toLowerCase().includes(wanted)) continue;
+            if (itemKind === "device" && path.startsWith("plugins/")) {
+                const maker = path.split("/").at(-1);
+                if (plugins.has(`${maker} ${item.name}`) || plugins.has(item.name)) continue;
+                plugins.add(`${maker} ${item.name}`);
+            }
             matches.push({ name: item.name, kind: itemKind, path: `${path}/${item.name}` });
             if (matches.length === limit) return answer(matches, `Stopped at the first ${limit} matches; ask again with a more exact name for others.`);
         }

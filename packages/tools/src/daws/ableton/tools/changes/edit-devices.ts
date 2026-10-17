@@ -118,7 +118,7 @@ async function add(client: Client, edit: Edit) {
         [added] = (await client.send([insert])) as [LiveDevice];
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`${message} (Live only adds native devices, by the name Live shows, such as "EQ Eight".)`);
+        throw new Error(`${message} (Live only adds native devices, by the name Live shows, such as "EQ Eight". A plug-in is loaded instead, with load, by the path find_in_browser gives.)`);
     }
     return { action: "add", ...(await placed(client, into, added)) };
 }
