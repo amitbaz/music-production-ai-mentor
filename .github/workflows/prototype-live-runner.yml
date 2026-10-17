@@ -43,11 +43,14 @@ jobs:
         run: |
           url="https://cdn-downloads.ableton.com/channels/$LIVE_VERSION/ableton_live_suite_${LIVE_VERSION}_universal.dmg"
           t0=$SECONDS
-          yes | hdiutil attach -nobrowse -readonly -noverify -noautoopen -mountpoint /Volumes/Live "$url"
+          # yes answers the licence prompt; the EULA text itself goes to /dev/null
+          yes 2>/dev/null | hdiutil attach -nobrowse -readonly -noverify -noautoopen -mountpoint /Volumes/Live "$url" >/dev/null
           echo "mounted in $((SECONDS - t0))s"
+          ls -la /Volumes/Live
           t1=$SECONDS
-          src=$(find /Volumes/Live -maxdepth 2 -name 'Ableton Live*.app' -print -quit)
-          [ -n "$src" ] || { echo "no Ableton Live .app on the installer"; ls -la /Volumes/Live; exit 1; }
+          # find exits 1 on the unreadable .Trashes even when it found the app
+          src=$(find /Volumes/Live -maxdepth 2 -name 'Ableton Live*.app' -print -quit 2>/dev/null || true)
+          [ -n "$src" ] || { echo "no Ableton Live .app on the installer"; exit 1; }
           ditto "$src" "$LIVE_APP" || sudo ditto "$src" "$LIVE_APP"
           echo "copied in $((SECONDS - t1))s"
           hdiutil detach /Volumes/Live || true
