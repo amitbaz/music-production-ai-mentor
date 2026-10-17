@@ -1,5 +1,6 @@
 # PROTOTYPE (mentor-kb #43): does Live run one eval on a GitHub-hosted macOS runner at all?
-# Throwaway, on the prototype/live-on-hosted-runner branch only. Run it by hand from the Actions tab.
+# Throwaway, on the prototype/live-on-hosted-runner branch only. Runs on every push to that branch
+# (GitHub lists workflow_dispatch workflows only from the default branch; an empty commit reruns it).
 #
 # evals/prototype/live-runner/Preferences.cfg was taken from the mentor-sandbox Tart image (user admin,
 # Live 12 Suite, MusicMentor chosen as the first Control Surface, nothing else set), so Live loads the
@@ -7,24 +8,17 @@
 name: prototype-live-runner
 
 on:
+  push:
+    branches: [prototype/live-on-hosted-runner]
   workflow_dispatch:
-    inputs:
-      case:
-        description: eval case
-        default: low-end-hot-told
-        type: string
-      live_version:
-        description: Live version; the CDN URL is built from it
-        default: "12.4.6"
-        type: string
 
 jobs:
   live:
     runs-on: macos-15
     timeout-minutes: 60
     env:
-      CASE: ${{ inputs.case }}
-      LIVE_VERSION: ${{ inputs.live_version }}
+      CASE: low-end-hot-told
+      LIVE_VERSION: "12.4.6"
       LIVE_APP: /Applications/Ableton Live 12 Suite.app
       PATIENCE: /Applications/Ableton Live 12 Suite.app/Contents/App-Resources/Core Library/Lessons/Demo Songs/Chuck Sutton - Patience (Live 12 Suite Demo).als
       SHOTS: ${{ github.workspace }}/shots
