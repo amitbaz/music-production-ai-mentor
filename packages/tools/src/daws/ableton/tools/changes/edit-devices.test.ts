@@ -458,6 +458,18 @@ test("edit_devices loads an effect from the user library's Audio Effects onto a 
     assert.deepEqual(await names(Bass), ["Pitch", "Drift", "My Glue", "EQ Eight"]);
 });
 
+test("edit_devices refuses a plug-in where the track has an instrument, and says to delete it only if the plug-in is an instrument", async (t) => {
+    const { edit, names, Bass, drift } = await setupLoad(t);
+
+    const [refused] = await edit([{ action: "load", item: "plugins/VST3/FabFilter/Pro-C 2", to: Bass }]);
+
+    assert.match(refused.error, new RegExp(`${Bass} already has an instrument, ${drift} Drift`));
+    assert.match(refused.error, /does not say.*whether.*instrument/i);
+    assert.match(refused.error, /if it is an effect, give the user the steps/i);
+    assert.doesNotMatch(refused.error, /^[^.]*\. Delete it first/);
+    assert.deepEqual(await names(Bass), ["Pitch", "Drift", "EQ Eight"]);
+});
+
 test("edit_devices tells an instrument from an effect by its folders, not by its own name", async (t) => {
     const { edit, names, Bass } = await setupLoad(t);
 

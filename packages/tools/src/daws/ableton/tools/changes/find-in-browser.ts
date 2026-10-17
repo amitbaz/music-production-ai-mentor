@@ -13,7 +13,7 @@ export const SAMPLE_FILE = /\.(wav|aiff?|mp3|flac|ogg|m4a)$/i;
 // Devices and plug-ins come before samples, so a large sample library does not fill the walk first.
 export const ALL_ROOTS = ["instruments", "audio_effects", "midi_effects", "max_for_live", "plugins", "drums", "sounds", "samples", "user_library"];
 // The plug-ins folder holds a folder per format. The one to load is VST3, then AU, then VST2.
-const formatRank = (folder: string) => (folder.startsWith("VST3") ? 0 : folder.startsWith("AU") ? 1 : 2);
+const formatRank = (folder: string) => (folder.startsWith("VST3") ? 0 : /^au/i.test(folder) ? 1 : 2);
 
 // The most items looked at, and the most folders asked for their children in one message, so a
 // large library neither runs for long nor makes Live miss its answer time.

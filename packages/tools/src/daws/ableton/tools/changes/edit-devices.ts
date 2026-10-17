@@ -14,7 +14,7 @@ export function editDevices(client: Client): Tool {
     return {
         name: "edit_devices",
         description:
-            "Builds and reorders effect chains. Takes a list of edits, applied in order; each is reported, and one that fails does not stop the rest. Object ids come from read_set or read_tracks. An edit is one of: {action: \"add\", name, to, position?} adds a native device by the name Live shows, such as \"EQ Eight\" or \"Compressor\", to the track or rack chain `to`; its result gives the new device's object id. {action: \"load\", item, to, position?} loads a preset, kit or sample from Live's browser, by the path find_in_browser gives, such as \"audio_effects/Glue Compressor/Glue Punch.adv\": an effect goes into the track or rack chain `to` like add, though Live keeps an audio effect after a MIDI track's instrument, so the result gives where it went; an instrument, kit or sample goes onto the MIDI track `to`, with no position, in the instrument's place, and is refused where the track already has an instrument, which you delete first with delete. {action: \"move\", device, to, position} moves a device to `position` in the chain of the track or rack chain `to`, which can be the chain it is in. {action: \"switch\", device, on} switches a device on (true) or off (false), and reports before and after. Positions count from 1 in the devices of the chain; an add without a position goes at the end. Each result for add, load and move gives the chain's devices in their new order. Only native devices can be added: a third-party plug-in cannot. A device cannot be deleted with this tool.",
+            "Builds and reorders effect chains. Takes a list of edits, applied in order; each is reported, and one that fails does not stop the rest. Object ids come from read_set or read_tracks. An edit is one of: {action: \"add\", name, to, position?} adds a native device by the name Live shows, such as \"EQ Eight\" or \"Compressor\", to the track or rack chain `to`; its result gives the new device's object id. {action: \"load\", item, to, position?} loads a preset, kit, sample or third-party plug-in from Live's browser, by the path find_in_browser gives, such as \"audio_effects/Glue Compressor/Glue Punch.adv\": an effect goes into the track or rack chain `to` like add, though Live keeps an audio effect after a MIDI track's instrument, so the result gives where it went; an instrument, kit or sample goes onto the MIDI track `to`, with no position, in the instrument's place, and is refused where the track already has an instrument, which you delete first with delete; a plug-in is refused there too, since Live does not say before the load whether it is an instrument. {action: \"move\", device, to, position} moves a device to `position` in the chain of the track or rack chain `to`, which can be the chain it is in. {action: \"switch\", device, on} switches a device on (true) or off (false), and reports before and after. Positions count from 1 in the devices of the chain; an add without a position goes at the end. Each result for add, load and move gives the chain's devices in their new order. Only native devices can be added by name: a third-party plug-in is loaded with load instead. A device cannot be deleted with this tool.",
         params: {
             type: "object",
             properties: {
@@ -180,7 +180,13 @@ async function load(client: Client, edit: Edit) {
     // item of a kind not known before loading is held to the same rule.
     const instrument = devices.find((device) => device.type === "instrument");
     if (instrument && kind !== "effect") {
-        throw new Error(`${onTrack.id} already has an instrument, ${client.objectId("d", instrument.id)} ${instrument.name}. Delete it first with delete, then load.`);
+        const has = `${onTrack.id} already has an instrument, ${client.objectId("d", instrument.id)} ${instrument.name}`;
+        if (kind === undefined) {
+            throw new Error(
+                `${has}, and Live does not say before the load whether ${String(edit.item)} is an instrument, which would replace it. If it is an effect, give the user the steps to load it; if it is an instrument, delete ${instrument.name} first with delete, then load.`,
+            );
+        }
+        throw new Error(`${has}. Delete it first with delete, then load.`);
     }
 
     const before = new Set(devices.map((device) => device.id));
