@@ -41,6 +41,7 @@
 - **Arrangement View** — the timeline of a Live Set, where clips are laid out from left to right to form the finished piece. The other view, Session View, is a grid of clips launched by hand.
 - **Locator** — a named marker on the timeline of the Arrangement View, such as "Drop". Live's own word is cue point.
 - **Native device** — an instrument or effect that is part of Ableton Live, such as EQ Eight or Compressor. A third-party plug-in is not one.
+- **Third-party plug-in** — an instrument or effect from another maker that Live hosts, such as FabFilter Pro-C 2. It comes in a plug-in format, VST3, AU or VST2, and the same plug-in is often installed in more than one; the mentor prefers VST3, then AU, then VST2. It is a device, but not a native device.
 - **Browser item** — a device, preset, kit or sample in Live's browser. It is named by its browser path: the folders from the browser's top level down to it, then its own name, such as `drums/Kit-Core 808.adg`. Unlike an object id, a browser path lasts across connections.
 - **Loading** — putting a browser item onto a track or rack chain as a device, as Live does when one is dragged from the browser: a preset or kit becomes its device, and a sample becomes a Simpler. Placing a sample on the timeline as a clip is not loading.
 - **Placing a sample** — putting an audio file from disk onto an audio track's timeline in the Arrangement View, as a clip that starts at a bar and is as long as the file. It is not loading: no device is added.

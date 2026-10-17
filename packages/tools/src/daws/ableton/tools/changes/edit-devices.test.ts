@@ -100,6 +100,7 @@ test("edit_devices says what is native when Live does not know the name, and car
 
     assert.equal(refused.action, "add");
     assert.match(refused.error, /Serum.*not found.*native.*name Live shows/i);
+    assert.match(refused.error, /plug-in.*load.*path.*find_in_browser/i);
     assert.equal(added.order[0].name, "Utility");
 });
 
@@ -300,6 +301,7 @@ async function setupLoad(t: TestContext) {
             },
         ],
         samples: [{ name: "Kick.wav", loads: { name: "Kick", class_name: "OriginalSimpler", type: "instrument", sample: true } }],
+        plugins: [{ name: "VST3", children: [{ name: "FabFilter", children: [{ name: "Pro-C 2", loads: { name: "Pro-C 2", class_name: "PluginDevice" } }] }] }],
     });
     (live.get("song-view") as Record<string, unknown>).selected_track = pad.id;
     useStandIn(t, live);
@@ -330,6 +332,15 @@ test("edit_devices loads an effect preset from the browser at a position and giv
         ["Glue Punch", "Utility", "Audio Effect Rack"],
     );
     assert.deepEqual(await names(Pad), ["Glue Punch", "Utility", "Audio Effect Rack"]);
+});
+
+test("edit_devices loads a third-party plug-in by the path find_in_browser gives", async (t) => {
+    const { edit, names, Pad } = await setupLoad(t);
+
+    const [loaded] = await edit([{ action: "load", item: "plugins/VST3/FabFilter/Pro-C 2", to: Pad }]);
+
+    assert.deepEqual([loaded.action, loaded.name, loaded.in, loaded.position], ["load", "Pro-C 2", Pad, 3]);
+    assert.deepEqual(await names(Pad), ["Utility", "Audio Effect Rack", "Pro-C 2"]);
 });
 
 test("edit_devices loads an effect preset into a rack chain, at its end when no position is given", async (t) => {
@@ -445,6 +456,18 @@ test("edit_devices loads an effect from the user library's Audio Effects onto a 
 
     assert.equal(loaded.position, 3);
     assert.deepEqual(await names(Bass), ["Pitch", "Drift", "My Glue", "EQ Eight"]);
+});
+
+test("edit_devices refuses a plug-in where the track has an instrument, and says to delete it only if the plug-in is an instrument", async (t) => {
+    const { edit, names, Bass, drift } = await setupLoad(t);
+
+    const [refused] = await edit([{ action: "load", item: "plugins/VST3/FabFilter/Pro-C 2", to: Bass }]);
+
+    assert.match(refused.error, new RegExp(`${Bass} already has an instrument, ${drift} Drift`));
+    assert.match(refused.error, /does not say.*whether.*instrument/i);
+    assert.match(refused.error, /if it is an effect, give the user the steps/i);
+    assert.doesNotMatch(refused.error, /^[^.]*\. Delete it first/);
+    assert.deepEqual(await names(Bass), ["Pitch", "Drift", "EQ Eight"]);
 });
 
 test("edit_devices tells an instrument from an effect by its folders, not by its own name", async (t) => {
