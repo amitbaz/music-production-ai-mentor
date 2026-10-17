@@ -11,6 +11,7 @@ export type Snapshot = Record<string, Entry>;
 type Parameter = { name: string; value: string };
 type Device = { id: string; name: string; parameters?: Parameter[]; chains?: { id: string; name: string; mute?: true; solo?: true; devices?: Device[] }[] };
 type Clip = { id: string; name: string; kind: string; scene?: number; start?: number; end?: number; muted?: true };
+type Detail = { devices?: Device[]; session?: Clip[]; arrangement?: Clip[] };
 type Track = { id: string; name: string; kind: string; group?: string; volume: string; pan: string; sends?: Record<string, string>; mute?: true; solo?: true };
 
 const caller = (tools: Tool[]) => async (name: string, args: Record<string, unknown>) =>
@@ -32,16 +33,24 @@ export async function snapshot(tools: Tool[]): Promise<Snapshot> {
         for (const [to, value] of Object.entries(track.sends ?? {})) mixer(`send ${to}`, value);
 
         const read = await call("read_tracks", { tracks: [track.id] });
-        const [detail] = read.tracks as { devices?: Device[]; session?: Clip[]; arrangement?: Clip[] }[];
+        const [detail] = read.tracks as Detail[];
         // A track too long for one result leaves devices out; each is read on its own, as the tool's note says.
-        const { devices: leftOut = [], note, ...cut } = (read.left_out ?? {}) as { devices?: string[]; note?: string };
-        if (Object.keys(cut).length) throw new Error(`${track.name} has clips cut from its read: ${JSON.stringify(cut)}`);
+        const { devices: leftOut = [], clips, note, ...unknown } = (read.left_out ?? {}) as { devices?: string[]; clips?: Record<string, number>; note?: string };
+        if (Object.keys(unknown).length) throw new Error(`${track.name} has more left out of its read than devices and clips: ${JSON.stringify(unknown)}`);
+        // It may cut clips too; with every device by name only, they get the whole result.
+        // ponytail: one more read; clips that alone pass the limit stop the series, read them in pages if a Set ever has them.
+        let withClips = detail;
+        if (clips) {
+            const again = await call("read_tracks", { tracks: [track.id], devices: [] });
+            if (again.left_out?.clips) throw new Error(`${track.name} has clips cut from its read: ${JSON.stringify(again.left_out.clips)}`);
+            [withClips] = again.tracks as Detail[];
+        }
         for (const id of leftOut) {
-            const [alone] = (await call("read_tracks", { tracks: [track.id], devices: [id] })).tracks as { devices?: Device[] }[];
+            const [alone] = (await call("read_tracks", { tracks: [track.id], devices: [id] })).tracks as Detail[];
             Object.assign(find(detail?.devices ?? [], id) as Device, find(alone?.devices ?? [], id));
         }
         devices(shot, at, detail?.devices ?? []);
-        for (const { id, name, ...clip } of [...(detail?.session ?? []), ...(detail?.arrangement ?? [])]) {
+        for (const { id, name, ...clip } of [...(withClips?.session ?? []), ...(withClips?.arrangement ?? [])]) {
             shot[`${at} / ${name} (${id})`] = { value: JSON.stringify(clip), id };
         }
     }
