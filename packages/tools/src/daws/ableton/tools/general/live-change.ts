@@ -7,6 +7,20 @@ import { KIND_OF_PROPERTY, LIVE_NAME, liveObject, objectParam, withinLimit, with
 // nor are its serialize_ helpers, which a list of args could otherwise reach.
 const SCRIPT_FUNCTIONS = new Set(["add_listener", "remove_listener", "get_prop", "set_prop", "dispatch", "get_ns", "get_obj", "save_obj", "format_result", "log_debug", "drop_connection"]);
 
+const AUTOMATION_STEPS = "The mentor cannot reach automation yet, so give the user the steps instead.";
+
+// The functions, and the one property, that take a Live object in their args or value. The script
+// looks it up by its own id, which the model never has (#100), so each is refused with what to do instead.
+const TAKES_A_LIVE_OBJECT: Record<string, string> = {
+    delete_clip: "Use delete with the clip's object id.",
+    duplicate_clip_to_arrangement: "Use edit_arrangement with duplicate.",
+    automation_envelope: AUTOMATION_STEPS,
+    create_automation_envelope: AUTOMATION_STEPS,
+    clear_envelope: AUTOMATION_STEPS,
+    export_to_clip_slot: "The mentor cannot reach clip slots, so give the user the steps instead.",
+    appointed_device: "Use show with the device's object id.",
+};
+
 // Sets any property or calls any function Live offers to scripts, by Live's own name. It can do
 // anything, removing included, so it always asks (ADR 0014).
 export function liveChange(client: Client): Tool {
@@ -42,6 +56,7 @@ async function change(client: Client, args: Record<string, unknown>) {
 
     if (setting) {
         if (typeof property !== "string" || !LIVE_NAME.test(property)) throw new Error("property must be one of Live's names, such as tempo or mute");
+        refuseTakingALiveObject(property);
         const [before, , after] = await reportingGone(String(object), () =>
             client.send([getProp(ns, property, nsid), setProp(ns, property, value, nsid), getProp(ns, property, nsid)]),
         );
@@ -52,9 +67,14 @@ async function change(client: Client, args: Record<string, unknown>) {
 
     if (typeof name !== "string" || !LIVE_NAME.test(name)) throw new Error("function must be one of Live's names, such as tap_tempo");
     if (SCRIPT_FUNCTIONS.has(name) || name.startsWith("serialize_")) throw new Error(`${name} belongs to the script that reaches Live, not to Live. Use live_get to read and property with value to set.`);
+    refuseTakingALiveObject(name);
     const callArgs = args.args ?? {};
     if (typeof callArgs !== "object" || callArgs === null) throw new Error("args must be a list or an object");
     const [result] = await reportingGone(String(object), () => client.send([{ ns, nsid, name, args: callArgs }]));
     const shown = withObjectIds(client, result);
     return withinLimit({ object, function: name, result: shown }, shown);
+}
+
+function refuseTakingALiveObject(name: string) {
+    if (Object.hasOwn(TAKES_A_LIVE_OBJECT, name)) throw new Error(`${name} takes a Live object, which live_change cannot pass on. ${TAKES_A_LIVE_OBJECT[name]}`);
 }
