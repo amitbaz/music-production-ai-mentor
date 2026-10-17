@@ -20,10 +20,14 @@
 - **Provider lookup** — the part of the harness that gives the model for a model id, by finding the provider adapter the id names.
 - **Scripted model** — a fake model that returns canned replies, used to test the agent loop without a network.
 - **Tool** — a named function the model can ask the harness to run, described to the model by a name, a description and an argument schema.
-- **Tool set** — a group of tools for one outside source, such as a DAW. The mentor is given one or more tool sets.
+- **Tool set** — a group of tools for one sense of the mentor on one outside source: what Live's API gives, what Live sounds like, what Live shows. The mentor is given one or more tool sets.
+- **Eyes** — the mentor seeing Live's own windows, its main window and its plug-in windows, as pictures. Never another app or the whole screen.
+- **Hands** — the mentor working a real mouse and keyboard in Live's windows, for what the API cannot reach. Anything the API can do stays with the API.
+- **Look** — one picture of one of Live's windows, or of a part of it, taken for the model. A hand action is aimed at the last look of its window.
 - **DAW** — a digital audio workstation, the application music is produced in. Ableton Live is the first one supported.
 - **Tool call** — the model's request to run a tool with given arguments.
-- **Tool result** — what the harness sends back after running a tool call, including errors.
+- **Tool result** — what the harness sends back after running a tool call, including errors. It is text, and may carry media.
+- **Media** — a picture or a sound inside a tool result, sent to the model as the provider takes it, with its own token estimate.
 - **Result limit** — the most characters one tool result may hold. Past it, the harness keeps the start and adds a note saying how much was cut. A tool whose answer grows with the Live Set keeps itself under the limit, so the cut is only a safety net.
 - **Conversation size** — how many tokens the conversation takes when sent to the model, as best the harness knows: the count the provider gave on the last model call, plus an estimate for what was added since. Reported with each turn's result.
 - **Characters per token** — how many characters of text one token takes for a supported model, used to estimate the size of text no provider has counted yet. Each supported model has its own number. Today each is an estimate, not a measurement, and a model that gives none is taken as four.
