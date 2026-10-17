@@ -29,7 +29,7 @@ export function setParameters(client: Client): Tool {
                         properties: {
                             target: { type: "string", description: "Object id of a device or a track, such as d12 or t1." },
                             parameter: { type: "string", description: "Parameter name, such as Gain; for a track volume, pan or send t2." },
-                            value: { description: "A number in the units Live shows, or the name of a choice for a list parameter." },
+                            value: { description: "A number in the units Live shows, or the name of a choice for a list parameter; for a plug-in, its number or text." },
                         },
                         required: ["target", "parameter", "value"],
                     },
@@ -140,8 +140,7 @@ async function changeDevice(client: Client, { target, parameter, value }: Change
 // the one whose text is the value given: a number is matched to the number its text starts with,
 // such as 4 for "4.00:1", and anything else to the whole text, such as "Clean".
 async function writeByText(client: Client, parameter: Parameter, name: string, given: unknown): Promise<Written> {
-    // A number sent as text, such as "-24", is taken, as for a native device.
-    const number = typeof given === "string" && given.trim() !== "" ? Number(given) : given;
+    const number = asNumber(given);
     const isNumber = typeof number === "number" && Number.isFinite(number);
     if (!isNumber && typeof given !== "string") throw new Error(`Give ${name} a number or a text, as its text shows it`);
     const [min, max, before] = (await client.send([
@@ -157,7 +156,7 @@ async function writeByText(client: Client, parameter: Parameter, name: string, g
     };
     // A list has a position for each choice and none between.
     // ponytail: 100 steps can miss a choice narrower than 1% of a plug-in's range; look closer if one has it.
-    const seen = await look(min, max, parameter.is_quantized ? max - min : 100);
+    const seen = await look(min, max, parameter.is_quantized ? Math.max(1, max - min) : 100);
 
     let best: Seen;
     if (isNumber) {
@@ -187,14 +186,26 @@ async function writeByText(client: Client, parameter: Parameter, name: string, g
         best = found;
     }
 
-    const [, kept] = (await client.send([
-        setProp("device-parameter", "value", best.position, parameter.id),
-        getProp("device-parameter", "value", parameter.id),
-    ])) as [unknown, number];
-    const [after] = (await client.send([strForValue(parameter.id, kept)])) as [string];
+    const restore = () => client.send([setProp("device-parameter", "value", parameter.value, parameter.id)]);
+    let after: string;
+    try {
+        const [, kept] = (await client.send([
+            setProp("device-parameter", "value", best.position, parameter.id),
+            getProp("device-parameter", "value", parameter.id),
+        ])) as [unknown, number];
+        [after] = (await client.send([strForValue(parameter.id, kept)])) as [string];
+    } catch (error) {
+        // The write may have landed before the read failed, so the old value goes back.
+        await restore().catch(() => {});
+        throw error;
+    }
     // A parameter Live holds still, such as one an automation drives, takes the write and keeps its
-    // value. It is checked by its text, since Live may round the position written.
-    if (after !== best.text) throw new Error(`${name} is still ${after}: Live did not take ${best.text}.`);
+    // value. It is checked by its text, since Live may round the position written; a position Live
+    // moved elsewhere is put back, so the value is the one the user had.
+    if (after !== best.text) {
+        await restore();
+        throw new Error(`Live did not take ${best.text}. Its value is still ${before}.`);
+    }
     return { before, after };
 }
 
@@ -202,6 +213,11 @@ async function writeByText(client: Client, parameter: Parameter, name: string, g
 function shows(seen: Seen[]) {
     const texts = [...new Set(seen.map(({ text }) => text))];
     return texts.length <= 20 ? texts.join(", ") : `${texts[0]} to ${texts.at(-1)}`;
+}
+
+// A number sent as text, such as "-24", is taken; one with a unit is not, since "3 kHz" is not 3.
+function asNumber(given: unknown) {
+    return typeof given === "string" && given.trim() !== "" ? Number(given) : given;
 }
 
 // Writes one parameter and says what it was and what it is, as Live shows them.
@@ -228,8 +244,7 @@ async function writeChoice(client: Client, parameter: Parameter, name: string, v
 // the range without an error, so the number is checked by what Live kept: if it sits at an end of
 // the range and is not the number given, the old value is written back and the change refused.
 async function writeNumber(client: Client, parameter: Parameter, name: string, given: unknown) {
-    // A number sent as text, such as "-24", is taken; one with a unit is not, since "3 kHz" is not 3.
-    const value = typeof given === "string" && given.trim() !== "" ? Number(given) : given;
+    const value = asNumber(given);
     if (typeof value !== "number" || !Number.isFinite(value)) {
         throw new Error(`${name} is a number: give a number in the units Live shows, such as -3 for "-3.0 dB"`);
     }

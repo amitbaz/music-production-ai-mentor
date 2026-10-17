@@ -274,6 +274,18 @@ test("set_parameters refuses a plug-in number past what its text shows, and a te
     assert.equal(track.devices[0].parameters[0].value, "-30.00");
 });
 
+test("set_parameters reports a plug-in parameter that kept its value as not changed, with the value it still has", async (t) => {
+    const { setParameters, read } = await open(t, (track) => [
+        bass(track, [{ name: "Pro-C 2", class_name: "AuPluginDevice", parameters: [{ ...threshold(0.7), ignoresWrites: true }] }]),
+    ]);
+
+    const result = await run(setParameters, change("d1", "Threshold", -25));
+
+    assert.match(result.changes[0] as string, /Threshold: not changed\. Live did not take -25\.00\. Its value is still -18\.00\./);
+    const [track] = await read("t1");
+    assert.equal(track.devices[0].parameters[0].value, "-18.00");
+});
+
 test("set_parameters names the track of a device inside racks, however deep", async (t) => {
     const inner: DeviceSpec = { name: "Saturator", class_name: "Saturator", parameters: [gain(0)] };
     const { setParameters, read } = await open(t, (track) => [
