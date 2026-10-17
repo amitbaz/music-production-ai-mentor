@@ -72,6 +72,57 @@ test("find_in_browser with a kind gives only that kind, and does not walk the re
     assert.equal(requestedProps().includes("instruments"), false);
 });
 
+// Plug-ins as Live's browser holds them, by format and then maker, in Live's order. A VST2 name
+// carries the maker, and its folder is not always the maker. Nothing here is marked a device, since
+// what Live marks a plug-in has not been seen.
+const plugins = [
+    {
+        name: "AUv2",
+        children: [
+            { name: "FabFilter", children: [{ name: "Pro-C 2", loadable: true }, { name: "Pro-R 2", loadable: true }] },
+            { name: "Other", children: [{ name: "Pro-C 2", loadable: true }] },
+        ],
+    },
+    { name: "VST3", children: [{ name: "FabFilter", children: [{ name: "Pro-C 2", loadable: true }] }] },
+    {
+        name: "VST",
+        children: [{ name: "Local", children: [{ name: "FabFilter Pro-C 2", loadable: true }, { name: "FabFilter Pro-R 2", loadable: true }, { name: "Old Pro", loadable: true }] }],
+    },
+];
+
+test("find_in_browser counts plug-ins as devices, and gives each plug-in once, as VST3, else AU, else VST2", async (t) => {
+    const find = setup(t, { plugins });
+
+    const { matches } = await find({ query: "pro", kind: "device" });
+
+    assert.deepEqual(matches, [
+        { name: "Pro-C 2", kind: "device", path: "plugins/VST3/FabFilter/Pro-C 2" },
+        { name: "Pro-R 2", kind: "device", path: "plugins/AUv2/FabFilter/Pro-R 2" },
+        { name: "Pro-C 2", kind: "device", path: "plugins/AUv2/Other/Pro-C 2" },
+        { name: "Old Pro", kind: "device", path: "plugins/VST/Local/Old Pro" },
+    ]);
+});
+
+test("find_in_browser does not count the plug-in copies it leaves out toward the limit", async (t) => {
+    const find = setup(t, { plugins });
+
+    const { matches } = await find({ query: "pro", kind: "device", limit: 3 });
+
+    assert.deepEqual(
+        matches.map((match) => match.path),
+        ["plugins/VST3/FabFilter/Pro-C 2", "plugins/AUv2/FabFilter/Pro-R 2", "plugins/AUv2/Other/Pro-C 2"],
+    );
+});
+
+test("find_in_browser with no kind looks at plug-ins before samples, so a large library at the same depth does not hide them", async (t) => {
+    const filler = Array.from({ length: 5_000 }, (_, index) => ({ name: `Filler ${index}.wav`, loadable: true }));
+    const find = setup(t, { plugins, samples: [{ name: "Library", children: [{ name: "Pack", children: filler }] }] });
+
+    const result = await find({ query: "pro-c" });
+
+    assert.deepEqual(result.matches[0], { name: "Pro-C 2", kind: "device", path: "plugins/VST3/FabFilter/Pro-C 2" });
+});
+
 test("find_in_browser gives an empty list when nothing matches", async (t) => {
     const find = setup(t);
 
