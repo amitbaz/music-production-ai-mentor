@@ -160,7 +160,9 @@ async function writeChoice(client: Client, parameter: Parameter, name: string, v
 // A number is written through display_value, in the units Live shows. Live clamps a number outside
 // the range without an error, so the number is checked by what Live kept: if it sits at an end of
 // the range and is not the number given, the old value is written back and the change refused.
-async function writeNumber(client: Client, parameter: Parameter, name: string, value: unknown) {
+async function writeNumber(client: Client, parameter: Parameter, name: string, given: unknown) {
+    // A number sent as text, such as "-24", is taken; one with a unit is not, since "3 kHz" is not 3.
+    const value = typeof given === "string" && given.trim() !== "" ? Number(given) : given;
     if (typeof value !== "number" || !Number.isFinite(value)) {
         throw new Error(`${name} is a number: give a number in the units Live shows, such as -3 for "-3.0 dB"`);
     }
