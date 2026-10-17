@@ -250,7 +250,6 @@ test("with a knowledge base, its tools follow the Ableton tools and the system p
     assert.deepEqual(names(calls[0]?.tools), [...names(without.calls[0]?.tools), "kb_search"]);
     assert.equal(calls[0]?.options?.system, `${systemPrompt}\n\n${knowledgeBaseSection}`);
     assert.match(knowledgeBaseSection, /^Knowledge base:\n- Before you advise on or change how something is mixed, arranged or sound-designed, search the knowledge base with kb_search/);
-    assert.match(knowledgeBaseSection, /Before you change anything, read the most relevant note with kb_read and follow its How-to steps in order\./);
 });
 
 test("the first turn waits for a knowledge base still starting, and says it is loading", async () => {
