@@ -46,6 +46,10 @@ export function createScreen(output: Output, options: ScreenOptions = {}) {
                 line(`\n${style("dim", "(summarising the earlier conversation…)")}`);
             } else if (update.type === "summary_failed") {
                 line(`\n${style("dim", "(could not summarise, carrying on with the full conversation)")}`);
+            } else if (update.type === "knowledge_base_loading") {
+                line(`\n${style("dim", "(loading the knowledge base…)")}`);
+            } else if (update.type === "knowledge_base_unavailable") {
+                line(`\n${style("red", `Knowledge base not available: ${update.reason}. Carrying on without it.`)}`);
             } else if (update.type === "text") {
                 // The first piece of a message opens its line.
                 if (!writing) output.write("\nmentor> ");

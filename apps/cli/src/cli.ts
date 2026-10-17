@@ -1,7 +1,7 @@
 // The mentor in the terminal:
 //     pnpm start [--model provider:model]
 import { parseArgs } from "node:util";
-import { createMentor, keysFromEnv } from "@mentor/mentor";
+import { connectKnowledgeBase, createMentor, keysFromEnv } from "@mentor/mentor";
 import { runCli } from "./run.ts";
 
 const { values } = parseArgs({ options: { model: { type: "string" } } });
@@ -10,6 +10,7 @@ const mentor = createMentor({
     model: values.model,
     abletonAddress: process.env.ABLETON_ADDRESS,
     abletonPassword: process.env.ABLETON_PASSWORD,
+    knowledgeBase: process.env.KB_PATH ? connectKnowledgeBase(process.env.KB_PATH) : undefined,
     onRetry: ({ error, retry, maxRetries, waitMs }) =>
         console.error(
             `  (${error.message}, trying again in ${waitMs / 1000}s, retry ${retry} of ${maxRetries})`,

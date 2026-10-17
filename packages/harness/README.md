@@ -8,7 +8,8 @@ A small, hand-written agent loop in TypeScript: one model, one system prompt, a 
 ## Features
 
 - **Provider-agnostic.** One message format for every provider. A model id like `gemini:gemini-3.5-flash-lite` or `claude:claude-haiku-5-5` picks the adapter; a conversation can switch provider between turns.
-- **No SDKs, no dependencies.** Each adapter talks to its provider's HTTP API through `fetch`.
+- **Tools from MCP servers.** `connectMcp` starts an MCP server over stdio and lists its tools, ready to hand to an agent. It is the one dependency, the official MCP client SDK (ADR 0026).
+- **No provider SDKs.** Each adapter talks to its provider's HTTP API through `fetch`.
 - **Never throws.** Every turn ends with a result and a stop reason, including errors, refusals and cancels.
 - **Tools that can ask first.** A tool marked `needsApproval` runs only after the caller says yes.
 - **Retries and timeouts.** A model call that fails in a way worth retrying, such as a rate limit or a timeout, is tried again after a growing wait (5 retries and a 60 s timeout per attempt by default).

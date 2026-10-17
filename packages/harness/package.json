@@ -8,5 +8,12 @@
         "typecheck": "tsc",
         "lint": "biome lint --error-on-warnings src",
         "check": "pnpm typecheck && pnpm lint && pnpm test"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/client": "^2.3.1"
+    },
+    "devDependencies": {
+        "@modelcontextprotocol/server": "^2.3.1",
+        "zod": "^4.6.7"
     }
 }

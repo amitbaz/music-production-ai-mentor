@@ -41,6 +41,22 @@ test("the notice that summarising has started is shown as a short line", () => {
     assert.equal(s.text(), "\n(summarising the earlier conversation…)\n");
 });
 
+test("the first turn waiting for the knowledge base is shown as a short line", () => {
+    const s = screen();
+
+    s.show({ type: "knowledge_base_loading" });
+
+    assert.equal(s.text(), "\n(loading the knowledge base…)\n");
+});
+
+test("a knowledge base that can't be reached is shown with its reason, in red", () => {
+    const s = screen({ color: true });
+
+    s.show({ type: "knowledge_base_unavailable", reason: "No answer within 60 s" });
+
+    assert.equal(s.text(), "\n\x1b[31mKnowledge base not available: No answer within 60 s. Carrying on without it.\x1b[39m\n");
+});
+
 test("the summarising notice is dimmed when the terminal shows colour", () => {
     const s = screen({ color: true });
 
