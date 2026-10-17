@@ -56,8 +56,26 @@ Run on 2026-10-17: macOS 27.0.1, Live 12 Suite 12.4.6, FabFilter Pro-C 2 (AU v2)
 
 - `NSRunningApplication.activate()` from the helper did **not** bring Live forward on macOS 27, and one real-mouse write landed in the app in front (Superset). `tell application "Ableton Live 12 Suite" to activate` through AppleScript did work. **A guard that stops unless Live is really in front is required** before any real-mouse event.
 
+**Reading the display** (`setup-display.ts`, `display-by-eye.ts`)
+
+A drum loop (124 BPM) on the Prototype track through its own Pro-C 2, in four states, two captures each. Each time, the models were asked whether audio plays, whether it compresses, the deepest gain reduction, what triggers it, and one piece of advice. The truth comes from the plug-in's red gain-reduction trace in each capture.
+
+| | A: threshold 0 dB (~1 dB GR) | B: −20 dB, 4:1 (~13 dB) | C: −45 dB, high ratio (~42 dB) | D: stopped | Right |
+| --- | --- | --- | --- | --- | --- |
+| gemini-3.5-flash-lite | 0 of 2 (12, 30) | 2 | 0 of 2 (12, 12) | 2 | 4 of 8 |
+| claude-haiku-5-5 | 1 of 2 (13, 2) | 2 | 0 of 2 (20, 10) | 1 | 4 of 8 |
+| claude-sonnet-5-5 | 1 of 2 (13, 1) | 2 | 2 (42, 42) | 2 | 7 of 8 |
+
+Right means GR within ±4 dB, or "not playing" for D.
+
+- All three said, correctly, that the compressor reacts to the drum transients and recovers between hits. All gave advice that fits what they read. Sonnet also caught the input and output peaking above 0 dB.
+- **A held peak readout misled them.** In A, the GR peak readout still showed −13 from the run before, while the trace showed about 1 dB. Most answers took the number. Sonnet once said outright that the readout was stale. Printed numbers are not always current.
+- **Pro-C 2 draws its history only while its window is visible.** A look at a display needs Live in front for about 2.5 s first, or the history is empty or a second long.
+- **Check through the API that Live is playing** (`is_playing`) before a look at a display. The first run of this test went wrong because playback had stopped, and every model then said, correctly, that nothing was playing.
+
 ## What this means
 
-- A plug-in's settings come from the API first. Its values are exact, readable and writable without touching the screen. The eyes add what the API's text lacks (units for Ratio, Attack, Release) through a hover readout, and the layout (where a control is).
+- A plug-in's settings come from the API first, **where the plug-in exposes them**. Pro-C 2 exposes all of them; many plug-ins don't (maintainer, on review). There, the values are exact, readable and writable without touching the screen. The eyes add what the API's text lacks (units for Ratio, Attack, Release) through a hover readout, and the layout (where a control is). For settings a plug-in hides, the eyes and hands are the only way.
+- **The eyes read the plug-in's displays as well as its text**: gain-reduction traces, meters, curves. They tell the mentor what the plug-in is doing to the sound, which no parameter value says. How well a model reads them varies a lot (7 of 8 against 4 of 8 here), so it bears on what a model must meet to use the eyes.
 - The hands, for a FabFilter-style plug-in, are a real mouse: double-click, type, Return. That takes Live to the front and moves the cursor for about 2 s. Per-process events and Accessibility do not reach it.
 - A model should never be asked to read a value off a knob's angle.
