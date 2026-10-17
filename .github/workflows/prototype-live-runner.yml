@@ -179,7 +179,14 @@ jobs:
           pgrep -lx Live || echo "Live is not running"
           mkdir -p artifacts
           cp "$HOME"/Library/Preferences/Ableton/Live*/Log.txt artifacts/ 2>/dev/null || echo "no Log.txt"
-          cp -R "$HOME/.mentor/evals/runs" artifacts/runs 2>/dev/null || echo "no runs"
+          # Run JSON without the conversation or error text: this repo is public, and an API error can quote
+          # the request's headers (run 5 did). Scores and differences only.
+          mkdir -p artifacts/runs
+          for f in "$HOME"/.mentor/evals/runs/*/run-*.json; do
+              [ -f "$f" ] || continue
+              python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); r.pop("messages",None); r["error"]=bool(r.get("error")); print(json.dumps(r,indent=1))' "$f" > "artifacts/runs/$(basename "$(dirname "$f")")-$(basename "$f")"
+          done
+          cp "$HOME"/.mentor/evals/runs/*/stopped.png artifacts/runs/ 2>/dev/null || true
           cp eval.log artifacts/ 2>/dev/null || true
           df -h /
 
