@@ -79,19 +79,20 @@ jobs:
           echo "ABLETON_PASSWORD=$password" >> "$GITHUB_ENV"
           ls "$HOME/Music/Ableton/User Library/Remote Scripts/MusicMentor"
 
-      - name: Open Patience, click "open in demo mode", wait for the Remote Script
+      - name: Open Patience, click through Live's dialogs, wait for the Remote Script
         run: |
+          mkdir -p "$SHOTS"
           t0=$SECONDS
           open -a "$LIVE_APP" "$PATIENCE"
-          clicked=""
           listening=""
           for _ in $(seq 1 36); do
               sleep 5
               now=$((SECONDS - t0))
               pgrep -x Live >/dev/null || { echo "Live is not running at ${now}s"; break; }
               screencapture -x "$SHOTS/launch-$(printf %03d "$now")s.png" || true
-              # What System Events can see of Live's windows and buttons: the dialog's label is unknown.
               echo "--- ${now}s"
+              # Every window Live shows, its texts and buttons (the dialogs' labels are unknown), then one click:
+              # a button about demo mode if there is one, else a lone OK (run 2 sat behind an audio-device error).
               osascript - <<'AS' 2>&1 | sed 's/^/  ui: /' || true
           on s(v)
               try
@@ -102,34 +103,36 @@ jobs:
           end s
           tell application "System Events" to tell process "Live"
               set out to ""
+              set demoButton to missing value
+              set okButton to missing value
               repeat with w in windows
-                  set out to out & "window [" & my s(name of w) & "] role " & my s(role of w) & linefeed
-                  set bs to buttons of w
+                  set out to out & "window [" & my s(name of w) & "]" & linefeed
+                  set els to (UI elements of w)
                   repeat with g in groups of w
-                      set bs to bs & (buttons of g)
+                      set els to els & (UI elements of g)
                   end repeat
-                  repeat with b in bs
-                      set out to out & "  button name=[" & my s(name of b) & "] description=[" & my s(description of b) & "] title=[" & my s(title of b) & "]" & linefeed
+                  repeat with e in els
+                      set r to my s(role of e)
+                      set d to my s(description of e)
+                      if r is "AXStaticText" then
+                          set out to out & "  text: " & my s(value of e) & linefeed
+                      else if r is "AXButton" then
+                          set out to out & "  button: [" & d & "]" & linefeed
+                          if d contains "demo" and demoButton is missing value then set demoButton to e
+                          if d is "OK" and okButton is missing value then set okButton to e
+                      end if
                   end repeat
               end repeat
+              if demoButton is not missing value then
+                  click demoButton
+                  set out to out & "CLICKED demo-mode button" & linefeed
+              else if okButton is not missing value then
+                  click okButton
+                  set out to out & "CLICKED OK" & linefeed
+              end if
               return out
           end tell
           AS
-              if [ -z "$clicked" ] && osascript - <<'AS' >/dev/null 2>&1
-          tell application "System Events" to tell process "Live"
-              try
-                  click (first button of window 1 whose (description contains "demo" or name contains "demo" or title contains "demo"))
-              on error
-                  click (first button of group 1 of window 1 whose (description contains "demo" or name contains "demo" or title contains "demo"))
-              end try
-          end tell
-          AS
-              then
-                  clicked=$now
-                  echo "clicked the demo-mode button at ${clicked}s"
-                  sleep 3
-                  screencapture -x "$SHOTS/after-demo-click.png" || true
-              fi
               log=$(echo "$HOME/Library/Preferences/Ableton/"Live*/Log.txt)
               if [ -f "$log" ] && grep -q "listening on 127.0.0.1:39031" "$log"; then
                   listening=$now
@@ -141,7 +144,7 @@ jobs:
           log=$(echo "$HOME/Library/Preferences/Ableton/"Live*/Log.txt)
           echo "--- Log.txt lines about scripts, licensing, audio and the document"
           grep -iE 'MidiRemoteScript|AbletonJS|RemoteScript|demo|licens|audio|Loading document|ExchangeDocument' "$log" 2>/dev/null | tail -60 || echo "no Log.txt at $log"
-          echo "- demo-mode button clicked: ${clicked:-never}s; Remote Script listening: ${listening:-never}s (from launch)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Remote Script listening: ${listening:-never}s from launch" >> "$GITHUB_STEP_SUMMARY"
           [ -n "$listening" ] || { echo "::error::the Remote Script never listened"; exit 1; }
           grep -q "Loading document .*Patience" "$log" || { echo "::error::Patience never loaded"; exit 1; }
 
@@ -161,6 +164,7 @@ jobs:
       - name: Last look
         if: always()
         run: |
+          mkdir -p "$SHOTS"
           screencapture -x "$SHOTS/final.png" || true
           pgrep -lx Live || echo "Live is not running"
           mkdir -p artifacts
