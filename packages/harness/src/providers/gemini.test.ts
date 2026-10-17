@@ -97,6 +97,28 @@ test("a request with no tools leaves tools out, as the summary request has none"
     });
 });
 
+test("leaves out the $schema key an MCP server's tool sends, which Gemini rejects", () => {
+    const kbSearch: Tool = {
+        name: "kb_search",
+        description: "Searches the knowledge base",
+        params: {
+            type: "object",
+            properties: { query: { type: "string" } },
+            required: ["query"],
+            $schema: "https://json-schema.org/draft/2020-12/schema",
+        },
+        run: () => "",
+    };
+
+    const request = toGeminiRequest([{ type: "user", text: "Hi" }], [kbSearch]);
+
+    assert.deepEqual(request.tools?.[0].functionDeclarations[0].parameters, {
+        type: "object",
+        properties: { query: { type: "string" } },
+        required: ["query"],
+    });
+});
+
 test("groups consecutive messages from the same side into one Gemini turn", () => {
     const conversation: Message[] = [
         { type: "user", text: "Set the tempo and add a track" },

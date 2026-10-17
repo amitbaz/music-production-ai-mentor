@@ -48,11 +48,11 @@ export function toGeminiRequest(
             : {
                   tools: [
                       {
-                          functionDeclarations: tools.map((tool) => ({
-                              name: tool.name,
-                              description: tool.description,
-                              parameters: tool.params,
-                          })),
+                          functionDeclarations: tools.map((tool) => {
+                              // Gemini rejects "$schema", which MCP servers often send.
+                              const { $schema, ...parameters } = tool.params;
+                              return { name: tool.name, description: tool.description, parameters };
+                          }),
                       },
                   ],
               }),
