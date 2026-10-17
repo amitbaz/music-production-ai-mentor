@@ -1,10 +1,12 @@
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { createClient } from "../../client.ts";
-import { ADDRESS, liveSet, useStandIn } from "../../stand-in-live.ts";
+import { ADDRESS, liveSet, StandInSocket, useStandIn } from "../../stand-in-live.ts";
 import { readSet } from "../reads/read-set.ts";
 import { liveChange } from "./live-change.ts";
 import { liveGet } from "./live-get.ts";
+
+const requests = () => StandInSocket.opened.flatMap((socket) => socket.sent).length;
 
 // A Live Set with Bass and Main. Reads it first, as the mentor does.
 async function setup(t: TestContext) {
@@ -82,6 +84,36 @@ test("live_change refuses the script's own functions, which are not Live's", asy
     for (const name of ["add_listener", "remove_listener", "get_prop", "set_prop", "dispatch", "get_obj", "save_obj", "serialize_track", "serialize_clip"]) {
         await assert.rejects(async () => tool.run({ object: "song", function: name }), new RegExp(`${name} belongs to the script`));
     }
+});
+
+// The script reads these args as its own ids, so an object id there would not be found.
+test("live_change refuses a function that takes a Live object, says what to do instead, and sends Live nothing", async (t) => {
+    const { tool, bass } = await setup(t);
+    const sent = requests();
+
+    for (const [name, instead] of [
+        ["delete_clip", /\bdelete\b/],
+        ["duplicate_clip_to_arrangement", /edit_arrangement.*duplicate/],
+        ["automation_envelope", /give the user the steps/],
+        ["create_automation_envelope", /give the user the steps/],
+        ["clear_envelope", /give the user the steps/],
+        ["export_to_clip_slot", /give the user the steps/],
+        ["move_device", /edit_devices.*move/],
+        ["find_device_position", /edit_devices.*move/],
+    ] as const) {
+        await assert.rejects(async () => tool.run({ object: bass, function: name, args: ["c2"] }), new RegExp(`${name}.*${instead.source}`));
+    }
+
+    assert.equal(requests(), sent);
+});
+
+test("live_change refuses to set the appointed device, which takes a Live object, names show, and sends Live nothing", async (t) => {
+    const { tool } = await setup(t);
+    const sent = requests();
+
+    await assert.rejects(async () => tool.run({ object: "song", property: "appointed_device", value: "d1" }), /appointed_device.*\bshow\b/);
+
+    assert.equal(requests(), sent);
 });
 
 test("live_change is marked as needing approval", async (t) => {
