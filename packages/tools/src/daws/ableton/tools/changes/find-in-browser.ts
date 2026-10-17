@@ -10,7 +10,7 @@ const ROOTS = {
 };
 // The file names of the samples Live's browser holds.
 export const SAMPLE_FILE = /\.(wav|aiff?|mp3|flac|ogg|m4a)$/i;
-export const ALL_ROOTS = ["instruments", "audio_effects", "midi_effects", "drums", "sounds", "samples", "user_library", "max_for_live"];
+export const ALL_ROOTS = ["instruments", "audio_effects", "midi_effects", "drums", "sounds", "samples", "user_library", "max_for_live", "plugins"];
 
 // The most items looked at, and the most folders asked for their children in one message, so a
 // large library neither runs for long nor makes Live miss its answer time.
