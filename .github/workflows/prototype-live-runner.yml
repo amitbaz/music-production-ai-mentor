@@ -86,16 +86,7 @@ jobs:
           open -a "$LIVE_APP" "$PATIENCE"
           listening=""
           quiet=0
-          for _ in $(seq 1 48); do
-              sleep 5
-              now=$((SECONDS - t0))
-              pgrep -x Live >/dev/null || { echo "Live is not running at ${now}s"; break; }
-              screencapture -x "$SHOTS/launch-$(printf %03d "$now")s.png" || true
-              echo "--- ${now}s"
-              # Live's dialogs, seen through System Events as buttons of a window or of its groups (run 3
-              # showed "UI elements of" sees nothing). One click per pass: a demo-mode button, else
-              # "Authorize later" (the unauthorized welcome dialog), else a lone OK (audio-device errors).
-              out=$(osascript - <<'AS' 2>&1 || true)
+          cat > "$RUNNER_TEMP/click.applescript" <<'AS'
           on s(v)
               try
                   return v as text
@@ -136,6 +127,16 @@ jobs:
               return out
           end tell
           AS
+          for _ in $(seq 1 48); do
+              sleep 5
+              now=$((SECONDS - t0))
+              pgrep -x Live >/dev/null || { echo "Live is not running at ${now}s"; break; }
+              screencapture -x "$SHOTS/launch-$(printf %03d "$now")s.png" || true
+              echo "--- ${now}s"
+              # Live's dialogs, seen through System Events as buttons of a window or of its groups (run 3
+              # showed "UI elements of" sees nothing). One click per pass: a demo-mode button, else
+              # "Authorize later" (the unauthorized welcome dialog), else a lone OK (audio-device errors).
+              out=$(osascript "$RUNNER_TEMP/click.applescript" 2>&1 || true)
               printf '%s\n' "$out" | sed 's/^/  ui: /'
               log=$(echo "$HOME/Library/Preferences/Ableton/"Live*/Log.txt)
               if [ -z "$listening" ] && [ -f "$log" ] && grep -q "listening on 127.0.0.1:39031" "$log"; then
