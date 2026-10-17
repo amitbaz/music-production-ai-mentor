@@ -1,0 +1,182 @@
+# PROTOTYPE (mentor-kb #43): does Live run one eval on a GitHub-hosted macOS runner at all?
+# Throwaway, on the prototype/live-on-hosted-runner branch only. Run it by hand from the Actions tab.
+#
+# evals/prototype/live-runner/Preferences.cfg was taken from the mentor-sandbox Tart image (user admin,
+# Live 12 Suite, MusicMentor chosen as the first Control Surface, nothing else set), so Live loads the
+# Remote Script at launch without anyone opening Settings.
+name: prototype-live-runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      case:
+        description: eval case
+        default: low-end-hot-told
+        type: string
+      live_version:
+        description: Live version; the CDN URL is built from it
+        default: "12.4.6"
+        type: string
+
+jobs:
+  live:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      CASE: ${{ inputs.case }}
+      LIVE_VERSION: ${{ inputs.live_version }}
+      LIVE_APP: /Applications/Ableton Live 12 Suite.app
+      PATIENCE: /Applications/Ableton Live 12 Suite.app/Contents/App-Resources/Core Library/Lessons/Demo Songs/Chuck Sutton - Patience (Live 12 Suite Demo).als
+      SHOTS: ${{ github.workspace }}/shots
+    steps:
+      - name: The runner
+        run: |
+          mkdir -p "$SHOTS"
+          sw_vers; uname -m; echo "user: $(whoami), console: $(stat -f %Su /dev/console)"
+          sysctl hw.memsize hw.ncpu
+          df -h /
+          system_profiler SPAudioDataType || true
+
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Live from the CDN (mounted from the URL, never stored)
+        run: |
+          url="https://cdn-downloads.ableton.com/channels/$LIVE_VERSION/ableton_live_suite_${LIVE_VERSION}_universal.dmg"
+          t0=$SECONDS
+          yes | hdiutil attach -nobrowse -readonly -noverify -noautoopen -mountpoint /Volumes/Live "$url"
+          echo "mounted in $((SECONDS - t0))s"
+          t1=$SECONDS
+          src=$(find /Volumes/Live -maxdepth 2 -name 'Ableton Live*.app' -print -quit)
+          [ -n "$src" ] || { echo "no Ableton Live .app on the installer"; ls -la /Volumes/Live; exit 1; }
+          ditto "$src" "$LIVE_APP" || sudo ditto "$src" "$LIVE_APP"
+          echo "copied in $((SECONDS - t1))s"
+          hdiutil detach /Volumes/Live || true
+          xattr -dr com.apple.quarantine "$LIVE_APP" 2>/dev/null || true
+          df -h /
+          [ -f "$PATIENCE" ] || { echo "Patience is not inside the app"; exit 1; }
+          codesign -dv "$LIVE_APP" 2>&1 | grep -E 'TeamIdentifier|^Identifier' || true
+          echo "- Live install: $((SECONDS - t0))s (mount $((t1 - t0))s, copy $((SECONDS - t1))s)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Seed Live's preferences (MusicMentor Control Surface, no updates, no usage data)
+        run: |
+          prefs="$HOME/Library/Preferences/Ableton/Live $LIVE_VERSION"
+          mkdir -p "$prefs"
+          printf -- '-_DisableAutoUpdates\n-_DisableSnowplow\n' > "$prefs/Options.txt"
+          cp evals/prototype/live-runner/Preferences.cfg "$prefs/Preferences.cfg"
+          ls -la "$prefs"
+
+      - name: Install the Remote Script, paired with a fresh password
+        run: |
+          password=$(cd evals && node --input-type=module -e '
+              import { installRemoteScript } from "@mentor/tools/daws/ableton";
+              console.log((await installRemoteScript(process.argv[1])).password);
+          ' "$HOME/Music/Ableton/User Library/Remote Scripts")
+          [ -n "$password" ] || { echo "pairing gave no password"; exit 1; }
+          echo "::add-mask::$password"
+          echo "ABLETON_PASSWORD=$password" >> "$GITHUB_ENV"
+          ls "$HOME/Music/Ableton/User Library/Remote Scripts/MusicMentor"
+
+      - name: Open Patience, click "open in demo mode", wait for the Remote Script
+        run: |
+          t0=$SECONDS
+          open -a "$LIVE_APP" "$PATIENCE"
+          clicked=""
+          listening=""
+          for _ in $(seq 1 36); do
+              sleep 5
+              now=$((SECONDS - t0))
+              pgrep -x Live >/dev/null || { echo "Live is not running at ${now}s"; break; }
+              screencapture -x "$SHOTS/launch-$(printf %03d "$now")s.png" || true
+              # What System Events can see of Live's windows and buttons: the dialog's label is unknown.
+              echo "--- ${now}s"
+              osascript - <<'AS' 2>&1 | sed 's/^/  ui: /' || true
+          on s(v)
+              try
+                  return v as text
+              on error
+                  return "?"
+              end try
+          end s
+          tell application "System Events" to tell process "Live"
+              set out to ""
+              repeat with w in windows
+                  set out to out & "window [" & my s(name of w) & "] role " & my s(role of w) & linefeed
+                  set bs to buttons of w
+                  repeat with g in groups of w
+                      set bs to bs & (buttons of g)
+                  end repeat
+                  repeat with b in bs
+                      set out to out & "  button name=[" & my s(name of b) & "] description=[" & my s(description of b) & "] title=[" & my s(title of b) & "]" & linefeed
+                  end repeat
+              end repeat
+              return out
+          end tell
+          AS
+              if [ -z "$clicked" ] && osascript - <<'AS' >/dev/null 2>&1
+          tell application "System Events" to tell process "Live"
+              try
+                  click (first button of window 1 whose (description contains "demo" or name contains "demo" or title contains "demo"))
+              on error
+                  click (first button of group 1 of window 1 whose (description contains "demo" or name contains "demo" or title contains "demo"))
+              end try
+          end tell
+          AS
+              then
+                  clicked=$now
+                  echo "clicked the demo-mode button at ${clicked}s"
+                  sleep 3
+                  screencapture -x "$SHOTS/after-demo-click.png" || true
+              fi
+              log=$(echo "$HOME/Library/Preferences/Ableton/"Live*/Log.txt)
+              if [ -f "$log" ] && grep -q "listening on 127.0.0.1:39031" "$log"; then
+                  listening=$now
+                  echo "Remote Script listening at ${listening}s"
+                  break
+              fi
+          done
+          screencapture -x "$SHOTS/launch-end.png" || true
+          log=$(echo "$HOME/Library/Preferences/Ableton/"Live*/Log.txt)
+          echo "--- Log.txt lines about scripts, licensing, audio and the document"
+          grep -iE 'MidiRemoteScript|AbletonJS|RemoteScript|demo|licens|audio|Loading document|ExchangeDocument' "$log" 2>/dev/null | tail -60 || echo "no Log.txt at $log"
+          echo "- demo-mode button clicked: ${clicked:-never}s; Remote Script listening: ${listening:-never}s (from launch)" >> "$GITHUB_STEP_SUMMARY"
+          [ -n "$listening" ] || { echo "::error::the Remote Script never listened"; exit 1; }
+          grep -q "Loading document .*Patience" "$log" || { echo "::error::Patience never loaded"; exit 1; }
+
+      - name: Run one eval against the runner's Live
+        env:
+          EVAL_SANDBOX: host
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          t0=$SECONDS
+          status=0
+          pnpm eval "$CASE" --runs 1 --no-kb 2>&1 | tee eval.log || status=$?
+          echo "- eval: exit $status in $((SECONDS - t0))s" >> "$GITHUB_STEP_SUMMARY"
+          grep -E '^run 1|passed|Stopped|failed' eval.log | sed 's/^/  - /' >> "$GITHUB_STEP_SUMMARY" || true
+          exit "$status"
+
+      - name: Last look
+        if: always()
+        run: |
+          screencapture -x "$SHOTS/final.png" || true
+          pgrep -lx Live || echo "Live is not running"
+          mkdir -p artifacts
+          cp "$HOME"/Library/Preferences/Ableton/Live*/Log.txt artifacts/ 2>/dev/null || echo "no Log.txt"
+          cp -R "$HOME/.mentor/evals/runs" artifacts/runs 2>/dev/null || echo "no runs"
+          cp eval.log artifacts/ 2>/dev/null || true
+          df -h /
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prototype-live-runner
+          path: |
+            shots
+            artifacts
+          if-no-files-found: warn

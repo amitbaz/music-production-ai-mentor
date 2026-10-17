@@ -13,6 +13,7 @@ import { createAbleton } from "@mentor/tools/daws/ableton";
 import { cases } from "../sets/patience/cases.ts";
 import { runCase } from "./run.ts";
 import { startSandbox } from "./sandbox.ts";
+import { startHostSandbox } from "./sandbox-host.ts";
 
 const { positionals, values } = parseArgs({ allowPositionals: true, options: { runs: { type: "string", default: "30" }, model: { type: "string" }, "no-kb": { type: "boolean" } } });
 const chosen = cases.find((c) => c.name === positionals[0]);
@@ -58,7 +59,9 @@ process.once("SIGINT", () => {
 });
 // The sandbox and where its Live answers: the tunnel's address and the pairing password.
 try {
-    started = await startSandbox({ signal: interrupt.signal });
+    // PROTOTYPE (mentor-kb #43): EVAL_SANDBOX=host runs against the Live already open on this machine.
+    const start = process.env.EVAL_SANDBOX === "host" ? startHostSandbox : startSandbox;
+    started = await start({ signal: interrupt.signal });
 } catch (error) {
     console.error((error as Error).message);
     process.exit(interrupt.signal.aborted ? 130 : 1);

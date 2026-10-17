@@ -34,7 +34,7 @@ const SHOT = "/private/tmp/mentor-eval-screen.png";
 // Runs in the VM before every run. Reopens Patience, answers Live's "Save changes?" with "Don't Save",
 // and waits until Live's log says Patience loaded and the Remote Script listens again. The window title
 // cannot tell: Live calls the demo Set "Untitled". Exits 1, saying why, if Patience does not come back.
-const REOPEN = `set -u
+export const REOPEN = `set -u
 app=${shellQuote(LIVE_APP)}
 patience=${shellQuote(PATIENCE)}
 log=$(echo "$HOME/Library/Preferences/Ableton/"Live*/Log.txt)
