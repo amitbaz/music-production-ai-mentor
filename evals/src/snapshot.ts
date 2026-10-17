@@ -39,18 +39,18 @@ export async function snapshot(tools: Tool[]): Promise<Snapshot> {
         if (Object.keys(unknown).length) throw new Error(`${track.name} has more left out of its read than devices and clips: ${JSON.stringify(unknown)}`);
         // It may cut clips too; with every device by name only, they get the whole result.
         // ponytail: one more read; clips that alone pass the limit stop the series, read them in pages if a Set ever has them.
-        let clipped = detail;
+        let withClips = detail;
         if (clips) {
             const again = await call("read_tracks", { tracks: [track.id], devices: [] });
             if (again.left_out?.clips) throw new Error(`${track.name} has clips cut from its read: ${JSON.stringify(again.left_out.clips)}`);
-            [clipped] = again.tracks as Detail[];
+            [withClips] = again.tracks as Detail[];
         }
         for (const id of leftOut) {
             const [alone] = (await call("read_tracks", { tracks: [track.id], devices: [id] })).tracks as Detail[];
             Object.assign(find(detail?.devices ?? [], id) as Device, find(alone?.devices ?? [], id));
         }
         devices(shot, at, detail?.devices ?? []);
-        for (const { id, name, ...clip } of [...(clipped?.session ?? []), ...(clipped?.arrangement ?? [])]) {
+        for (const { id, name, ...clip } of [...(withClips?.session ?? []), ...(withClips?.arrangement ?? [])]) {
             shot[`${at} / ${name} (${id})`] = { value: JSON.stringify(clip), id };
         }
     }

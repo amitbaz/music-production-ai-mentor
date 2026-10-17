@@ -57,3 +57,23 @@ test("a snapshot reads every clip of a track whose devices leave no room for the
     assert.equal(Object.keys(shot).filter((key) => / \/ Bass \d+ \(/.test(key)).length, 40);
     assert.equal(Object.keys(shot).filter((key) => key.includes("/ Wavetable modulation amount")).length, 450);
 });
+
+test("a snapshot stops on a track whose clips alone pass the result limit", async (t) => {
+    const { live, track, set } = liveSet({ tempo: 120, numerator: 4, denominator: 4 });
+    set({
+        tracks: [
+            track({
+                name: "Hats",
+                type: "midi",
+                volume: "0.0 dB",
+                pan: "C",
+                arrangement: Array.from({ length: 1000 }, (_, i) => ({ name: `Hat ${i + 1}`, kind: "midi" as const, start: i, end: i + 1 })),
+            }),
+        ],
+        return_tracks: [],
+        master_track: track({ name: "Main", type: "main", volume: "0.0 dB", pan: "C" }),
+    });
+    useStandIn(t, live);
+
+    await assert.rejects(snapshot(createAbleton({ address: ADDRESS })), /Hats has clips cut from its read/);
+});
