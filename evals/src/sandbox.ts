@@ -33,7 +33,8 @@ const SHOT = "/private/tmp/mentor-eval-screen.png";
 
 // Runs in the VM before every run. Reopens Patience, answers Live's "Save changes?" with "Don't Save",
 // and waits until Live's log says Patience loaded and the Remote Script listens again. The window title
-// cannot tell: Live calls the demo Set "Untitled". Exits 1, saying why, if Patience does not come back.
+// cannot tell: Live calls the demo Set "Untitled". Exits 1, saying why, if Patience does not come back,
+// and 3 if Live is not authorized: then it cannot save, and asks "Changes will be lost" instead.
 const REOPEN = `set -u
 app=${shellQuote(LIVE_APP)}
 patience=${shellQuote(PATIENCE)}
@@ -54,6 +55,8 @@ for _ in $(seq 1 90); do
     [ -n "$first" ] && loaded_after "$first" && break
     sleep 2
 done
+# An authorized Live logs IsUnlocked?=true as it starts; an unauthorized one logs nothing about it.
+[ -n "$first" ] && ! tail -n +$((first + 1)) "$log" | grep -q 'IsUnlocked?=true' && exit 3
 start=$(wc -l <"$log" | tr -d ' ')
 open -a "$app" "$patience" || { echo "open failed" >&2; exit 1; }
 # Live asks whether to save the Set it has open, even an unchanged one. Its dialog's buttons have no
@@ -143,8 +146,15 @@ export async function startSandbox({ host = realHost, image = "mentor-sandbox", 
     const build = `Build the sandbox image once with ${BUILD} (see evals/README.md).`;
     const got = await host.run(tart, ["get", image, "--format", "json"]);
     if (got.code !== 0) throw new Error(`The sandbox image ${image} does not exist. ${build}`);
-    const { MACAddress: mac } = JSON.parse(got.stdout) as { MACAddress: string };
     const dir = join(host.home, ".mentor", "sandbox");
+    // The MAC address Live was authorized under, which the build saved. Not the image's own: Tart gives a VM
+    // a new one when it starts beside a running VM with the same, and saves it.
+    const macFile = join(dir, `${image}.mac`);
+    let mac = "";
+    try {
+        mac = readFileSync(macFile, "utf8").trim();
+    } catch {}
+    if (!mac) throw new Error(`The MAC address Live was authorized under is missing from ${macFile}. ${build} It saves it there.`);
     const key = join(dir, "id_ed25519");
     let password = "";
     try {
@@ -188,7 +198,7 @@ export async function startSandbox({ host = realHost, image = "mentor-sandbox", 
         // tart clone gives the copy a new MAC address, and Live's authorization is tied to it: with another
         // one, Live asks to be authorized again. Only one copy can run at a time with it.
         const keepMac = await guard(host.run(tart, ["set", name, "--mac", mac]));
-        if (keepMac.code !== 0) throw new Error(`Could not give the copy ${name} the image's MAC address: ${keepMac.stderr.trim()}`);
+        if (keepMac.code !== 0) throw new Error(`Could not give the copy ${name} the MAC address Live was authorized under: ${keepMac.stderr.trim()}`);
         const started = host.start(tart, ["run", "--no-graphics", "--no-audio", name]);
         vm = started;
         void started.exited.then((code) => fail(new Error(`The VM stopped (exit ${code}).`)));
@@ -219,6 +229,9 @@ export async function startSandbox({ host = realHost, image = "mentor-sandbox", 
             password,
             reopenBase: async () => {
                 const result = await ssh(["bash", "-s"], { input: REOPEN });
+                if (result.code === 3) {
+                    throw new Error(`Live in the sandbox is not authorized, so it cannot save and its dialogs stop the reopen. Its authorization is tied to the MAC address: copies get ${mac}, from ${macFile}. Put the MAC Live was authorized under in that file, or rebuild the image with ${BUILD}.`);
+                }
                 if (result.code !== 0) throw new Error(result.stderr.trim() || `the reopen script failed (exit ${result.code})`);
                 if (tunnelExited) throw new Error("The tunnel to the VM's Live is down.");
             },

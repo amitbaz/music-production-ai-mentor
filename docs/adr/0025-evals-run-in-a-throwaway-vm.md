@@ -34,5 +34,5 @@ Rejected:
 - An eval needs a Mac with Apple Silicon, about 60 GB of disk for the image, and the sandbox image built first.
 - Each run is slower: Live reopens the Set every time.
 - Nobody had reported running Live in a macOS VM. The first step is to boot one, start Live, and connect to the Remote Script.
-- Ableton's offline licence file is tied to the machine's hardware code. Copies of the image keep the macOS machine identifier, so they should keep the authorization. That is untested.
+- Ableton's offline licence file is tied to the machine's hardware code. Copies of the image keep the macOS machine identifier, so they should keep the authorization. That is untested. Update, 2026-10-17: the hardware code follows the MAC address, not the machine identifier. Each copy gets the MAC the build saved, and the series stops at once when Live is not authorized.
 - A run that deletes a clip no longer stops the series, because the next run starts from the file.
