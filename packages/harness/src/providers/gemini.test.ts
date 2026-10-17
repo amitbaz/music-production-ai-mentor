@@ -61,6 +61,8 @@ test("translates a conversation and its tools into a Gemini request", () => {
             },
             { role: "model", parts: [{ text: "Done." }] },
         ],
+        // ADR 0027.
+        generationConfig: { thinkingConfig: { thinkingLevel: "medium" } },
         tools: [
             {
                 functionDeclarations: [
@@ -94,6 +96,7 @@ test("a request with no tools leaves tools out, as the summary request has none"
     assert.deepEqual(request, {
         systemInstruction: { parts: [{ text: "Be brief" }] },
         contents: [{ role: "user", parts: [{ text: "Summarise" }] }],
+        generationConfig: { thinkingConfig: { thinkingLevel: "medium" } },
     });
 });
 

@@ -42,6 +42,8 @@ export function toGeminiRequest(
     return {
         ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
         contents,
+        // Flash-Lite's default, minimal, is about no thinking at all; medium is Google's default for agent work (ADR 0027).
+        generationConfig: { thinkingConfig: { thinkingLevel: "medium" } },
         // No tools, as in a summary request, leaves the field out.
         ...(tools.length === 0
             ? {}
