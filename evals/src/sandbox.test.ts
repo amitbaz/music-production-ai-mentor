@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -9,9 +9,12 @@ import { type Host, type Process, startSandbox } from "./sandbox.ts";
 type Call = { command: string; args: string[]; input?: string };
 type Reply = { code?: number; stdout?: string; stderr?: string };
 
+// The MAC address Live was authorized under, as the build saved it.
+const AUTHORIZED_MAC = "7a:43:e7:63:73:72";
+
 // What Tart answers when a test does not script it: the image's details, and the copy's address.
 const DEFAULTS: Record<string, Reply> = {
-    get: { stdout: JSON.stringify({ MACAddress: "7a:43:e7:63:73:72", State: "stopped" }) },
+    get: { stdout: JSON.stringify({ MACAddress: AUTHORIZED_MAC, State: "stopped" }) },
     ip: { stdout: "192.168.64.7\n" },
 };
 
@@ -22,6 +25,7 @@ function fake({ arch = "arm64", replies = [], vmOutput = "", vmExits = false, ha
     mkdirSync(join(home, ".mentor", "sandbox"), { recursive: true });
     writeFileSync(join(home, ".mentor", "sandbox", "pairing-password"), "s3cret\n");
     writeFileSync(join(home, ".mentor", "sandbox", "id_ed25519"), "key");
+    writeFileSync(join(home, ".mentor", "sandbox", "mentor-sandbox.mac"), `${AUTHORIZED_MAC}\n`);
     const calls: Call[] = [];
     const started: (Call & { killed: boolean })[] = [];
     const stops: (() => void)[] = [];
@@ -66,15 +70,33 @@ function fake({ arch = "arm64", replies = [], vmOutput = "", vmExits = false, ha
 
 const BUILD = "scripts/build-sandbox-image.sh";
 
-test("a copy keeps the image's MAC address, which Live's authorization is tied to", async () => {
+test("a copy gets the MAC address Live was authorized under, which the build saved", async () => {
     const { host, calls, started } = fake();
 
     const sandbox = await startSandbox({ host });
 
     const set = calls.findIndex((call) => call.args[0] === "set");
     assert.ok(set > calls.findIndex((call) => call.args[0] === "clone"), "set comes after clone");
-    assert.deepEqual(calls[set]?.args, ["set", sandbox.name, "--mac", "7a:43:e7:63:73:72"]);
+    assert.deepEqual(calls[set]?.args, ["set", sandbox.name, "--mac", AUTHORIZED_MAC]);
     assert.equal(started[0]?.args[0], "run");
+});
+
+// Tart gives a VM a new MAC when it starts beside a running VM with the same one, and saves it: running
+// the image itself while a copy runs changes the image's MAC, and Live's authorization no longer matches.
+test("a copy gets the saved MAC address even when the image's has changed since the build", async () => {
+    const { host, calls } = fake({ replies: [[/tart get/, { stdout: JSON.stringify({ MACAddress: "12:27:77:ae:a6:f5" }) }]] });
+
+    const sandbox = await startSandbox({ host });
+
+    assert.deepEqual(calls.find((call) => call.args[0] === "set")?.args, ["set", sandbox.name, "--mac", AUTHORIZED_MAC]);
+});
+
+test("without the saved MAC address the error says how to write it, and nothing is copied", async () => {
+    const { host, tart } = fake();
+    rmSync(join(host.home, ".mentor", "sandbox", "mentor-sandbox.mac"));
+
+    await assert.rejects(startSandbox({ host }), (error: Error) => error.message.includes("mentor-sandbox.mac") && error.message.includes(BUILD));
+    assert.equal(tart("clone").length, 0);
 });
 
 test("a sandbox is a copy of the image, started with no graphics and no audio, reached through a tunnel", async () => {
@@ -256,6 +278,27 @@ test("the reopen script reads the boot time from sysctl's seconds, not its micro
     const result = spawnSync("bash", ["-c", `${line}; echo "$boot"`], { env: { PATH: `${bin}:/usr/bin:/bin` }, encoding: "utf8" });
 
     assert.equal(result.stdout, "2026-10-16T19:41:41\n");
+});
+
+// An unauthorized Live cannot save, so it answers a reopen with "Changes will be lost. Proceed?", a dialog
+// the script does not click: without this check the series stops 3 minutes later, with no reason given.
+test("the reopen script stops at once, with its own exit code, when Live's log since boot says nothing of its licence", async () => {
+    const { host, calls } = fake();
+    const sandbox = await startSandbox({ host });
+    await sandbox.reopenBase();
+    const script = calls.at(-1)?.input ?? "";
+
+    assert.match(script, /IsUnlocked\?=true/);
+    assert.match(script, /exit 3/);
+});
+
+test("reopenBase says Live is not authorized, and names the MAC address and where it is saved", async () => {
+    const { host } = fake({ replies: [[/bash -s/, { code: 3 }]] });
+    const sandbox = await startSandbox({ host });
+
+    await assert.rejects(sandbox.reopenBase(), (error: Error) =>
+        error.message.includes("not authorized") && error.message.includes(AUTHORIZED_MAC) && error.message.includes(join(".mentor", "sandbox", "mentor-sandbox.mac")),
+    );
 });
 
 test("reopenBase throws, with what the script said, when Patience does not come back", async () => {

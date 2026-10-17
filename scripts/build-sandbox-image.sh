@@ -10,6 +10,9 @@
 # What it leaves on this Mac, in ~/.mentor/sandbox/ (the sandbox of #110 reads them):
 #     pairing-password   the password pairing wrote into the image's Remote Script
 #     id_ed25519         the SSH key (public half in the image's authorized_keys), user admin
+#     <image-name>.mac   the MAC address Live was authorized under; every sandbox copy gets it, as Live's
+#                        authorization is tied to it. Never start the image itself while a copy runs:
+#                        Tart then gives the image a new MAC and saves it.
 #
 # Environment:
 #     TART=/path/to/tart      the tart binary to use (default: `tart` on PATH)
@@ -394,7 +397,6 @@ GUEST
     mark login
 fi
 
-AUTHORIZED="(done in an earlier run)"
 say "Opening Live with the licence file, to authorize it"
 if ! is_done authorize; then
     vm_in 'cat > /private/tmp/licence.auz' <"$LICENCE"
@@ -411,13 +413,7 @@ if ! is_done authorize; then
         read -r
     fi
     vm 'rm -f /private/tmp/licence.auz'
-    # Live keeps its authorization in an Unlock file under its support folders; none means the .auz was not taken.
-    if [ -n "$(vm 'find "$HOME/Library/Application Support/Ableton" "$HOME/Library/Preferences/Ableton" -ipath "*unlock*" -type f 2>/dev/null | head -n 1' || true)" ]; then
-        AUTHORIZED="an Unlock file is in place"
-    else
-        AUTHORIZED="NOT confirmed: no Unlock file found; check Settings → Licenses & Updates in the VM (SANDBOX_GUI=1)"
-        echo "warning: authorization $AUTHORIZED" >&2
-    fi
+    # Whether Live took the licence is checked after the reboot below, from its log.
 
     mark authorize
 fi
@@ -445,6 +441,13 @@ start_vm
 open_tunnel
 wait_for "Patience to open and the Remote Script to answer through the tunnel on port $PORT (is MusicMentor chosen as a Control Surface? build with SANDBOX_GUI=1)" 300 patience_open
 BOOT_SECONDS=$((SECONDS - BOOT_START))
+# An authorized Live logs IsUnlocked?=true as it starts; an unauthorized one logs nothing about it. An Unlock
+# file alone proves nothing: Live ignores one made for another MAC address.
+vm 'awk "/Started: Live/ { s = \"\" } { s = s \$0 \"\\n\" } END { printf \"%s\", s }" "$HOME/Library/Preferences/Ableton/"Live*/Log.txt | grep -q "IsUnlocked?=true"' ||
+    die "Live is not authorized after the reboot: its log has no IsUnlocked?=true since it started. Build with SANDBOX_GUI=1 and check Settings → Licenses & Updates in the VM."
+MAC=$(tart get "$NAME" --format json | sed -n 's/.*"MACAddress" *: *"\([^"]*\)".*/\1/p')
+[ -n "$MAC" ] || die "could not read the MAC address of $NAME from tart get."
+echo "$MAC" >"$SANDBOX_HOME/$NAME.mac"
 mv "$PASSWORD_FILE.new" "$PASSWORD_FILE"
 
 say "Stopping the VM"
@@ -458,5 +461,5 @@ echo "Sandbox image: $NAME"
 echo "Size on disk:  ${SIZE:-unknown}"
 echo "Boot to Patience open and the Remote Script answering through the tunnel: ${BOOT_SECONDS}s"
 echo "Tracks read through the tunnel on port $PORT: $TRACKS"
-echo "Authorization: $AUTHORIZED"
+echo "Authorization: Live logged IsUnlocked?=true after the reboot, under MAC $MAC ($SANDBOX_HOME/$NAME.mac)"
 echo "Pairing password: $PASSWORD_FILE (SSH key: $KEY)"
