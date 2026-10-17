@@ -61,7 +61,7 @@ test("translates a conversation and its tools into a Gemini request", () => {
             },
             { role: "model", parts: [{ text: "Done." }] },
         ],
-        // Flash-Lite's default, minimal, is about no thinking at all (ADR 0027).
+        // ADR 0027.
         generationConfig: { thinkingConfig: { thinkingLevel: "medium" } },
         tools: [
             {

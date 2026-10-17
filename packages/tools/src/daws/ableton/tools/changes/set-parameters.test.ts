@@ -134,15 +134,16 @@ test("set_parameters refuses a number for a list and a choice for a number", asy
     assert.match(result.changes[1] as string, /not changed.*number/);
 });
 
-// Gemini sends the untyped value as text, such as "-24" for Transpose (#126).
+// A model may send the untyped value as text, such as "-24" for Transpose (#126).
 test("set_parameters takes a number sent as text, and refuses text with a unit or nothing in it", async (t) => {
     const { setParameters } = await open(t, (track) => [bass(track, [{ name: "EQ Eight", class_name: "Eq8", parameters: [gain(0)] }])]);
 
-    const result = await run(setParameters, change("d1", "Gain", " -2.5 "), change("d1", "Gain", "3 dB"), change("d1", "Gain", ""));
+    const result = await run(setParameters, change("d1", "Gain", " -2.5 "), change("d1", "Gain", "3 dB"), change("d1", "Gain", ""), change("d1", "Gain", "-3"));
 
     assert.equal(result.changes[0], "Bass / EQ Eight / Gain: 0.0 dB → -2.5 dB");
     assert.match(result.changes[1] as string, /not changed.*number/);
     assert.match(result.changes[2] as string, /not changed.*number/);
+    assert.equal(result.changes[3], "Bass / EQ Eight / Gain: -2.5 dB → -3.0 dB");
 });
 
 test("set_parameters applies several changes in the order given and reports each", async (t) => {

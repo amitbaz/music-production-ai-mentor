@@ -1,12 +1,12 @@
 # 0027 — Gemini thinks at medium
 
-Date: 2026-10-18 · Status: accepted
+Date: 2026-10-18 · Status: accepted · Amends [0023](0023-the-second-provider-is-claude.md) (a model's thinking is no longer always its default)
 
 ## Context
 
 ADR 0023 left each model's thinking at its default: "the user picks the model, not its knobs; a knob can join the model id later if a score asks for it." Claude's default is adaptive thinking. Gemini 3.5 Flash-Lite's default is `minimal`, which Google describes as matching "no thinking" for most queries.
 
-A score asked. On `kick-bass-fight-told` with mentor-kb 574a4fa (#126), Haiku passed 9/10 and Gemini 0/10. Gemini read the sub's clip in 4 runs of 10 and never tried the fix the note gives. With `thinkingLevel: "medium"` and nothing else changed, it read the clip in 9 runs and tried the fix in 4. The fix needs several steps of reasoning: the written note, plus every transpose, times the oscillator ratio, gives a frequency to compare with 60 Hz.
+A score asked. On `kick-bass-fight-told` with mentor-kb 574a4fa (#126), Haiku passed 9/10 and Gemini 0/10. Gemini read the sub's clip in 4 runs of 10 and never tried the fix the note gives. With `thinkingLevel: "medium"` and nothing else changed, it passed 1/10, read the clip in 9 runs and tried the fix in 4. The other three sent the number as text, "-24 st" and then "-24", which `set_parameters` refused, and ran out of rounds; it now takes a number sent as text. The fix needs several steps of reasoning: the written note, plus every transpose, times the oscillator ratio, gives a frequency to compare with 60 Hz.
 
 ## Decision
 

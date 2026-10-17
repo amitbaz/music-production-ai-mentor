@@ -1,6 +1,6 @@
 # 0023 — The second provider is Claude, reached with `fetch`, its thinking replayed and dropped on mismatch
 
-Date: 2026-10-16 · Status: accepted · Amends [0003](0003-own-neutral-message-format.md) (provider meta carries an owner tag), [0005](0005-the-loop-returns-a-result-and-never-throws.md) (a seventh stop reason, `refused`) and [0011](0011-an-agent-is-created-from-a-model-id.md) (the owner tag and the id rule it asked for before a second adapter)
+Date: 2026-10-16 · Status: accepted · Amends [0003](0003-own-neutral-message-format.md) (provider meta carries an owner tag), [0005](0005-the-loop-returns-a-result-and-never-throws.md) (a seventh stop reason, `refused`) and [0011](0011-an-agent-is-created-from-a-model-id.md) (the owner tag and the id rule it asked for before a second adapter) · Amended by [0027](0027-gemini-thinks-at-medium.md): Gemini thinks at medium, not its default
 
 ## Context
 
