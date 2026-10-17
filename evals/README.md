@@ -21,8 +21,10 @@ Run from the repo root:
 pnpm plant                                   # lists the plants
 pnpm plant <name> [--revert]                 # applies or reverts one on the Set open in your Live, without saving
 pnpm eval                                    # lists the cases
-pnpm eval <case> [--runs 30] [--model provider:model]
+pnpm eval <case> [--runs 30] [--model provider:model] [--no-kb]
 ```
+
+With `KB_PATH` set in `apps/cli/.env`, every run has the knowledge base: the runner starts its server once, before the sandbox, and stops at once if it can't. It prints `knowledge base: mentor-kb @ <commit>` (`-dirty` when notes have changes not committed) or `knowledge base: none`, and saves that line with every run. `--no-kb` leaves the knowledge base out. A line in `scores.md` for a series with it names the commit in `change`, such as "with knowledge base (mentor-kb 2ceb6fe)": a score compares only at the same notes.
 
 `pnpm eval` runs the case 30 times by default, on the mentor's default model unless `--model` names another. It copies the sandbox image under a new name, starts the copy, and runs the series in it, one series at a time. Before every run, a script in the VM reopens Patience from disk and answers Live's "Save changes?" with "Don't Save", so every run starts from the base. Then the run plants the fault, gives the mentor one turn, reads the Set back and grades it against the base:
 

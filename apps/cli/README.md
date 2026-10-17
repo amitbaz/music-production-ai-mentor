@@ -25,6 +25,7 @@ Settings live in `apps/cli/.env`, which is not committed. Copy [`.env.example`](
 | `ANTHROPIC_API_KEY` | Key for Claude models. |
 | `ABLETON_ADDRESS` | Where the Remote Script listens. Default `ws://127.0.0.1:39031`. |
 | `ABLETON_PASSWORD` | Written by `pnpm pair ableton`. Don't set it by hand. |
+| `KB_PATH` | Optional. A clone of the private mentor-kb repo, with `pnpm install` run in it, for the mentor's knowledge base. Left out, the mentor runs without it. |
 
 > [!WARNING]
 > `.env` holds your API keys. Keep it out of commits, logs and screenshots.

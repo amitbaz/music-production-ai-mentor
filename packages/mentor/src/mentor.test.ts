@@ -1,9 +1,9 @@
 import { type TestContext, test } from "node:test";
 import assert from "node:assert/strict";
-import type { CallOptions, Message, Model, Tool } from "@mentor/harness";
+import type { CallOptions, McpConnection, Message, Model, Tool } from "@mentor/harness";
 import { MENTOR_VERSION, PINNED_VERSION } from "@mentor/tools/daws/ableton/stand-in-live";
-import { createMentor, keysFromEnv } from "./mentor.ts";
-import { systemPrompt } from "./system-prompt.ts";
+import { createMentor, keysFromEnv, type Update } from "./mentor.ts";
+import { knowledgeBaseSection, systemPrompt } from "./system-prompt.ts";
 
 type Call = {
     conversation: Message[];
@@ -216,4 +216,80 @@ test("with a model id, a turn goes to that model in place of the mentor's own", 
 test("keysFromEnv reads each provider's key from its variable", () => {
     assert.deepEqual(keysFromEnv({ GEMINI_API_KEY: "g", ANTHROPIC_API_KEY: "a", OTHER: "x" }), { gemini: "g", claude: "a" });
     assert.deepEqual(keysFromEnv({}), { gemini: undefined, claude: undefined });
+});
+
+const kbSearch: Tool = {
+    name: "kb_search",
+    description: "Search the producer knowledge base.",
+    params: { type: "object", properties: { query: { type: "string" } } },
+    run: () => "No notes matched.",
+};
+
+// A knowledge base whose tools arrive when `settle` is called, as a starting server's do.
+function startingKnowledgeBase() {
+    let settle!: (tools: Tool[] | Error) => void;
+    const tools = new Promise<Tool[]>((resolve, reject) => {
+        settle = (result) => (result instanceof Error ? reject(result) : resolve(result));
+    });
+    const connection: McpConnection = { tools, close: async () => {} };
+    return { connection, settle };
+}
+
+const hi: Message[] = [{ type: "assistant", text: "Hi" }];
+
+test("with a knowledge base, its tools follow the Ableton tools and the system prompt says when to search", async () => {
+    const without = scriptedModel([hi]);
+    const { model, calls } = scriptedModel([hi]);
+    const { connection, settle } = startingKnowledgeBase();
+    settle([kbSearch]);
+
+    await createMentor({ model: without.model }).generate([], "hi");
+    await createMentor({ model, knowledgeBase: connection }).generate([], "hi");
+
+    const names = (tools: Tool[] = []) => tools.map((tool) => tool.name);
+    assert.deepEqual(names(calls[0]?.tools), [...names(without.calls[0]?.tools), "kb_search"]);
+    assert.equal(calls[0]?.options?.system, `${systemPrompt}\n\n${knowledgeBaseSection}`);
+    assert.match(knowledgeBaseSection, /^Knowledge base:\n- Before you advise on or change how something is mixed, arranged or sound-designed, search the knowledge base with kb_search/);
+});
+
+test("the first turn waits for a knowledge base still starting, and says it is loading", async () => {
+    const { model, calls } = scriptedModel([hi, hi]);
+    const { connection, settle } = startingKnowledgeBase();
+    const mentor = createMentor({ model, knowledgeBase: connection });
+    const updates: Update["type"][] = [];
+    const onUpdate = (update: Update) => {
+        updates.push(update.type);
+    };
+
+    const first = mentor.generate([], "hi", { onUpdate });
+    await new Promise(setImmediate);
+    assert.equal(calls.length, 0);
+    settle([kbSearch]);
+    await first;
+    await mentor.generate([], "hi again", { onUpdate });
+
+    assert.equal(calls[0]?.tools.at(-1)?.name, "kb_search");
+    assert.deepEqual(updates, ["knowledge_base_loading", "message", "message"]);
+});
+
+test("a knowledge base that fails is reported once, and the turns carry on without it", async () => {
+    const { model, calls } = scriptedModel([hi, hi]);
+    const { connection, settle } = startingKnowledgeBase();
+    settle(new Error("No answer within 60 s"));
+    const mentor = createMentor({ model, knowledgeBase: connection });
+    const updates: Update[] = [];
+    const onUpdate = (update: Update) => {
+        updates.push(update);
+    };
+
+    const first = await mentor.generate([], "hi", { onUpdate });
+    await mentor.generate(first.messages, "hi again", { onUpdate });
+
+    assert.equal(first.stop, "finished");
+    assert.equal(calls[1]?.tools.some((tool) => tool.name === "kb_search"), false);
+    assert.equal(calls[1]?.options?.system, systemPrompt);
+    assert.deepEqual(
+        updates.filter((update) => update.type !== "message"),
+        [{ type: "knowledge_base_unavailable", reason: "No answer within 60 s" }],
+    );
 });

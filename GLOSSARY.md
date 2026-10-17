@@ -30,7 +30,9 @@
 - **Live Set** — the project open in Ableton Live: its tracks, devices, clips and settings, whether saved to a file or not.
 - **Remote Script** — code that runs inside Ableton Live and lets an outside program read and change the Live Set. The Ableton tools reach Live through one.
 - **Pairing a DAW** — the one-time step on a computer that lets the mentor reach a DAW: for Ableton Live, installing the mentor's Remote Script and creating the password it is reached with. Unpairing undoes it. Pairing is not connecting: once a DAW is paired, the client connects to it whenever it is open. The mentor can be talked to whether a DAW is paired or not.
-- **Client** — the part of a tool set that talks to an outside program for its tools, such as the one that connects to the Remote Script in Live. It connects when a tool first needs it and gives out the object ids.
+- **Client** — the part of a tool set that talks to an outside program for its tools, such as the one that connects to the Remote Script in Live. The Ableton client connects when a tool first needs it and gives out the object ids; the knowledge base's connects when the mentor starts.
+- **Knowledge base** — what a good producer knows, such as how to mix, arrange or design a sound, kept as notes in a private repo and searched by the mentor through its tools. It is optional: without it the mentor works from its system prompt and its model alone. How the mentor works in Live belongs in the system prompt, not here.
+- **MCP server** — a program that offers tools over the Model Context Protocol. The knowledge base is reached through one; the harness lists its tools when it connects and passes them to the model as they are.
 - **Arrangement View** — the timeline of a Live Set, where clips are laid out from left to right to form the finished piece. The other view, Session View, is a grid of clips launched by hand.
 - **Locator** — a named marker on the timeline of the Arrangement View, such as "Drop". Live's own word is cue point.
 - **Native device** — an instrument or effect that is part of Ableton Live, such as EQ Eight or Compressor. A third-party plug-in is not one.
