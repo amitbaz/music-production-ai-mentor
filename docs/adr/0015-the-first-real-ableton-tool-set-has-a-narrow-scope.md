@@ -1,6 +1,6 @@
 # 0015 — The first real Ableton tool set has a narrow scope
 
-Date: 2026-10-13 · Status: accepted
+Date: 2026-10-13 · Status: accepted · Amended by [0028](0028-plug-in-parameters-are-read-and-set-by-their-text.md) (plug-in settings in the Configure list are read and set)
 
 ## Context
 

@@ -11,6 +11,9 @@ type Track = ReturnType<MakeTrack>;
 const gain = (value: number): ParameterSpec => ({ name: "Gain", value, min: -15, max: 15, shown: (v) => `${v.toFixed(1)} dB` });
 const filterType: ParameterSpec = { name: "Filter Type", items: ["Low Pass", "High Pass", "Band Pass"], value: 1 };
 // Live's own unit differs from the shown one, as Utility's Output runs -1 to 1 and shows dB.
+// A plug-in's parameter runs from 0 to 1, and its text is the plug-in's own: Pro-C 2's Threshold
+// shows dB without the unit.
+const threshold = (value: number): ParameterSpec => ({ name: "Threshold", value, min: 0, max: 1, shown: (v) => (v * 60 - 60).toFixed(2) });
 const output = (value: number): ParameterSpec => ({ name: "Output", value, min: -1, max: 1, scale: 35, shown: (v) => `${(v * 35).toFixed(1)} dB` });
 
 // The mixer: a number in dB, a pan from -50 (left) to 50 (right), and a send in dB.
@@ -230,15 +233,45 @@ test("set_parameters refuses a parameter that two parameters of a device share t
     assert.match(result.changes[0] as string, /Gain.*not changed.*more than one/i);
 });
 
-test("set_parameters refuses a parameter of a third-party plug-in, says why, and asks Live for none of its parameters", async (t) => {
-    const { setParameters } = await open(t, (track) => [bass(track, [{ name: "Pro-Q 3", class_name: "PluginDevice", parameters: [gain(0)] }])]);
+test("set_parameters writes a plug-in's number as the plug-in's text shows it, and reports before → after", async (t) => {
+    const { setParameters, read } = await open(t, (track) => [bass(track, [{ name: "Pro-C 2", class_name: "AuPluginDevice", parameters: [threshold(0.7)] }])]);
 
-    const result = await run(setParameters, change("d1", "Gain", 3));
+    const result = await run(setParameters, change("d1", "Threshold", -25), change("d1", "Threshold", "-40"));
 
-    assert.match(result.changes[0] as string, /Pro-Q 3.*not changed.*third-party plug-in.*by hand/);
-    const asked = StandInSocket.opened.flatMap((socket) => socket.sent.flatMap((request) => request.commands));
-    assert.ok(!asked.some((command) => command.name === "set_prop"));
-    assert.ok(!asked.some((command) => command.name === "get_prop" && (command.args as { prop: string }).prop === "parameters" && command.ns === "device"));
+    assert.deepEqual(result.changes, ["Bass / Pro-C 2 / Threshold: -18.00 → -25.00", "Bass / Pro-C 2 / Threshold: -25.00 → -40.00"]);
+    const [track] = await read("t1");
+    assert.equal(track.devices[0].parameters[0].value, "-40.00");
+});
+
+test("set_parameters writes a plug-in's list control by the name its text shows, with no choices from Live", async (t) => {
+    // A control such as Pro-C 2's Style: a number from 0 to 1 to Live, with a name for each stretch.
+    const style: ParameterSpec = { name: "Style", value: 0, min: 0, max: 1, shown: (v) => ["Clean", "Classic", "Opto"][Math.min(2, Math.floor(v * 3))] as string };
+    const { setParameters } = await open(t, (track) => [bass(track, [{ name: "Pro-C 2", class_name: "AuPluginDevice", parameters: [style] }])]);
+
+    const result = await run(setParameters, change("d1", "Style", "opto"));
+
+    assert.deepEqual(result.changes, ["Bass / Pro-C 2 / Style: Clean → Opto"]);
+});
+
+test("set_parameters writes a plug-in's list control that Live gives choices for, by the name of the choice", async (t) => {
+    const deviceOn: ParameterSpec = { name: "Device On", items: ["Off", "On"], value: 0 };
+    const { setParameters } = await open(t, (track) => [bass(track, [{ name: "Pro-C 2", class_name: "AuPluginDevice", parameters: [deviceOn] }])]);
+
+    const result = await run(setParameters, change("d1", "Device On", "On"));
+
+    assert.deepEqual(result.changes, ["Bass / Pro-C 2 / Device On: Off → On"]);
+});
+
+test("set_parameters refuses a plug-in number past what its text shows, and a text it never shows, and runs the other changes", async (t) => {
+    const { setParameters, read } = await open(t, (track) => [bass(track, [{ name: "Pro-C 2", class_name: "AuPluginDevice", parameters: [threshold(0.7)] }])]);
+
+    const result = await run(setParameters, change("d1", "Threshold", 6), change("d1", "Threshold", "-30 dB"), change("d1", "Threshold", -30));
+
+    assert.match(result.changes[0] as string, /Threshold: not changed\. 6 is outside the range of Threshold, which is -60\.00 to 0\.00\. Its value is still -18\.00/);
+    assert.match(result.changes[1] as string, /Threshold: not changed\. .*"-30 dB".*-60\.00 to 0\.00\. Its value is still -18\.00/);
+    assert.equal(result.changes[2], "Bass / Pro-C 2 / Threshold: -18.00 → -30.00");
+    const [track] = await read("t1");
+    assert.equal(track.devices[0].parameters[0].value, "-30.00");
 });
 
 test("set_parameters names the track of a device inside racks, however deep", async (t) => {

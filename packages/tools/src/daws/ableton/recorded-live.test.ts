@@ -40,8 +40,10 @@ test("read_set, read_tracks, read_arrangement and read_clip read what a real Liv
         ["return", "return", "main"],
     );
 
-    // A rack whose chain holds a Simpler, with its values in Live's units, and a plug-in without parameters.
-    const kick = JSON.parse(await read_tracks.run({ tracks: ["t6"] })).tracks[0];
+    // A rack whose chain holds a Simpler, with its values in Live's units. The plug-ins are left out
+    // of devices, since the recording was made before read_tracks read a plug-in's parameters:
+    // they are listed by name only.
+    const kick = JSON.parse(await read_tracks.run({ tracks: ["t6"], devices: ["d4", "d5", "d8", "d26"] })).tracks[0];
     const [rack, utility, proQ] = kick.devices;
     const simpler = rack.chains[0].devices[0];
     assert.deepEqual(
