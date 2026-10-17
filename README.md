@@ -50,7 +50,7 @@ ask me to take it back.
 ## What it can do
 
 - Read the whole Live Set: tracks, devices and their settings, clips, notes and the arrangement.
-- Change device parameters and the mixer: volume, pan, sends, any native device setting.
+- Change device parameters and the mixer: volume, pan, sends, any native device setting, and the plug-in settings Live gives.
 - Build tracks and effect chains, and load devices, presets and samples from Live's browser.
 - Edit the arrangement: place, copy and move clips, add locators, write MIDI notes.
 - Control the transport: play, stop, loop, tempo, metronome.
@@ -61,7 +61,7 @@ The full list, with every tool and its limits, is in [docs/features.md](docs/fea
 ## What it can't do yet
 
 - **Hear your music.** It sees the settings, the notes and the arrangement, not the audio. It will say so instead of guessing.
-- **Change third-party plug-ins.** It sees them, but can only change Live's own devices.
+- **Every setting of a third-party plug-in.** It reads and changes the settings Live gives it, up to 128; for the rest it gives you the steps.
 - **Automation, freezing, splitting clips.** For these it gives you the steps to do by hand.
 - **Run outside the terminal, or on Windows.** A desktop app is planned.
 
@@ -119,7 +119,7 @@ If you installed `AbletonJS` by hand before, choose `MusicMentor` in its slot in
 - **Listening** ([#50](https://github.com/amitbaz/music-production-ai-mentor/issues/50)): let the mentor hear your mix, so its advice is based on the sound.
 - **Memory across conversations** ([#20](https://github.com/amitbaz/music-production-ai-mentor/issues/20)): it remembers your preferences.
 - **A `mentor` command** ([#37](https://github.com/amitbaz/music-production-ai-mentor/issues/37)): run it from any folder.
-- **Third-party plug-ins**: read and change their settings.
+- **Every setting of a third-party plug-in**: past what Live gives a script.
 - **A desktop app**, next to the terminal one.
 
 More, with links to each issue, in [docs/features.md](docs/features.md#planned).

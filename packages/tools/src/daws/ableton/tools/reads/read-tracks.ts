@@ -19,15 +19,15 @@ type Parameter = { name: string; value: string; range?: [string, string]; choice
 type Chain = { id: string; name: string; mute?: true; solo?: true; devices?: Device[] };
 type Clip = { id: string; name: string; kind: string; scene?: number; start?: number; end?: number; muted?: true };
 type TrackDetail = { id: string; name: string; devices?: Device[]; session?: Clip[]; arrangement?: Clip[] };
-type Device = { id: string; name: string; plugin?: true; parameters?: Parameter[]; chains?: Chain[] };
+type Device = { id: string; name: string; plugin?: true; note?: string; parameters?: Parameter[]; chains?: Chain[] };
 
-// The detail of the tracks the mentor chose: every parameter of each native device, the chains of
-// a rack, and the clips of the track.
+// The detail of the tracks the mentor chose: every parameter of each device, the chains of a rack,
+// and the clips of the track.
 export function readTracks(client: Client): Tool {
     return {
         name: "read_tracks",
         description:
-            "Detail of the tracks you choose by object id, as given by read_set (read_set first if you have none). For each track: its devices in order, each native device with every parameter as {name, value, range: [min, max]} in the units Live shows, such as \"-3.0 dB\"; a parameter that is a list gives {name, value, choices} with the current choice and all the choices instead of a range. A rack lists its chains, each with an object id and its devices, which get object ids too. A third-party plug-in is named and marked plugin, with no parameters, because they cannot be read. Clips: session lists the clips in the launch grid with their scene number (from 1), arrangement lists the clips on the timeline with start and end in beats; each clip has an object id. Fields that are false or empty are left out. A long result is cut at 40,000 characters: left_out lists the devices left out, which you read with the devices argument, and counts the clips cut from the end of each track's lists.",
+            "Detail of the tracks you choose by object id, as given by read_set (read_set first if you have none). For each track: its devices in order, each with every parameter as {name, value, range: [min, max]} in the units Live shows, such as \"-3.0 dB\"; a parameter that is a list gives {name, value, choices} with the current choice and all the choices instead of a range. A rack lists its chains, each with an object id and its devices, which get object ids too. A third-party plug-in is marked plugin, and its text is the plug-in's own, which may have no units: a number with a range of 0.00 to 1.00 may be the position of a control, not the value the plug-in's window shows, so do not tell the user it as that value. A plug-in gives only the settings in its Configure list: all of them for a plug-in with 64 or fewer, otherwise the ones the user added with Configure, up to 128; a plug-in that gives none has a note. A setting outside the list is added with Configure or changed by hand. Clips: session lists the clips in the launch grid with their scene number (from 1), arrangement lists the clips on the timeline with start and end in beats; each clip has an object id. Fields that are false or empty are left out. A long result is cut at 40,000 characters: left_out lists the devices left out, which you read with the devices argument, and counts the clips cut from the end of each track's lists.",
         params: {
             type: "object",
             properties: {
@@ -196,26 +196,28 @@ function withinLimit(tracks: TrackDetail[]) {
     };
 }
 
-// Gives each device an object id, and each native device its parameters (when asked for), and each
-// rack its chains with their devices. Plug-ins are not asked about.
+// Gives each device an object id, and its parameters (when asked for), and each rack its chains
+// with their devices. A plug-in has no chains, so it is not asked for them.
 async function describeDevices(client: Client, devices: LiveDevice[], wanted: Set<string> | undefined): Promise<Device[]> {
     const described: Device[] = devices.map((device) => ({
         id: client.objectId("d", device.id),
         name: device.name,
         ...(isPlugin(device) && { plugin: true as const }),
     }));
-    const native = devices.map((device, index) => ({ device, described: described[index] as Device })).filter(({ device }) => !isPlugin(device));
-    if (native.length === 0) return described;
     const wantsParameters = (device: Device) => !wanted || wanted.has(device.id);
+    const asked = devices
+        .map((device, index) => ({ device, described: described[index] as Device }))
+        .filter(({ device, described }) => !isPlugin(device) || wantsParameters(described));
+    if (asked.length === 0) return described;
 
-    const basics = await client.sendEach(native, ({ device, described }) => [
-        getProp("device", "can_have_chains", device.id),
+    const basics = await client.sendEach(asked, ({ device, described }) => [
+        ...(isPlugin(device) ? [] : [getProp("device", "can_have_chains", device.id)]),
         ...(wantsParameters(described) ? [getProp("device", "parameters", device.id)] : []),
     ]);
-    const readers = native.flatMap((item, index) =>
-        wantsParameters(item.described) ? [{ ...item, parameters: basics[index]?.[1] as LiveDeviceParameter[] }] : [],
+    const readers = asked.flatMap((item, index) =>
+        wantsParameters(item.described) ? [{ ...item, parameters: basics[index]?.at(-1) as LiveDeviceParameter[] }] : [],
     );
-    const racks = native.filter((_, index) => basics[index]?.[0]);
+    const racks = asked.filter(({ device }, index) => !isPlugin(device) && basics[index]?.[0]);
 
     const [parameters, chains] = await Promise.all([
         describeParameters(client, readers.flatMap(({ parameters }) => parameters)),
@@ -226,6 +228,10 @@ async function describeDevices(client: Client, devices: LiveDevice[], wanted: Se
     for (const reader of readers) {
         const own = parametersOf(reader.parameters.length);
         if (own.length > 0) reader.described.parameters = own;
+        // A plug-in with more than 64 parameters has an empty Configure list until the user adds some.
+        if (reader.described.plugin && own.every(({ name }) => name === "Device On")) {
+            reader.described.note = "Live shows none of its settings. The user can add up to 128 with Configure, on the plug-in's device in Live.";
+        }
     }
     racks.forEach(({ described }, index) => {
         const own = chains[index] as Chain[];
@@ -268,14 +274,21 @@ async function describeParameters(client: Client, parameters: LiveDeviceParamete
             ? [getProp("device-parameter", "value_items", parameter.id)]
             : [getProp("device-parameter", "min", parameter.id), getProp("device-parameter", "max", parameter.id)],
     );
+    // A plug-in's list may come with no choices, and is then given its range, as a number is.
+    const choicesOf = (index: number) => props[index]?.[0] as string[] | null;
+    const unnamed = parameters.filter(({ is_quantized }, index) => is_quantized && !choicesOf(index)?.length);
+    const ranges = splitter(
+        await client.sendEach(unnamed, (parameter) => [getProp("device-parameter", "min", parameter.id), getProp("device-parameter", "max", parameter.id)]),
+    );
+    const rangeOf = parameters.map(({ is_quantized }, index) => (!is_quantized ? props[index] : choicesOf(index)?.length ? [] : ranges(1)[0]) as number[]);
     const shown = (await client.sendEach(
-        parameters.map((parameter, index) => ({ parameter, range: parameter.is_quantized ? [] : (props[index] as number[]) })),
+        parameters.map((parameter, index) => ({ parameter, range: rangeOf[index] as number[] })),
         ({ parameter, range }) => [parameter.value, ...range].map((value) => strForValue(parameter.id, value)),
     )) as string[][];
-    return parameters.map(({ name, is_quantized }, index) => {
+    return parameters.map(({ name }, index) => {
         const [value, min, max] = shown[index] as string[];
-        return is_quantized
-            ? { name, value: value as string, choices: props[index]?.[0] as string[] }
+        return (rangeOf[index] as number[]).length === 0
+            ? { name, value: value as string, choices: choicesOf(index) as string[] }
             : { name, value: value as string, range: [min as string, max as string] };
     });
 }

@@ -6,16 +6,18 @@ import { isPlugin, type LiveDeviceParameter, type LiveParameter, type LiveTrack 
 // A parameter of a device or of a track's mixer, as the script describes it.
 type Parameter = LiveParameter & { is_quantized?: boolean };
 type Written = { before: string; after: string };
+// A position of a plug-in's parameter and the text the plug-in shows for it.
+type Seen = { position: number; text: string };
 
 // What a change is called in the result: the ids as given at first, the names once Live has told them.
 type Label = { text: string };
 
-// Changes the parameters of native devices and the mixer: volume, pan and sends of a track.
+// Changes the parameters of devices, plug-ins too, and the mixer: volume, pan and sends of a track.
 export function setParameters(client: Client): Tool {
     return {
         name: "set_parameters",
         description:
-            "Changes device parameters and the mixer, in the order given, in one call. Each change is {target, parameter, value}. target: the object id of a device (d..., also one inside a rack) or of a track (t...), as given by read_set or read_tracks. parameter: for a device, the name of one of its parameters as read_tracks gives it; for a track, volume, pan, or send followed by the object id of a return track, such as \"send t2\". value: for a number, the number in the units Live shows, such as -3 for \"-3.0 dB\" or 250 for \"250 Hz\" (Live writes Hz where it shows kHz, so 2500 for \"2.50 kHz\"); for a parameter that is a list, the name of the choice, such as \"High Pass\". Each change is reported as track / device / parameter: before → after, with the values as Live shows them. A change that cannot be made, such as an unknown parameter, a value outside the range, or a parameter of a third-party plug-in (their parameters cannot be changed), is reported as not changed with the reason, and the other changes still run. It does not ask for approval: take a change back by writing the old value again.",
+            "Changes device parameters and the mixer, in the order given, in one call. Each change is {target, parameter, value}. target: the object id of a device (d..., also one inside a rack) or of a track (t...), as given by read_set or read_tracks. parameter: for a device, the name of one of its parameters as read_tracks gives it; for a track, volume, pan, or send followed by the object id of a return track, such as \"send t2\". value: for a number, the number in the units Live shows, such as -3 for \"-3.0 dB\" or 250 for \"250 Hz\" (Live writes Hz where it shows kHz, so 2500 for \"2.50 kHz\"); for a parameter that is a list, the name of the choice, such as \"High Pass\"; for a third-party plug-in, the number or the text as read_tracks gives it, such as -30 for \"-30.00\" or \"Clean\". Each change is reported as track / device / parameter: before → after, with the values as Live shows them. A change that cannot be made, such as an unknown parameter or a value outside the range, is reported as not changed with the reason, and the other changes still run. It does not ask for approval: take a change back by writing the old value again.",
         params: {
             type: "object",
             properties: {
@@ -27,7 +29,7 @@ export function setParameters(client: Client): Tool {
                         properties: {
                             target: { type: "string", description: "Object id of a device or a track, such as d12 or t1." },
                             parameter: { type: "string", description: "Parameter name, such as Gain; for a track volume, pan or send t2." },
-                            value: { description: "A number in the units Live shows, or the name of a choice for a list parameter." },
+                            value: { description: "A number in the units Live shows, or the name of a choice for a list parameter; for a plug-in, its number or text." },
                         },
                         required: ["target", "parameter", "value"],
                     },
@@ -118,11 +120,6 @@ async function changeDevice(client: Client, { target, parameter, value }: Change
     const track = (await tracksOfDevices()).get(deviceId);
     if (!track) throw new Error(`${target} is no longer in the Live Set. Read again with read_tracks to get current ids.`);
     label.text = `${track.name} / ${name} / ${parameter}`;
-    if (isPlugin({ id: deviceId, name, class_name: className })) {
-        throw new Error(
-            `${name} is a third-party plug-in, and the mentor cannot change the parameters of a plug-in yet. Tell the user which control to change and to what value, to do by hand.`,
-        );
-    }
 
     const [parameters] = (await client.send([getProp("device", "parameters", deviceId)])) as [LiveDeviceParameter[]];
     const wanted = parameter.trim();
@@ -134,7 +131,93 @@ async function changeDevice(client: Client, { target, parameter, value }: Change
     const [chosen] = found as [LiveDeviceParameter];
     label.text = `${track.name} / ${name} / ${chosen.name}`;
     await reveal.device(deviceId, target, track.id);
+    if (isPlugin({ id: deviceId, name, class_name: className })) return writeByText(client, chosen, chosen.name, value);
     return write(client, chosen, chosen.name, value);
+}
+
+// A plug-in's parameter runs from 0 to 1 and its text is the plug-in's own, so display_value is no
+// help (ADR 0028). The positions are looked through with str_for_value, which changes nothing, for
+// the one whose text is the value given: a number is matched to the number its text starts with,
+// such as 4 for "4.00:1", and anything else to the whole text, such as "Clean".
+async function writeByText(client: Client, parameter: Parameter, name: string, given: unknown): Promise<Written> {
+    const number = asNumber(given);
+    const isNumber = typeof number === "number" && Number.isFinite(number);
+    if (!isNumber && typeof given !== "string") throw new Error(`Give ${name} a number or a text, as its text shows it`);
+    const [min, max, before] = (await client.send([
+        getProp("device-parameter", "min", parameter.id),
+        getProp("device-parameter", "max", parameter.id),
+        strForValue(parameter.id, parameter.value),
+    ])) as [number, number, string];
+
+    const look = async (low: number, high: number, steps: number): Promise<Seen[]> => {
+        const positions = Array.from({ length: steps + 1 }, (_, index) => low + ((high - low) * index) / steps);
+        const texts = (await client.send(positions.map((position) => strForValue(parameter.id, position)))) as string[];
+        return positions.map((position, index) => ({ position, text: texts[index] as string }));
+    };
+    // A list has a position for each choice and none between.
+    // ponytail: 100 steps can miss a choice narrower than 1% of a plug-in's range; look closer if one has it.
+    const seen = await look(min, max, parameter.is_quantized ? Math.max(1, max - min) : 100);
+
+    let best: Seen;
+    if (isNumber) {
+        const wanted = number as number;
+        // A text that does not start with a number, such as "-inf", is passed over.
+        const numbered = (candidates: Seen[]) => candidates.filter(({ text }) => Number.isFinite(Number.parseFloat(text)));
+        const ends = numbered(seen).toSorted((a, b) => Number.parseFloat(a.text) - Number.parseFloat(b.text));
+        if (ends.length === 0) throw new Error(`${name} shows text, not numbers. It shows: ${shows(seen)}`);
+        const [lowest, highest] = [ends[0] as Seen, ends.at(-1) as Seen];
+        // The same room for rounding as a native device's number has.
+        const rounding = 0.001 * Math.abs(wanted) + 1e-9;
+        if (wanted < Number.parseFloat(lowest.text) - rounding || wanted > Number.parseFloat(highest.text) + rounding) {
+            throw new Error(`${wanted} is outside the range of ${name}, which is ${lowest.text} to ${highest.text}. Its value is still ${before}.`);
+        }
+        const distance = ({ text }: Seen) => Math.abs(Number.parseFloat(text) - wanted);
+        const closest = (candidates: Seen[]) => candidates.reduce((a, b) => (distance(b) < distance(a) ? b : a));
+        best = closest(numbered(seen));
+        // Each round looks ten times closer around the best position so far, until a text is the number.
+        let step = (max - min) / 100;
+        for (let round = 0; round < 3 && distance(best) > 0 && !parameter.is_quantized; round++) {
+            best = closest([best, ...numbered(await look(Math.max(min, best.position - step), Math.min(max, best.position + step), 20))]);
+            step /= 10;
+        }
+    } else {
+        const found = seen.find(({ text }) => text.trim().toLowerCase() === String(given).trim().toLowerCase());
+        if (!found) throw new Error(`${name} shows no "${given}". It shows: ${shows(seen)}. Its value is still ${before}.`);
+        best = found;
+    }
+
+    const restore = () => client.send([setProp("device-parameter", "value", parameter.value, parameter.id)]);
+    let after: string;
+    try {
+        const [, kept] = (await client.send([
+            setProp("device-parameter", "value", best.position, parameter.id),
+            getProp("device-parameter", "value", parameter.id),
+        ])) as [unknown, number];
+        [after] = (await client.send([strForValue(parameter.id, kept)])) as [string];
+    } catch (error) {
+        // The write may have landed before the read failed, so the old value goes back.
+        await restore().catch(() => {});
+        throw error;
+    }
+    // A parameter Live holds still, such as one an automation drives, takes the write and keeps its
+    // value. It is checked by its text, since Live may round the position written; a position Live
+    // moved elsewhere is put back, so the value is the one the user had.
+    if (after !== best.text) {
+        await restore();
+        throw new Error(`Live did not take ${best.text}. Its value is still ${before}.`);
+    }
+    return { before, after };
+}
+
+// The texts a plug-in's parameter showed, each once: all of them for a list, the two ends for a number.
+function shows(seen: Seen[]) {
+    const texts = [...new Set(seen.map(({ text }) => text))];
+    return texts.length <= 20 ? texts.join(", ") : `${texts[0]} to ${texts.at(-1)}`;
+}
+
+// A number sent as text, such as "-24", is taken; one with a unit is not, since "3 kHz" is not 3.
+function asNumber(given: unknown) {
+    return typeof given === "string" && given.trim() !== "" ? Number(given) : given;
 }
 
 // Writes one parameter and says what it was and what it is, as Live shows them.
@@ -161,8 +244,7 @@ async function writeChoice(client: Client, parameter: Parameter, name: string, v
 // the range without an error, so the number is checked by what Live kept: if it sits at an end of
 // the range and is not the number given, the old value is written back and the change refused.
 async function writeNumber(client: Client, parameter: Parameter, name: string, given: unknown) {
-    // A number sent as text, such as "-24", is taken; one with a unit is not, since "3 kHz" is not 3.
-    const value = typeof given === "string" && given.trim() !== "" ? Number(given) : given;
+    const value = asNumber(given);
     if (typeof value !== "number" || !Number.isFinite(value)) {
         throw new Error(`${name} is a number: give a number in the units Live shows, such as -3 for "-3.0 dB"`);
     }

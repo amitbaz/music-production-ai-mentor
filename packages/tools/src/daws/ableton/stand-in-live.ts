@@ -286,8 +286,8 @@ function answer(live: LiveSet, { ns, nsid, name, args }: Command) {
 }
 
 // Writes a parameter as Live does (seen in Live 12.4.6): display_value takes the shown number and
-// clamps it into the range without an error, a list takes the index of the choice, and value
-// refuses what is outside min and max.
+// clamps it into the range without an error, a list takes the index of the choice (rounding one
+// between two choices, as Live is taken to), and value refuses what is outside min and max.
 function setParameter(parameter: Record<string, unknown>, prop: string, value: unknown) {
     const items = parameter.value_items as string[] | undefined;
     const refuse = (error: string) => ({ ok: false, error, errorType: "Exception" });
@@ -302,7 +302,7 @@ function setParameter(parameter: Record<string, unknown>, prop: string, value: u
     }
     if (prop !== "value") return refuse(`${prop} cannot be set on a parameter`);
     if (value < min || value > max) return refuse("Invalid value. Check the parameters range with min/max");
-    parameter.value = value;
+    parameter.value = items || parameter.quantized ? Math.round(value) : value;
     return { ok: true, data: null };
 }
 
@@ -370,9 +370,10 @@ export function useRecording(t: TestContext, file: string) {
 // A device parameter as Live would describe it: a number with a range and the text Live shows for
 // a value, or a list of choices, where the value is the index of the current choice. A number is in
 // Live's own units; `scale` is the shown units per own unit, 1 unless given, as Utility's Output
-// runs from -1 to 1 and shows -35 to 35 dB.
+// runs from -1 to 1 and shows -35 to 35 dB. `quantized` is a list Live gives no choices for, as a
+// plug-in's may be: its value is the index, and only its text names the choice.
 export type ParameterSpec =
-    | { name: string; value: number; min: number; max: number; shown: (value: number) => string; scale?: number; ignoresWrites?: true }
+    | { name: string; value: number; min: number; max: number; shown: (value: number) => string; scale?: number; quantized?: true; ignoresWrites?: true }
     | { name: string; items: string[]; value: number; ignoresWrites?: true };
 
 // A number of a track's mixer, as a device parameter without a name; a text stands for one that
@@ -538,9 +539,9 @@ export function liveSet(song: { tempo: number; numerator: number; denominator: n
     function deviceParameter(spec: ParameterSpec) {
         const paramId = id();
         const common = { ns: "device-parameter", value: spec.value, ignoresWrites: spec.ignoresWrites };
-        if ("items" in spec) live.set(paramId, { ...common, value_items: spec.items, shown: (value: number) => spec.items[value] });
-        else live.set(paramId, { ...common, min: spec.min, max: spec.max, shown: spec.shown, scale: spec.scale });
-        return serialized(paramId, spec.name, "items" in spec);
+        if ("items" in spec) live.set(paramId, { ...common, value_items: spec.items, min: 0, max: spec.items.length - 1, shown: (value: number) => spec.items[Math.round(value)] });
+        else live.set(paramId, { ...common, min: spec.min, max: spec.max, shown: spec.shown, scale: spec.scale, quantized: spec.quantized });
+        return serialized(paramId, spec.name, "items" in spec || spec.quantized === true);
     }
 
     function device(spec: DeviceSpec): { id: string; name: string; type: string; class_name: string } {

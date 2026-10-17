@@ -9,6 +9,10 @@ type Track = ReturnType<ReturnType<typeof liveSet>["track"]>;
 // A parameter with a number, such as a frequency, and one that is a list, such as a filter type.
 const gain = (value: number): ParameterSpec => ({ name: "Gain", value, min: -15, max: 15, shown: (v) => `${v.toFixed(1)} dB` });
 const filterType: ParameterSpec = { name: "Filter Type", items: ["Low Pass", "High Pass", "Band Pass"], value: 1 };
+// A plug-in's parameters, as Pro-C 2 gave them: a Threshold whose text is dB without the unit, and
+// a Ratio whose text is only the position of its control.
+const threshold = (value: number): ParameterSpec => ({ name: "Threshold", value, min: 0, max: 1, shown: (v) => (v * 60 - 60).toFixed(2) });
+const ratio = (value: number): ParameterSpec => ({ name: "Ratio", value, min: 0, max: 1, shown: (v) => v.toFixed(2) });
 
 // Opens a Live Set with the tracks the test builds, and gives the tools as the harness would
 // call them. read_set has run, as it does before the mentor has any object ids to give.
@@ -119,16 +123,61 @@ test("read_tracks gives each clip of a track an object id, Session clips apart f
     assert.deepEqual(bassTrack.arrangement, [{ id: "c3", name: "Intro", kind: "audio", start: 0, end: 16 }]);
 });
 
-test("read_tracks names a third-party plug-in and marks it, and asks Live nothing about its parameters", async (t) => {
+test("read_tracks gives a third-party plug-in's parameters as the plug-in shows them, and marks it", async (t) => {
+    // A plug-in's parameters run from 0 to 1, and their text is the plug-in's own, with or without units (seen with Pro-C 2).
     const { readTracks } = await open(t, (track) => [
-        bass(track, { devices: [{ name: "Pro-Q 3", class_name: "PluginDevice", parameters: [gain(0)] }] }),
+        bass(track, { devices: [{ name: "Pro-C 2", class_name: "AuPluginDevice", parameters: [threshold(0.7), ratio(0.6)] }] }),
     ]);
 
     const result = JSON.parse(await readTracks.run({ tracks: ["t1"] }));
 
-    assert.deepEqual(result.tracks[0].devices, [{ id: "d1", name: "Pro-Q 3", plugin: true }]);
-    const asked = StandInSocket.opened.flatMap((socket) => socket.sent.flatMap((request) => request.commands));
-    assert.ok(!asked.some((command) => command.ns === "device"));
+    assert.deepEqual(result.tracks[0].devices, [
+        {
+            id: "d1",
+            name: "Pro-C 2",
+            plugin: true,
+            parameters: [
+                { name: "Threshold", value: "-18.00", range: ["-60.00", "0.00"] },
+                { name: "Ratio", value: "0.60", range: ["0.00", "1.00"] },
+            ],
+        },
+    ]);
+});
+
+test("read_tracks gives a plug-in's list control that Live gives no choices for its text and range", async (t) => {
+    const style: ParameterSpec = { name: "Style", value: 0, min: 0, max: 2, quantized: true, shown: (v) => ["Clean", "Classic", "Opto"][v] as string };
+    const { readTracks } = await open(t, (track) => [bass(track, { devices: [{ name: "Pro-C 2", class_name: "AuPluginDevice", parameters: [style] }] })]);
+
+    const [proC] = JSON.parse(await readTracks.run({ tracks: ["t1"] })).tracks[0].devices;
+
+    assert.deepEqual(proC.parameters, [{ name: "Style", value: "Clean", range: ["Clean", "Opto"] }]);
+});
+
+test("read_tracks lists a plug-in left out of devices by name only, as any device", async (t) => {
+    const { readTracks } = await open(t, (track) => [
+        bass(track, {
+            devices: [
+                { name: "EQ Eight", class_name: "Eq8", parameters: [gain(-3)] },
+                { name: "Pro-C 2", class_name: "AuPluginDevice", parameters: [threshold(0.7)] },
+            ],
+        }),
+    ]);
+
+    const [eq, proC] = JSON.parse(await readTracks.run({ tracks: ["t1"], devices: ["d1"] })).tracks[0].devices;
+
+    assert.equal(eq.parameters[0].value, "-3.0 dB");
+    assert.deepEqual(proC, { id: "d2", name: "Pro-C 2", plugin: true });
+});
+
+test("read_tracks says a plug-in shows none of its settings when Live gives only its Device On", async (t) => {
+    // As a plug-in with more than 64 parameters is, until the user adds some with Configure.
+    const { readTracks } = await open(t, (track) => [
+        bass(track, { devices: [{ name: "Pro-Q 4", class_name: "PluginDevice", parameters: [{ name: "Device On", items: ["Off", "On"], value: 1 }] }] }),
+    ]);
+
+    const [proQ] = JSON.parse(await readTracks.run({ tracks: ["t1"] })).tracks[0].devices;
+
+    assert.match(proQ.note, /none of its settings.*Configure/);
 });
 
 test("read_tracks reads a return track and Main, which have devices but no clips", async (t) => {
